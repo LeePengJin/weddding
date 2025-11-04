@@ -1,0 +1,92 @@
+.otp-page {
+  display: flex;
+  min-height: 100vh;
+  background: #fbfafe;
+}
+
+.otp-hero {
+  flex: 1 1 50%;
+  min-height: 100vh;
+  background: #fafafa;
+  background-size: cover;
+  background-position: center;
+}
+
+.otp-panel {
+  flex: 1 1 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.otp-card {
+  width: 100%;
+  max-width: 380px;
+}
+
+.otp-title {
+  color: #000;
+  font-size: 24px;
+  margin: 8px 0 6px 0;
+  font-family: 'Questrial', sans-serif;
+}
+
+.otp-subtitle {
+  color: #000;
+  margin: 0 0 16px 0;
+  line-height: 1.4;
+  font-family: 'EB Garamond', serif;
+}
+
+.otp-inputs {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 12px 0 16px 0;
+}
+
+.otp-input {
+  width: 60px;
+  height: 60px;
+  text-align: center;
+  font-size: 24px;
+  border: 1px solid #d4dae3;
+  border-radius: 12px;
+  background: #fff;
+  font-family: 'Questrial', sans-serif;
+}
+
+.otp-actions {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: #e06789;
+  cursor: pointer;
+  font-family: 'EB Garamond', serif;
+}
+
+.otp-verify {
+  width: 100%;
+  height: 48px;
+  border: none;
+  border-radius: 12px;
+  background: #e06789;
+  color: #0f141a;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'Questrial', sans-serif;
+}
+
+.error-text { color: #c0392b; font-family: 'EB Garamond', serif; }
+
+@media (max-width: 900px) {
+  .otp-hero { display: none; }
+  .otp-panel { flex: 1 1 100%; }
+}
+
+

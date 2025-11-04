@@ -1,0 +1,79 @@
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background-color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+}
+
+.navbar-left .logo {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #333;
+  text-decoration: none;
+  letter-spacing: 1px;
+}
+
+.navbar-center {
+  display: flex;
+  gap: 2rem;
+}
+
+.nav-link {
+  color: #333;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.3s ease;
+}
+
+.nav-link:hover {
+  color: #ff4b8b;
+}
+
+.navbar-right {
+  display: flex;
+  gap: 1rem;
+}
+
+.icon-button {
+  color: #333;
+  font-size: 1.2rem;
+  padding: 0.5rem;
+  border-radius: 50%;
+  transition: background-color 0.3s ease;
+}
+
+.icon-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.message-btn {
+  background: none;
+  border: 1px solid #d1d5db;
+  color: #6b7280;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  margin-right: 1rem;
+  transition: all 0.2s ease;
+}
+
+.message-btn:hover {
+  border-color: #E16789;
+  color: #E16789;
+  background: rgba(225, 103, 137, 0.05);
+}
+
+.message-btn i {
+  font-size: 1rem;
+}

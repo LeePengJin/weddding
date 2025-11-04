@@ -1,0 +1,91 @@
+.login-page {
+  display: flex;
+  min-height: 100vh;
+  background: #fbfafe; /* matches figma background */
+}
+
+.login-hero {
+  flex: 1 1 50%;
+  min-height: 100vh;
+  background: #fafafa;
+  background-size: cover;
+  background-position: center;
+}
+
+.login-panel {
+  flex: 1 1 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 560px;
+}
+
+.login-title {
+  color: #2c2124; 
+  font-size: 28px;
+  margin: 24px auto;
+  text-align: center;
+}
+
+.form-group {
+  margin: 12px 16px 20px 16px;
+}
+
+.field-label {
+  display: block;
+  color: #0f0614;
+  margin-bottom: 8px;
+}
+
+.text-input {
+  width: 100%;
+  height: 30px;
+  border: none; 
+  border-radius: 12px;
+  padding: 0 16px;
+  background: #fff;
+  font-size: 16px;
+}
+
+.text-input:focus { outline: none; }
+
+.helper-link {
+  color: #e090c5; 
+  margin: 0 16px 8px 16px;
+  display: inline-block;
+  text-decoration: none;
+}
+
+.login-button {
+  width: calc(100% - 120px);
+  margin: 12px 60px;
+  height: 48px;
+  border: none;
+  border-radius: 12px;
+  background: #e06789; /* primary button */
+  color: #0f141a;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.meta-text {
+  margin: 10px;
+  text-align: center;
+}
+
+.inline-link {
+  color: #e06789;
+  text-decoration: none;
+}
+
+@media (max-width: 900px) {
+  .login-hero { display: none; }
+  .login-panel { flex: 1 1 100%; }
+}
+
+

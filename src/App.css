@@ -1,38 +1,49 @@
 .App {
-  text-align: center;
-}
-
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
-  background-color: #282c34;
   min-height: 100vh;
+}
+
+main {
+  padding-top: 60px;
+}
+
+/* Vendor Layout */
+.vendor-layout {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  min-height: 100vh;
+  position: relative;
 }
 
-.App-link {
-  color: #61dafb;
+.vendor-content {
+  position: relative;
+  margin-left: 250px; /* Match sidebar width */
+  min-height: 100vh;
+  width: calc(100% - 250px);
+  box-sizing: border-box;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* Import Inter font */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* MUI input outline cleanup - ensure single elegant border */
+.MuiOutlinedInput-root {
+  border-radius: 12px;
+  box-shadow: none !important;
+}
+
+.MuiOutlinedInput-root.Mui-focused {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.MuiOutlinedInput-root .MuiOutlinedInput-notchedOutline {
+  border-color: #d4dae3;
+}
+
+.MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: #e06789;
+  border-width: 2px;
+}
+
+.MuiOutlinedInput-input:focus {
+  outline: none;
 }

@@ -1,0 +1,617 @@
+.dashboard-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 80px 1rem 2rem 1rem;
+  font-family: 'Literata', serif;
+}
+
+/* Back Navigation */
+.dashboard-navigation {
+  margin-bottom: 1.5rem;
+}
+
+.back-to-projects {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  color: #6b7280;
+  font-size: 0.9rem;
+  padding: 0.5rem 0;
+  transition: color 0.2s ease;
+  font-family: 'Literata', serif;
+}
+
+.back-to-projects:hover {
+  color: #E16789;
+}
+
+.back-to-projects i {
+  font-size: 0.8rem;
+}
+
+/* Budget Header */
+/* Project Header */
+.project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.project-info h1 {
+  color: #333;
+  margin: 0 0 1rem 0;
+  font-size: 2.5rem;
+  font-weight: 600;
+  font-family: 'Playfair Display', serif;
+}
+
+.project-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #666;
+  font-size: 1rem;
+  font-family: 'Literata', serif;
+}
+
+.detail-item .grey-icon {
+  color: #999;
+  width: 16px;
+}
+
+.countdown-card {
+  background: linear-gradient(135deg, #E16789, #D1537A);
+  color: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  text-align: center;
+  min-width: 150px;
+}
+
+.countdown-number {
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1;
+  font-family: 'Playfair Display', serif;
+}
+
+.countdown-label {
+  font-size: 0.9rem;
+  opacity: 0.9;
+  margin-top: 0.5rem;
+  font-family: 'Literata', serif;
+}
+
+/* Progress Overview Cards */
+.progress-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+}
+
+.progress-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.progress-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  color: white;
+}
+
+.budget-overview .progress-icon {
+  background: #E16789;
+}
+
+.checklist-overview .progress-icon {
+  background: #FFA726;
+}
+
+.progress-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 1.2rem;
+  font-family: 'Playfair Display', serif;
+  font-weight: 500;
+}
+
+.progress-content {
+  margin-top: 1rem;
+}
+
+.budget-amounts {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: #666;
+  font-family: 'Literata', serif;
+}
+
+.checklist-counts {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: #666;
+  font-family: 'Literata', serif;
+}
+
+.progress-percentage {
+  font-weight: bold;
+  color: #333;
+}
+
+.progress-bar-container {
+  width: 100%;
+  height: 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: #E16789;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.remaining-amount,
+.remaining-tasks {
+  font-size: 0.85rem;
+  color: #999;
+  margin-top: 0.5rem;
+  font-family: 'Literata', serif;
+}
+
+/* Management Cards */
+.management-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+}
+
+.management-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  min-height: 300px;
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  color: white;
+  flex-shrink: 0;
+}
+
+.budget-manager-icon {
+  background: #E16789;
+}
+
+.checklist-manager-icon {
+  background: #FFA726;
+}
+
+.venue-manager-icon {
+  background: #FF7043;
+}
+
+.vendors-manager-icon {
+  background: #AB47BC;
+}
+
+.payments-manager-icon {
+  background: #26A69A;
+}
+
+.card-title h3 {
+  margin: 0 0 0.25rem 0;
+  color: #333;
+  font-size: 1.1rem;
+  font-family: 'Playfair Display', serif;
+  font-weight: 500;
+}
+
+.card-title p {
+  margin: 0;
+  color: #666;
+  font-size: 0.85rem;
+  font-family: 'Literata', serif;
+}
+
+.card-details {
+  flex: 1;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.9rem;
+  font-family: 'Literata', serif;
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-row span:first-child {
+  color: #666;
+}
+
+.detail-row span:last-child {
+  color: #333;
+  font-weight: 500;
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+  font-family: 'Literata', serif;
+}
+
+.task-item.completed i {
+  color: #4caf50;
+}
+
+.task-item.pending i {
+  color: #ccc;
+}
+
+.vendor-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #f0f0f0;
+  font-family: 'Literata', serif;
+}
+
+.vendor-item:last-child {
+  border-bottom: none;
+}
+
+.vendor-name {
+  color: #333;
+  font-weight: 500;
+  flex: 1;
+}
+
+.vendor-type {
+  color: #666;
+  font-size: 0.8rem;
+  background: #f8f9fa;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-family: 'Literata', serif;
+}
+
+/* Payment Card Styles */
+.payment-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.payment-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+  font-family: 'Literata', serif;
+}
+
+.payment-label {
+  color: #666;
+  font-weight: 400;
+}
+
+.payment-amount {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.payment-amount.paid {
+  color: #4caf50;
+}
+
+.payment-amount.outstanding {
+  color: #f44336;
+}
+
+.upcoming-payments {
+  border-top: 1px solid #f0f0f0;
+  padding-top: 1rem;
+}
+
+.upcoming-label {
+  font-size: 0.8rem;
+  color: #666;
+  font-weight: 500;
+  display: block;
+  margin-bottom: 0.5rem;
+  font-family: 'Literata', serif;
+}
+
+.payment-due {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+}
+
+.payment-vendor {
+  color: #333;
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: 'Literata', serif;
+}
+
+.payment-due-amount {
+  color: #E16789;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* 3D Venue Designer Card - Simplified Design */
+.venue-card .card-details {
+  justify-content: center;
+  align-items: center;
+}
+
+.venue-preview {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 120px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  margin: 0.5rem 0 1rem 0;
+  border: 1px solid #e9ecef;
+}
+
+.preview-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  color: #6c757d;
+  font-size: 0.85rem;
+  font-family: 'Literata', serif;
+}
+
+.preview-placeholder i {
+  font-size: 2rem;
+  color: #adb5bd;
+}
+
+.preview-placeholder span {
+  font-weight: 400;
+}
+
+.card-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  margin-top: auto;
+  font-family: 'Literata', serif;
+}
+
+.budget-button {
+  background: #E16789;
+  color: white;
+}
+
+.checklist-button {
+  background: #FFA726;
+  color: white;
+}
+
+.venue-button {
+  background: #FF7043;
+  color: white;
+}
+
+.vendors-button {
+  background: #AB47BC;
+  color: white;
+}
+
+.payments-button {
+  background: #26A69A;
+  color: white;
+}
+
+.card-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  text-decoration: none;
+}
+
+.budget-button:hover {
+  background: #D1537A;
+  color: white;
+}
+
+.checklist-button:hover {
+  background: #FF9800;
+  color: white;
+}
+
+.venue-button:hover {
+  background: #F4511E;
+  color: white;
+}
+
+.vendors-button:hover {
+  background: #9C27B0;
+  color: white;
+}
+
+.payments-button:hover {
+  background: #00897B;
+  color: white;
+}
+
+/* Quick Actions Footer */
+.quick-actions {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.quick-action-btn {
+  background: white;
+  border: 2px solid #f0f0f0;
+  border-radius: 50px;
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+  color: #666;
+  font-family: 'Literata', serif;
+}
+
+.quick-action-btn:hover {
+  border-color: #E16789;
+  color: #E16789;
+  background: #fff5f8;
+}
+
+.quick-action-btn i {
+  font-size: 0.9rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 80px 0.5rem 1rem 0.5rem;
+  }
+
+  .project-header {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .project-details {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .countdown-card {
+    align-self: stretch;
+  }
+
+  .progress-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .management-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .management-card {
+    min-height: auto;
+  }
+
+  .venue-preview {
+    height: 100px;
+  }
+
+  .preview-placeholder i {
+    font-size: 1.8rem;
+  }
+
+  .quick-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .quick-action-btn {
+    justify-content: center;
+  }
+
+  .project-info h1 {
+    font-size: 2rem;
+  }
+
+  .vendor-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .vendor-type {
+    align-self: flex-end;
+  }
+} 

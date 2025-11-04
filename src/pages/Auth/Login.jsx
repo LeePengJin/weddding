@@ -1,0 +1,58 @@
+import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import './Login.css';
+import { Box, Button, TextField, Typography } from '@mui/material';
+
+export default function Login() {
+  const { login } = useAuth();
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      await login(email, password);
+      navigate('/');
+    } catch (err) {
+      setError(err.message || 'Login failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="login-page">
+      <div className="login-hero" style={{ backgroundImage: "url('" + process.env.PUBLIC_URL + "/images/login.jpg')" }} />
+      <div className="login-panel">
+        <div className="login-card">
+          <Typography variant="h5" className="login-title">Welcome back</Typography>
+          <form className="form-group" onSubmit={onSubmit}>
+            <Box className="form-group">
+              <TextField fullWidth label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="Enter your email" variant="outlined" />
+            </Box>
+            <Box className="form-group">
+              <TextField fullWidth label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Enter your password" variant="outlined" />
+            </Box>
+            <Link className="helper-link" to="/forgot-password">Forgot password?</Link>
+            {error && <div style={{ color: 'red', margin: '8px 16px' }}>{error}</div>}
+            <Button className="login-button" type="submit" variant="contained" color="primary" disabled={submitting} fullWidth sx={{ mt: 1 }}>
+              {submitting ? 'Signing in…' : 'Log in'}
+            </Button>
+          </form>
+          <div className="meta-text">
+            Don't have an account? <Link className="inline-link" to="/register">Sign up</Link> &nbsp;  
+            <br></br>Want to become a partner of Weddding? <Link className="inline-link" to="/vendor/register">Click here!</Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+

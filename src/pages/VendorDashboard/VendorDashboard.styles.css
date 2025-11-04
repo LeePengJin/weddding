@@ -1,0 +1,257 @@
+.vendor-dashboard {
+  padding: 2rem;
+  background-color: #F5F6FA;
+  min-height: 100vh;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.stat-content h2 {
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #1F2937;
+  margin: 0 0 0.5rem 0;
+}
+
+.stat-label span {
+  font-size: 0.875rem;
+  color: #6B7280;
+  font-weight: 500;
+}
+
+.stat-label p {
+  font-size: 0.75rem;
+  color: #9CA3AF;
+  margin: 0.25rem 0 0 0;
+}
+
+.stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 1.25rem;
+}
+
+.new-bookings .stat-icon {
+  background: #3B82F6;
+}
+
+.confirmed-bookings .stat-icon {
+  background: #10B981;
+}
+
+.total-listings .stat-icon {
+  background: #6366F1;
+}
+
+.total-revenue .stat-icon {
+  background: #F59E0B;
+}
+
+/* Dashboard Content */
+.dashboard-content {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 1.5rem;
+}
+
+/* Activities Section */
+.activities-section {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.section-header h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1F2937;
+  margin: 0;
+}
+
+.view-all {
+  color: #6B7280;
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.activity-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1rem 0;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.activity-content h4 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1F2937;
+  margin: 0 0 0.25rem 0;
+}
+
+.activity-content p {
+  font-size: 0.875rem;
+  color: #6B7280;
+  margin: 0;
+}
+
+.activity-time {
+  font-size: 0.75rem;
+  color: #9CA3AF;
+}
+
+/* Top Listings Section */
+.top-listings-section {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.section-subtext {
+  font-size: 0.875rem;
+  color: #6B7280;
+  margin: 0.25rem 0 1.5rem 0;
+}
+
+.listing-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.listing-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.listing-info h4 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #1F2937;
+  margin: 0 0 0.25rem 0;
+}
+
+.listing-info p {
+  font-size: 0.75rem;
+  color: #6B7280;
+  margin: 0;
+}
+
+.listing-rating {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #F59E0B;
+}
+
+.listing-rating i {
+  font-size: 0.75rem;
+}
+
+/* Quick Actions */
+.quick-actions {
+  margin-top: 1.5rem;
+  display: flex;
+  gap: 1rem;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.review-btn {
+  background: #3B82F6;
+  color: white;
+}
+
+.review-btn:hover {
+  background: #2563EB;
+}
+
+.add-listing-btn {
+  background: #E16789;
+  color: white;
+}
+
+.add-listing-btn:hover {
+  background: #D1537A;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .vendor-dashboard {
+    padding: 1rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-actions {
+    flex-direction: column;
+  }
+
+  .action-btn {
+    width: 100%;
+    justify-content: center;
+  }
+} 

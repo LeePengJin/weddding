@@ -1,0 +1,663 @@
+CLASS DIAGRAM - ATTRIBUTES AND METHODS
+
+===========================================
+
+1. USER CLASS
+-------------
+Attributes:
+- userID: String
+- name: String  
+- email: String
+- password: String
+- contactNumber: String
+- address: String
+- role: String
+- registrationDate: Date
+
+Methods:
+- login(String email, String password): boolean
+- validateUser(String email): void
+- resetPassword(String email): void
+- updateProfile(String name, String newContactNumber, String newAddress): void
+- logout(): void
+- registerUser(String name, String email, String password, String contactNumber, String address, String role): boolean
+- changePassword(String oldPassword, String newPassword): boolean
+- validateEmail(String email): boolean
+- validateContactNumber(String contactNumber): boolean
+- deleteAccount(): boolean
+- getUserByID(String userID): User
+- updateLastLoginDate(): void
+- isAccountActive(): boolean
+- sendNotification(String message): void
+- getAccountAge(): int
+
+===========================================
+
+2. SYSTEM ADMIN CLASS
+---------------------
+Attributes:
+- adminID: String
+- name: String
+- email: String
+- password: String
+- permissions: String
+- lastLoginDate: Date
+
+Methods:
+- verifyVendorAccount(String userID): boolean
+- verifyAccount(): void
+- deactivateAccount(String userID): void
+- generateReports(): void
+- manageSystemStatus(String action): void
+- login(String email, String password): boolean
+- resetPassword(String email): void
+- logout(): void
+- createAdmin(String name, String email, String password, String permissions): boolean
+- updatePermissions(String adminID, String newPermissions): boolean
+- getAllUsers(): List<User>
+- getAllVendors(): List<Vendor>
+- suspendUser(String userID, String reason): boolean
+- reactivateUser(String userID): boolean
+- generateUserReport(): Report
+- generateVendorReport(): Report
+- generateBookingReport(): Report
+- generateRevenueReport(): Report
+- broadcastSystemMessage(String message): void
+- backupDatabase(): boolean
+- restoreDatabase(String backupPath): boolean
+- updateSystemSettings(String setting, String value): boolean
+- monitorSystemPerformance(): SystemStatus
+- handleUserComplaints(String complaintID): void
+
+===========================================
+
+3. COUPLE CLASS
+---------------
+Attributes:
+- weddingProject: WeddingProject(*)
+- weddingDate: Date
+- weddingLocation: String(*)
+- conversation: Conversation(*)
+
+Methods:
+- getWeddingProject(): WeddingProject(*)
+- selectConversation(): void
+- storeConversation(): void
+- createWeddingProject(String projectName, Date weddingDate, String venue): WeddingProject
+- updateWeddingDate(Date newDate): boolean
+- updateWeddingLocation(String newLocation): boolean
+- addConversation(String vendorID): Conversation
+- getActiveConversations(): List<Conversation>
+- planWedding(): void
+- setWeddingBudget(Double amount): boolean
+- inviteVendorsToProject(List<String> vendorIDs): void
+- reviewVendorProposals(): List<Proposal>
+- finalizeVendorSelection(String vendorID, String serviceType): boolean
+- trackWeddingProgress(): WeddingProgress
+- generateWeddingTimeline(): Timeline
+- manageGuestList(): GuestList
+
+===========================================
+
+4. CONVERSATION CLASS
+---------------------
+Attributes:
+- conversationID: String
+- participants: User
+- startDate: Date
+- message: Array<Message>
+
+Methods:
+- createConversation(String participant1ID, String participant2ID): Conversation
+- addMessage(String senderID, String content): Message
+- getMessages(): List<Message>
+- getUnreadMessages(String userID): List<Message>
+- markMessagesAsRead(String userID): void
+- deleteConversation(): boolean
+- addParticipant(String userID): boolean
+- removeParticipant(String userID): boolean
+- getConversationHistory(): List<Message>
+- searchMessages(String keyword): List<Message>
+- getLastMessage(): Message
+- isActive(): boolean
+- archiveConversation(): boolean
+- getParticipants(): List<User>
+
+===========================================
+
+5. VENDOR CLASS
+---------------
+Attributes:
+- owner: String
+- businessCategory: String
+- location: String
+- businessType: String
+- description: String
+- rating: Double
+- servicesListings: ServiceListing(*)
+- conversation: Conversation(*)
+- serviceListingsID: String(*)
+- availability: TimeSlot(*)
+- documents: Array<Documents>
+
+Methods:
+- viewBookings(): Booking(*)
+- manageListing(): void
+- updateServiceCheckersAndSchedule(): String(*)
+- calculateServicePrice(): void
+- createServiceListing(String title, String description, Double price, String category): ServiceListing
+- updateServiceListing(String listingID, String newTitle, String newDescription, Double newPrice): boolean
+- deleteServiceListing(String listingID): boolean
+- setAvailability(List<TimeSlot> timeSlots): void
+- updateAvailability(String slotID, boolean isAvailable): boolean
+- getAvailableTimeSlots(Date date): List<TimeSlot>
+- acceptBooking(String bookingID): boolean
+- rejectBooking(String bookingID, String reason): boolean
+- updateBusinessProfile(String description, String location, String businessType): boolean
+- uploadDocuments(List<Document> documents): boolean
+- getReviews(): List<Review>
+- respondToReview(String reviewID, String response): boolean
+- generateRevenue Report(): Report
+- updateRating(): void
+- getBookingHistory(): List<Booking>
+- setServicePackages(List<WeddingPackage> packages): void
+
+===========================================
+
+6. WEDDING PACKAGE CLASS
+-------------------------
+Attributes:
+- packageID: String
+- packageName: String
+- description: String
+- price: Double
+- includedServices: String
+- serviceListings: Array<ServiceListing>
+- previewImage: Image
+
+Methods:
+- createPackage(String name, String description, Double price, List<ServiceListing> services): WeddingPackage
+- updatePackage(String name, String description, Double price): boolean
+- addService(ServiceListing service): boolean
+- removeService(String serviceID): boolean
+- calculateTotalPrice(): Double
+- applyDiscount(Double discountPercentage): Double
+- getIncludedServices(): List<ServiceListing>
+- updatePreviewImage(Image newImage): boolean
+- isPackageAvailable(Date weddingDate): boolean
+- customizePackage(List<ServiceListing> additionalServices): WeddingPackage
+- comparePackages(WeddingPackage otherPackage): Comparison
+- getPackageDetails(): PackageDetails
+- validatePackageConstraints(): boolean
+
+===========================================
+
+7. BUDGET CLASS
+---------------
+Attributes:
+- budgetID: String
+- projectID: String
+- totalBudgetAmount: Double
+- actualCost: Double
+- budgetBreakdown: Double
+
+Methods:
+- createBudget(String projectID, Double totalAmount): Budget
+- updateTotalBudget(Double newAmount): boolean
+- addExpense(String categoryID, Double amount, String description): boolean
+- calculateRemainingBudget(): Double
+- getBudgetBreakdown(): Map<String, Double>
+- trackExpenses(): List<Expense>
+- generateBudgetReport(): Report
+- setBudgetAlert(Double alertThreshold): void
+- checkBudgetOverrun(): boolean
+- allocateBudgetToCategory(String categoryID, Double amount): boolean
+- reallocateBudget(String fromCategoryID, String toCategoryID, Double amount): boolean
+- getBudgetUtilization(): Double
+- validateBudgetConstraints(): boolean
+- exportBudgetData(): String
+
+===========================================
+
+8. WEDDING PROJECT CLASS
+-------------------------
+Attributes:
+- projectID: String
+- coupleID: String
+- weddingDate: String
+- weddingVenue: String
+- weddingTheme: String
+- budgetPackage: WeddingPackage
+- budget: Budget
+- weddingGuests: Int
+- tasks: Array<Task>
+- venue3DDesigns: 3DVenueDesign
+- bookings: Array<Booking>
+
+Methods:
+- createProject(String coupleID, Date weddingDate, String venue, String theme): WeddingProject
+- updateWeddingDetails(Date newDate, String newVenue, String newTheme): boolean
+- setGuestCount(int guestCount): boolean
+- addTask(String taskName, String description, Date dueDate): Task
+- updateTask(String taskID, String status): boolean
+- deleteTask(String taskID): boolean
+- getTasks(): List<Task>
+- getCompletedTasks(): List<Task>
+- getPendingTasks(): List<Task>
+- createBooking(String vendorID, String serviceID, Date serviceDate): Booking
+- cancelBooking(String bookingID): boolean
+- getBookings(): List<Booking>
+- generateProjectTimeline(): Timeline
+- getProjectProgress(): ProjectProgress
+- assignBudgetPackage(WeddingPackage package): boolean
+- create3DVenueDesign(): 3DVenueDesign
+- update3DVenueDesign(3DVenueDesign design): boolean
+- generateProjectReport(): Report
+- shareProjectWithVendors(List<String> vendorIDs): void
+- finalizeProject(): boolean
+
+===========================================
+
+9. 3D VENUE DESIGN CLASS
+-------------------------
+Attributes:
+- designID: String
+- projectID: String
+- venueLayout: String
+- designElements: Array<DesignElement>
+- pairedElements: JSON
+- cameraPosition: Coordinates
+- coordinatesString: String
+
+Methods:
+- create3DDesign(String projectID, String venueLayout): 3DVenueDesign
+- addDesignElement(DesignElement element, Coordinates position): boolean
+- removeDesignElement(String elementID): boolean
+- moveElement(String elementID, Coordinates newPosition): boolean
+- rotateElement(String elementID, Float rotation): boolean
+- scaleElement(String elementID, Float scale): boolean
+- pairElements(String element1ID, String element2ID): boolean
+- unpairElements(String element1ID, String element2ID): boolean
+- updateCameraPosition(Coordinates newPosition): boolean
+- saveDesign(): boolean
+- loadDesign(String designID): 3DVenueDesign
+- exportDesign(String format): String
+- importDesign(String designData): boolean
+- previewDesign(): String
+- validateDesignConstraints(): boolean
+- generateDesignThumbnail(): Image
+- shareDesign(String userID): boolean
+- cloneDesign(): 3DVenueDesign
+
+===========================================
+
+10. DESIGN ELEMENT CLASS
+-------------------------
+Attributes:
+- elementID: String
+- elementType: String
+- modelFile: String
+- textures: Boolean
+- model: Model
+- has3DModel: Boolean
+
+Methods:
+- createElement(String elementType, String modelFile): DesignElement
+- loadModel(String modelFilePath): Model
+- updateTextures(List<Texture> newTextures): boolean
+- validateModel(): boolean
+- getElementProperties(): ElementProperties
+- setElementProperties(ElementProperties properties): boolean
+- duplicateElement(): DesignElement
+- getElementDimensions(): Dimensions
+- isCompatible(DesignElement otherElement): boolean
+- applyMaterial(Material material): boolean
+- getAvailableTextures(): List<Texture>
+- optimizeModel(): boolean
+- exportElement(String format): String
+
+===========================================
+
+11. PAIRED ELEMENT CLASS
+-------------------------
+Attributes:
+- relationID: Float
+- isLocked: Boolean
+
+Methods:
+- createPairing(String element1ID, String element2ID): PairedElement
+- lockPairing(): boolean
+- unlockPairing(): boolean
+- breakPairing(): boolean
+- updateRelation(Float newRelationID): boolean
+- isPairingValid(): boolean
+- getPairedElements(): List<DesignElement>
+- synchronizeMovement(Coordinates newPosition): boolean
+- maintainDistance(): boolean
+- validatePairingConstraints(): boolean
+
+===========================================
+
+12. SELECTED SERVICE CLASS
+---------------------------
+Attributes:
+- quantity: int
+- totalPrice: double
+
+Methods:
+- updateQuantity(int qty): void
+- calculateTotalPrice(): double
+- getSelectedServices(): String
+- selectService(String serviceID, int quantity): boolean
+- deselectService(String serviceID): boolean
+- updateServiceQuantity(String serviceID, int newQuantity): boolean
+- getServiceDetails(String serviceID): ServiceDetails
+- applyServiceDiscount(String serviceID, Double discount): boolean
+- validateServiceAvailability(String serviceID, Date serviceDate): boolean
+- getServicePrice(String serviceID): Double
+- calculateSubtotal(): Double
+- calculateTax(): Double
+- getSelectedServicesList(): List<ServiceListing>
+- clearAllSelections(): void
+- isServiceSelected(String serviceID): boolean
+
+===========================================
+
+13. TASK CLASS
+--------------
+Attributes:
+- taskID: String
+- taskName: String
+- description: String
+- dueDate: Date
+- isCompleted: Boolean
+- subTasks: Array<SubTask>
+
+Methods:
+- createTask(String taskName, String description, Date dueDate): Task
+- updateTask(String taskName, String description, Date dueDate): boolean
+- markAsCompleted(): boolean
+- markAsIncomplete(): boolean
+- addSubTask(String subTaskName, String description, Date dueDate): SubTask
+- removeSubTask(String subTaskID): boolean
+- getSubTasks(): List<SubTask>
+- getCompletedSubTasks(): List<SubTask>
+- getPendingSubTasks(): List<SubTask>
+- calculateTaskProgress(): Double
+- isOverdue(): boolean
+- extendDueDate(Date newDueDate): boolean
+- assignTaskTo(String userID): boolean
+- setTaskPriority(Priority priority): boolean
+- getTaskDependencies(): List<Task>
+- addTaskDependency(String dependentTaskID): boolean
+- removeTaskDependency(String dependentTaskID): boolean
+- canBeCompleted(): boolean
+
+===========================================
+
+14. SUBTASK CLASS
+-----------------
+Attributes:
+- subTaskID: String
+- description: String
+- isCompleted: Boolean
+- dueDate: Date
+
+Methods:
+- createSubTask(String description, Date dueDate): SubTask
+- updateDescription(String newDescription): boolean
+- updateDueDate(Date newDueDate): boolean
+- markAsCompleted(): boolean
+- markAsIncomplete(): boolean
+- isOverdue(): boolean
+- getTimeRemaining(): Duration
+- assignToUser(String userID): boolean
+- addNote(String note): boolean
+- getProgress(): Double
+- deleteSubTask(): boolean
+
+===========================================
+
+15. REVIEW CLASS
+----------------
+Attributes:
+- reviewID: String
+- rating: int
+- comment: String
+- reviewDate: DateTime
+
+Methods:
+- createReview(String vendorID, int rating, String comment): Review
+- updateReview(int newRating, String newComment): boolean
+- deleteReview(): boolean
+- validateRating(int rating): boolean
+- flagReviewAsInappropriate(): boolean
+- getReviewerInfo(): User
+- getVendorInfo(): Vendor
+- addReviewResponse(String response): boolean
+- updateReviewResponse(String newResponse): boolean
+- isReviewHelpful(): boolean
+- markAsHelpful(): boolean
+- getReviewAge(): Duration
+- moderateReview(): boolean
+
+===========================================
+
+16. BOOKING CLASS
+-----------------
+Attributes:
+- bookingID: String
+- bookingDate: Date
+- serviceDate: Date
+- status: String
+- finalizedDate: Date
+- finalizedCar: Date
+- payment: Payment
+
+Methods:
+- createBooking(String coupleID, String vendorID, String serviceID, Date serviceDate): Booking
+- updateBookingStatus(String newStatus): boolean
+- confirmBooking(): boolean
+- cancelBooking(String reason): boolean
+- rescheduleBooking(Date newServiceDate): boolean
+- finalizeBooking(): boolean
+- processPayment(Double amount, String paymentMethod): Payment
+- getBookingDetails(): BookingDetails
+- sendBookingNotification(): void
+- validateBookingConstraints(): boolean
+- calculateBookingCost(): Double
+- addBookingNotes(String notes): boolean
+- getBookingHistory(): List<BookingEvent>
+- isBookingCancellable(): boolean
+- generateBookingContract(): Contract
+- updateServiceRequirements(String requirements): boolean
+
+===========================================
+
+17. PAYMENT CLASS
+-----------------
+Attributes:
+- paymentID: String
+- paymentType: String
+- amount: Double
+- paymentMethod: String
+- paymentDate: DateTime
+
+Methods:
+- processPayment(Double amount, String paymentMethod, String paymentType): Payment
+- validatePayment(): boolean
+- refundPayment(Double refundAmount, String reason): boolean
+- updatePaymentStatus(String status): boolean
+- calculateTax(): Double
+- calculateServiceFee(): Double
+- generatePaymentReceipt(): Receipt
+- sendPaymentConfirmation(): void
+- validatePaymentMethod(String paymentMethod): boolean
+- schedulePayment(Date paymentDate): boolean
+- cancelPayment(): boolean
+- getPaymentDetails(): PaymentDetails
+- trackPaymentStatus(): String
+- initiateRefund(): boolean
+- splitPayment(List<Double> amounts, List<String> paymentMethods): List<Payment>
+
+===========================================
+
+18. BUDGET CATEGORY CLASS
+--------------------------
+Attributes:
+- categoryID: String
+- categoryName: String
+- budgetLimit: Double
+- expenses: Array<Expense>
+
+Methods:
+- createCategory(String categoryName, Double budgetLimit): BudgetCategory
+- updateCategoryName(String newName): boolean
+- updateBudgetLimit(Double newLimit): boolean
+- addExpense(Expense expense): boolean
+- removeExpense(String expenseID): boolean
+- getExpenses(): List<Expense>
+- calculateTotalExpenses(): Double
+- getRemainingBudget(): Double
+- getBudgetUtilization(): Double
+- isOverBudget(): boolean
+- getOverBudgetAmount(): Double
+- setBudgetAlert(Double alertThreshold): boolean
+- generateCategoryReport(): Report
+- transferBudget(String toCategoryID, Double amount): boolean
+- validateCategoryConstraints(): boolean
+
+===========================================
+
+19. EXPENSE CLASS
+-----------------
+Attributes:
+- expenseID: String
+- expenseName: String
+- remark: String
+- amount: Double
+- actualCost: Double
+- categoryID: String
+
+Methods:
+- createExpense(String expenseName, Double amount, String categoryID, String remark): Expense
+- updateExpenseName(String newName): boolean
+- updateAmount(Double newAmount): boolean
+- updateActualCost(Double actualCost): boolean
+- updateRemark(String newRemark): boolean
+- deleteExpense(): boolean
+- getCostVariance(): Double
+- isOverBudget(): boolean
+- validateExpense(): boolean
+- attachReceipt(String receiptPath): boolean
+- getExpenseHistory(): List<ExpenseEvent>
+- categorizeExpense(String newCategoryID): boolean
+- calculateTax(): Double
+- exportExpenseData(): String
+
+===========================================
+
+20. TIMESLOT CLASS
+------------------
+Attributes:
+- slotID: String
+- date: Date
+- startTime: DateTime
+- endTime: DateTime
+
+Methods:
+- isAvailable(): Boolean
+- markAsBooked(): void
+- markAsAvailable(): void
+- createTimeSlot(Date date, DateTime startTime, DateTime endTime): TimeSlot
+- updateTimeSlot(DateTime newStartTime, DateTime newEndTime): boolean
+- deleteTimeSlot(): boolean
+- checkConflict(TimeSlot otherSlot): boolean
+- getDuration(): Duration
+- isInPast(): boolean
+- extendSlot(Duration additionalTime): boolean
+- splitSlot(DateTime splitTime): List<TimeSlot>
+- mergeSlots(TimeSlot adjacentSlot): TimeSlot
+- getBookingDetails(): BookingDetails
+- validateTimeSlot(): boolean
+- setRecurring(RecurrencePattern pattern): boolean
+
+===========================================
+
+21. MESSAGE CLASS
+-----------------
+Attributes:
+- messageID: String
+- conversationID: String
+- sender: String
+- content: String
+- timestamp: DateTime
+- isRead: Boolean
+
+Methods:
+- sendMessage(String conversationID, String senderID, String content): Message
+- markAsRead(): boolean
+- markAsUnread(): boolean
+- deleteMessage(): boolean
+- editMessage(String newContent): boolean
+- forwardMessage(String newConversationID): Message
+- replyToMessage(String replyContent): Message
+- attachFile(String filePath): boolean
+- getAttachments(): List<Attachment>
+- flagMessage(): boolean
+- validateMessage(): boolean
+- encryptMessage(): String
+- decryptMessage(): String
+- getMessageSize(): int
+
+===========================================
+
+22. COORDINATES CLASS
+---------------------
+Attributes:
+- x: Float
+- y: Float
+- z: Float
+
+Methods:
+- createCoordinates(Float x, Float y, Float z): Coordinates
+- updateCoordinates(Float newX, Float newY, Float newZ): boolean
+- calculateDistance(Coordinates otherCoords): Float
+- translateCoordinates(Float deltaX, Float deltaY, Float deltaZ): Coordinates
+- rotateCoordinates(Float angleX, Float angleY, Float angleZ): Coordinates
+- scaleCoordinates(Float scaleFactor): Coordinates
+- normalize(): Coordinates
+- isValid(): boolean
+- toVector(): Vector3D
+- fromVector(Vector3D vector): Coordinates
+- calculateMidpoint(Coordinates otherCoords): Coordinates
+- isWithinBounds(Coordinates minBounds, Coordinates maxBounds): boolean
+- toString(): String
+
+===========================================
+
+COMPLETE CLASS SPECIFICATION
+============================
+
+This document now contains comprehensive attributes and methods for all 22 classes in the wedding planning system. Each class includes:
+
+✓ All attributes with data types as specified in the class diagram
+✓ Complete method specifications with parameters and return types
+✓ CRUD operations (Create, Read, Update, Delete) where applicable
+✓ Business logic methods specific to each class's functionality
+✓ Validation and utility methods
+✓ Integration methods for inter-class relationships
+
+The methods have been designed to support:
+- User management and authentication
+- Vendor account management and verification
+- Wedding project planning and tracking
+- 3D venue design and visualization
+- Budget management and expense tracking
+- Booking and payment processing
+- Task and timeline management
+- Communication and messaging
+- Review and rating systems
+- System administration and reporting
+
+These specifications can serve as a blueprint for implementing the complete wedding planning system with full functionality across all user roles (couples, vendors, and system administrators).

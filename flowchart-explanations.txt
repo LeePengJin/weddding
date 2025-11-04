@@ -1,0 +1,14 @@
+Algorithm Design Flowchart Explanations
+============================================
+
+## Vendor 3D Model Upload Process
+
+The vendor upload flowchart shows how wedding service providers submit their 3D models to the system. When vendors upload model files (.obj, .fbx, .gltf), the system validates the file format and stores the original file as binary data directly in the PostgreSQL database. The system then processes the 3D model using Three.js to extract important information like dimensions and create optimized versions for web display.
+
+Three.js automatically handles the complex mesh processing, including polygon reduction to improve performance and generating multiple quality levels (high, medium, low detail) for different viewing distances. All processed model data, thumbnails, and metadata are stored in the database, making them available in the vendor catalog for couples to browse and use in their wedding venue designs.
+
+## Couple 3D Venue Design Process
+
+The couple design flowchart shows how users create their wedding venue layout in real-time 3D. The process starts by setting up the 3D environment using Three.js, which handles the graphics setup, camera positioning, and lighting. The selected venue model is loaded from the database and displayed as the base environment where couples can place wedding items.
+
+During the design phase, couples browse the vendor catalog and drag items into the 3D scene. Three.js handles the complex 3D calculations - converting mouse clicks into 3D positions, checking for collisions between objects, and ensuring items don't overlap. When objects are placed, the system updates budget calculations and applies 3D transformations (moving, rotating, scaling) to position items correctly. Three.js automatically optimizes the rendering performance and switches between different quality levels based on viewing distance. The final venue design is saved as structured data in the PostgreSQL database for future access or sharing with vendors.
