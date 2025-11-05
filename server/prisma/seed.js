@@ -10,11 +10,17 @@ async function main() {
   const adminPassword = process.env.ADMIN_PASSWORD;
 
   if (adminEmail && adminPassword) {
-    const existing = await prisma.user.findUnique({ where: { email: adminEmail } });
+    const existing = await prisma.systemAdmin.findUnique({ where: { email: adminEmail } });
     if (!existing) {
       const passwordHash = await bcrypt.hash(adminPassword, 10);
-      await prisma.user.create({ data: { email: adminEmail, passwordHash, role: 'admin', name: 'Admin' } });
-      console.log(`Seeded admin user: ${adminEmail}`);
+      await prisma.systemAdmin.create({
+        data: {
+          email: adminEmail,
+          passwordHash,
+          name: 'Admin',
+        },
+      });
+      console.log(`Seeded system admin: ${adminEmail}`);
     }
   } else {
     console.log('Skipping admin seed (ADMIN_EMAIL/ADMIN_PASSWORD not set).');

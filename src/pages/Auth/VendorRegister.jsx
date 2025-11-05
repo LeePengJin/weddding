@@ -11,10 +11,6 @@ const BUSINESS_TYPES = [
   'Caterer',
   'Florist',
   'DJ/Music',
-  'Wedding Planner',
-  'Hair & Makeup',
-  'Bakery',
-  'Transportation',
   'Other'
 ];
 
