@@ -14,7 +14,7 @@ datasource db {
 }
 
 model User {
-  id             String     @id @default(uuid())
+  id             String     @id
   name           String?
   email          String     @unique
   passwordHash   String
@@ -27,6 +27,7 @@ model User {
   couple         Couple?
   vendor         Vendor?
   messagesSent   Message[]
+  reviews        Review[]
 }
 
 model OtpToken {
@@ -65,6 +66,7 @@ model Couple {
   createdAt DateTime @default(now())
   conversations Conversation[]
   weddingProject WeddingProject[]
+  bookings       Booking[]
 }
 
 // Vendor inherits identity from User via 1:1 relation using the same id
@@ -79,6 +81,8 @@ model Vendor {
   updatedAt            DateTime              @updatedAt
   serviceListings      ServiceListing[]
   conversations        Conversation[]
+  bookings             Booking[]
+  timeSlots            TimeSlot[]
 }
 
 // Initial set of categories; we keep OTHER to allow future expansion
@@ -105,9 +109,13 @@ model ServiceListing {
   isActive      Boolean         @default(true)
   averageRating Decimal?        @db.Decimal(3, 2)
   has3DModel    Boolean         @default(false)
+  designElementId String?
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   packages      WeddingPackage[]
+  designElement  DesignElement? @relation(fields: [designElementId], references: [id], onDelete: SetNull)
+  reviews        Review[]
+  selectedServices SelectedService[]
 
   @@index([vendorId])
   @@index([isActive])
@@ -183,6 +191,10 @@ model WeddingProject {
 
   couple       Couple          @relation(fields: [coupleId], references: [userId], onDelete: Cascade)
   basePackage  WeddingPackage? @relation(fields: [basePackageId], references: [id], onDelete: SetNull)
+  budget       Budget?
+  venueDesign  VenueDesign?
+  tasks        Task[]
+  bookings     Booking[]
 
   @@index([coupleId])
   @@index([weddingDate])
@@ -192,4 +204,245 @@ model WeddingProject {
 enum WeddingType {
   self_organized
   prepackaged
+}
+
+enum BookingStatus {
+  pending_vendor_confirmation
+  pending_deposit_payment
+  confirmed
+  pending_final_payment
+  cancelled
+  rejected
+  completed
+}
+
+enum PaymentType {
+  deposit
+  final
+}
+
+enum PaymentMethod {
+  credit_card
+  bank_transfer
+}
+
+enum TimeSlotStatus {
+  booked
+  personal_time_off
+}
+
+// 3D design: basic coordinates used for positions and camera
+model Coordinates {
+  id String @id @default(uuid())
+  x  Float
+  y  Float
+  z  Float
+  cameraFor    VenueDesign[]
+  positionsFor PlacedElement[]
+}
+
+// Library of reusable 3D elements
+model DesignElement {
+  id         String           @id @default(uuid())
+  name       String?
+  elementType String?
+  modelFile  String
+  services   ServiceListing[]
+  placements PlacedElement[]
+}
+
+// A venue design (scene) for a project
+model VenueDesign {
+  id               String        @id @default(uuid())
+  projectId        String        @unique
+  venueName        String
+  layoutData       Json?
+  cameraPositionId String?
+  zoomLevel        Float?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  project       WeddingProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cameraPosition Coordinates?   @relation(fields: [cameraPositionId], references: [id], onDelete: SetNull)
+  placedElements PlacedElement[]
+}
+
+// Instance of a DesignElement placed inside a VenueDesign
+model PlacedElement {
+  id            String        @id @default(uuid())
+  venueDesignId String
+  designElementId String
+  positionId    String
+  rotation      Float?
+  isLocked      Boolean       @default(false)
+
+  venueDesign   VenueDesign   @relation(fields: [venueDesignId], references: [id], onDelete: Cascade)
+  designElement DesignElement @relation(fields: [designElementId], references: [id], onDelete: Cascade)
+  position      Coordinates   @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@index([venueDesignId])
+  @@index([designElementId])
+}
+
+// Budgeting for a project
+model Budget {
+  id             String           @id @default(uuid())
+  projectId      String           @unique
+  totalBudget    Decimal          @db.Decimal(12, 2)
+  totalSpent     Decimal          @db.Decimal(12, 2) @default(0)
+  totalRemaining Decimal          @db.Decimal(12, 2) @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  project        WeddingProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  categories     BudgetCategory[]
+}
+
+model BudgetCategory {
+  id          String     @id @default(uuid())
+  budgetId    String
+  categoryName String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  budget      Budget     @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  expenses    Expense[]
+
+  @@index([budgetId])
+}
+
+model Expense {
+  id            String    @id @default(uuid())
+  categoryId    String
+  expenseName   String
+  estimatedCost Decimal   @db.Decimal(12, 2)
+  actualCost    Decimal?  @db.Decimal(12, 2)
+  remark        String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  category      BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+}
+
+// Tasks for a wedding project
+model Task {
+  id          String       @id @default(uuid())
+  projectId   String
+  taskName    String
+  description String?
+  dueDate     DateTime?
+  isCompleted Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  project   WeddingProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  subtasks  Subtask[]
+
+  @@index([projectId])
+  @@index([isCompleted])
+  @@index([dueDate])
+}
+
+model Subtask {
+  id          String   @id @default(uuid())
+  taskId      String
+  description String?
+  isCompleted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
+model Booking {
+  id               String        @id @default(uuid())
+  coupleId         String
+  projectId        String?
+  vendorId         String
+  bookingDate      DateTime      @default(now())
+  reservedDate     DateTime
+  status           BookingStatus @default(pending_vendor_confirmation)
+  depositDueDate   DateTime?
+  finalDueDate     DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  couple          Couple         @relation(fields: [coupleId], references: [userId], onDelete: Cascade)
+  project         WeddingProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  vendor          Vendor         @relation(fields: [vendorId], references: [userId], onDelete: Cascade)
+  selectedServices SelectedService[]
+  payments        Payment[]
+  reviews         Review[]
+
+  @@index([coupleId])
+  @@index([projectId])
+  @@index([vendorId])
+  @@index([reservedDate])
+}
+
+model SelectedService {
+  id               String   @id @default(uuid())
+  bookingId        String
+  serviceListingId String
+  quantity         Int      @default(1)
+  totalPrice       Decimal  @db.Decimal(12, 2)
+
+  booking        Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  serviceListing ServiceListing @relation(fields: [serviceListingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([serviceListingId])
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  bookingId     String
+  paymentType   PaymentType
+  amount        Decimal       @db.Decimal(12, 2)
+  paymentMethod PaymentMethod
+  paymentDate   DateTime      @default(now())
+  receipt       String?
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model Review {
+  id               String   @id @default(uuid())
+  bookingId        String
+  serviceListingId String
+  reviewerId       String
+  rating           Int
+  comment          String?
+  reviewDate       DateTime @default(now())
+
+  booking        Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  serviceListing ServiceListing @relation(fields: [serviceListingId], references: [id], onDelete: Cascade)
+  reviewer       User           @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([serviceListingId])
+  @@index([reviewerId])
+}
+
+// Vendor availability/booking calendar
+// Stores only unavailable dates (if date exists here, vendor is unavailable that day)
+model TimeSlot {
+  id        String         @id @default(uuid())
+  vendorId  String
+  date      DateTime       @db.Date
+  status    TimeSlotStatus
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [userId], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([date])
+  @@index([vendorId, status])
+  @@unique([vendorId, date])
 }

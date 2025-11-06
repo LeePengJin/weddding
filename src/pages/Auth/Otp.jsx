@@ -74,6 +74,18 @@ export default function Otp() {
         .catch((err) => setError(err.message || 'Invalid or expired OTP'));
       return;
     }
+    if (purpose === 'register_vendor') {
+      apiFetch('/auth/register/vendor/verify', { method: 'POST', body: JSON.stringify({ email, code }) })
+        .then(() => { window.location.href = '/vendor/submitted'; })
+        .catch((err) => setError(err.message || 'Invalid or expired OTP'));
+      return;
+    }
+    if (purpose === 'resubmit_vendor') {
+      apiFetch('/auth/vendor/resubmit/verify', { method: 'POST', body: JSON.stringify({ email, code }) })
+        .then(() => { window.location.href = '/vendor/submitted'; })
+        .catch((err) => setError(err.message || 'Invalid or expired OTP'));
+      return;
+    }
     if (purpose === 'reset') {
       apiFetch('/auth/forgot/verify', { method: 'POST', body: JSON.stringify({ email, code }) })
         .then(() => { sessionStorage.setItem('otpCode', code); window.location.href = '/reset-password'; })
@@ -85,8 +97,16 @@ export default function Otp() {
 
   const onResend = () => {
     if (resendCooldown > 0) return;
-    setInfo('A new OTP has been sent to your email');
-    setResendCooldown(30); // 30s cooldown for UI
+    const purpose = sessionStorage.getItem('otpPurpose');
+    const email = sessionStorage.getItem('otpEmail');
+    apiFetch('/auth/otp/resend', { method: 'POST', body: JSON.stringify({ email, purpose }) })
+      .then(() => {
+        setInfo('A new OTP has been sent to your email');
+        setResendCooldown(30);
+      })
+      .catch((err) => {
+        setInfo('Could not resend OTP. Please try again shortly.');
+      });
   };
 
   return (

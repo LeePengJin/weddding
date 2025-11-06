@@ -21,12 +21,13 @@ import VendorRegister from './pages/Auth/VendorRegister';
 import ForgotPassword from './pages/Auth/ForgotPassword';
 import Otp from './pages/Auth/Otp';
 import ResetPassword from './pages/Auth/ResetPassword';
+import VendorSubmitted from './pages/Auth/VendorSubmitted';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 const AppContent = () => {
   const location = useLocation();
-  const isVendorRoute = location.pathname.startsWith('/vendor') && location.pathname !== '/vendor/register';
-  const hideNavbar = location.pathname === '/venue-designer' || location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/vendor/register' || location.pathname === '/forgot-password' || location.pathname === '/otp' || location.pathname === '/reset-password';
+  const isVendorRoute = location.pathname.startsWith('/vendor') && !['/vendor/register', '/vendor/submitted'].includes(location.pathname);
+  const hideNavbar = location.pathname === '/venue-designer' || location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/vendor/register' || location.pathname === '/vendor/submitted' || location.pathname === '/forgot-password' || location.pathname === '/otp' || location.pathname === '/reset-password';
 
   return (
     <div className="App">
@@ -52,6 +53,7 @@ const AppContent = () => {
               <Route path="/vendor/register" element={<VendorRegister />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/otp" element={<Otp />} />
+              <Route path="/vendor/submitted" element={<VendorSubmitted />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
               <Route path="/projects" element={<Projects />} />

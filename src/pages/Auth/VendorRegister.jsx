@@ -139,32 +139,27 @@ export default function VendorRegister() {
 
     setSubmitting(true);
     try {
-      const formDataToSend = new FormData();
-      formDataToSend.append('businessName', formData.businessName);
-      formDataToSend.append('email', formData.email);
-      formDataToSend.append('password', formData.password);
-      formDataToSend.append('contactNumber', formData.contactNumber);
-      formDataToSend.append('businessType', formData.businessType);
-      formDataToSend.append('location', formData.location);
-      
-      // Append all verification documents
-      formData.verificationDocs.forEach((file, index) => {
-        formDataToSend.append(`verificationDocs`, file);
-      });
+      // Map UI businessType to backend enum (DJ/Music -> DJ_Music)
+      const category = (formData.businessType || '').replace('/', '_');
+      const payload = {
+        name: formData.businessName,
+        email: formData.email,
+        password: formData.password,
+        category,
+        location: formData.location || undefined,
+        // For now, only send file names (backend expects string[]). Actual uploads can be implemented later.
+        verificationDocuments: formData.verificationDocs.map((f) => f.name),
+      };
 
-      const response = await fetch('http://localhost:4000/auth/vendor/register', {
+      const resp = await apiFetch('/auth/register/vendor/request', {
         method: 'POST',
-        credentials: 'include',
-        body: formDataToSend
+        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Registration failed' }));
-        throw new Error(errorData.error || 'Registration failed');
-      }
-
-      setSuccess('Registration request submitted! You will receive an email once your account is approved.');
-      setTimeout(() => navigate('/login'), 2000);
+      setSuccess('OTP sent. Please check your email to verify your vendor request.');
+      sessionStorage.setItem('otpPurpose', resp && resp.purpose ? resp.purpose : 'register_vendor');
+      sessionStorage.setItem('otpEmail', formData.email);
+      navigate('/otp');
     } catch (err) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {
