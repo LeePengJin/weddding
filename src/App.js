@@ -1,7 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar/Navbar';
-import VendorSidebar from './components/VendorSidebar/VendorSidebar';
 import Home from './pages/Home/Home';
 import Projects from './pages/Projects/Projects';
 import CreateProject from './pages/CreateProject/CreateProject';
@@ -26,6 +25,7 @@ import AdminLogin from './pages/Admin/AdminLogin';
 import AdminLayout from './admin/components/layout/AdminLayout';
 import Dashboard from './admin/pages/Dashboard';
 import Vendors from './admin/pages/Vendors';
+import VendorLayout from './vendor/components/layout/VendorLayout';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 const AppContent = () => {
@@ -37,17 +37,13 @@ const AppContent = () => {
   return (
     <div className="App">
       {isVendorRoute ? (
-        <div className="vendor-layout">
-          <VendorSidebar />
-          <div className="vendor-content">
-            <Routes>
-              <Route path="/vendor/dashboard" element={<VendorDashboard />} />
-              <Route path="/vendor/booking-requests" element={<BookingRequests />} />
-              <Route path="/vendor/listings" element={<ManageListings />} />
-              {/* Add other vendor routes here */}
-            </Routes>
-          </div>
-        </div>
+        <Routes>
+          <Route path="/vendor/dashboard" element={<VendorLayout><VendorDashboard /></VendorLayout>} />
+          <Route path="/vendor/booking-requests" element={<VendorLayout><BookingRequests /></VendorLayout>} />
+          <Route path="/vendor/availability" element={<VendorLayout><div>Availability Page</div></VendorLayout>} />
+          <Route path="/vendor/listings" element={<VendorLayout><ManageListings /></VendorLayout>} />
+          <Route path="/vendor/profile" element={<VendorLayout><div>Profile Page</div></VendorLayout>} />
+        </Routes>
       ) : (
         <>
           {!hideNavbar && <Navbar />}
@@ -64,15 +60,15 @@ const AppContent = () => {
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />
               <Route path="/admin/vendors" element={<AdminLayout><Vendors /></AdminLayout>} />
-              <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
-              <Route path="/projects" element={<Projects />} />
-              <Route path="/create-project" element={<CreateProject />} />
-              <Route path="/project-dashboard" element={<ProjectDashboard />} />
-              <Route path="/budget" element={<BudgetManagement />} />
-              <Route path="/checklist" element={<ChecklistPage />} />
-              <Route path="/messages" element={<Messages />} />
-              <Route path="/venue-designer" element={<VenueDesigner />} />
-              <Route path="/payments" element={<PaymentManagement />} />
+              <Route path="/" element={<Home />} />
+              <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
+              <Route path="/create-project" element={<RequireAuth><CreateProject /></RequireAuth>} />
+              <Route path="/project-dashboard" element={<RequireAuth><ProjectDashboard /></RequireAuth>} />
+              <Route path="/budget" element={<RequireAuth><BudgetManagement /></RequireAuth>} />
+              <Route path="/checklist" element={<RequireAuth><ChecklistPage /></RequireAuth>} />
+              <Route path="/messages" element={<RequireAuth><Messages /></RequireAuth>} />
+              <Route path="/venue-designer" element={<RequireAuth><VenueDesigner /></RequireAuth>} />
+              <Route path="/payments" element={<RequireAuth><PaymentManagement /></RequireAuth>} />
             </Routes>
           </main>
         </>

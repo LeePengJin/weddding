@@ -1,186 +1,175 @@
 import React from 'react';
+import { Box, Typography, Button } from '@mui/material';
 import { Link } from 'react-router-dom';
 import './VendorDashboard.styles.css';
 
+// Asset URLs from Figma
+const imgFrame4 = 'https://www.figma.com/api/mcp/asset/44209aa2-4bac-4373-ba5d-be797609c2e0';
+const imgFrame5 = 'https://www.figma.com/api/mcp/asset/12223afe-ab7b-498b-977c-a7deb3163b0a';
+const imgFrame6 = 'https://www.figma.com/api/mcp/asset/82678cec-5f26-4886-8686-a66b3d87d17c';
+
 const VendorDashboard = () => {
-  // Mock data
-  const stats = {
-    newBookings: {
-      count: 12,
+  const stats = [
+    {
       label: 'New Bookings',
-      subtext: 'requests awaiting response'
+      value: '12',
+      subtext: 'requests awaiting response',
+      icon: imgFrame4,
     },
-    confirmedBookings: {
-      count: 25,
-      label: 'Confirmed Bookings'
+    {
+      label: 'Confirmed Bookings',
+      value: '25',
+      subtext: null,
+      icon: imgFrame5,
     },
-    totalListings: {
-      count: 58,
+    {
       label: 'Total Listings',
-      subtext: 'active items and services'
+      value: '58',
+      subtext: 'active items and services',
+      icon: imgFrame4,
     },
-    totalRevenue: {
-      amount: 45231.90,
-      label: 'Total Revenue'
-    }
-  };
+    {
+      label: 'Total Revenue',
+      value: 'RM 45,231.90',
+      subtext: null,
+      icon: imgFrame6,
+    },
+  ];
 
   const recentActivities = [
     {
-      type: 'booking_request',
       title: 'New booking request',
       description: 'From Sarah & John',
-      time: '5m ago'
+      time: '5m ago',
     },
     {
-      type: 'listing_update',
       title: 'Listing updated',
       description: 'Classic Rose Bouquet',
-      time: '2h ago'
+      time: '2h ago',
     },
     {
-      type: 'review',
       title: 'New review received',
       description: '5 stars for DJ Services',
-      time: '6h ago'
+      time: '18h ago',
     },
     {
-      type: 'payment',
       title: 'Payment received',
-      description: 'RM 1,500 from Wedding #1024',
-      time: 'yesterday'
-    }
+      description: 'RM 1,200 from Wedding #1024',
+      time: 'yesterday',
+    },
   ];
 
   const topListings = [
     {
       name: '4-Hour DJ Set',
       category: 'Entertainment',
-      rating: 4.8
+      rating: 4.9,
     },
     {
       name: 'Classic Rose Bouquet',
-      category: 'Florist',
-      rating: 4.8
+      category: 'Florals',
+      rating: 4.8,
     },
     {
       name: 'Uplighting Package',
       category: 'Decor',
-      rating: 4.6
-    }
+      rating: 4.6,
+    },
   ];
 
   return (
-    <div className="vendor-dashboard">
-      {/* Stats Grid */}
-      <div className="stats-grid">
-        <div className="stat-card new-bookings">
-          <div className="stat-content">
-            <h2>{stats.newBookings.count}</h2>
-            <div className="stat-label">
-              <span>{stats.newBookings.label}</span>
-              <p>{stats.newBookings.subtext}</p>
-            </div>
-          </div>
-          <div className="stat-icon">
-            <i className="fas fa-calendar-plus"></i>
-          </div>
-        </div>
+    <Box className="vendor-dashboard-container">
+      {/* Stats Cards */}
+      <Box className="vendor-stats-grid">
+        {stats.map((stat, index) => (
+          <Box key={index} className="vendor-stat-card">
+            <Box className="vendor-stat-content">
+              <Typography className="vendor-stat-label">{stat.label}</Typography>
+              <Box className="vendor-stat-icon">
+                <img src={stat.icon} alt="" />
+              </Box>
+              <Box className="vendor-stat-value-container">
+                <Typography className="vendor-stat-value">{stat.value}</Typography>
+                {stat.subtext && (
+                  <Typography className="vendor-stat-subtext">{stat.subtext}</Typography>
+                )}
+              </Box>
+            </Box>
+          </Box>
+        ))}
+      </Box>
 
-        <div className="stat-card confirmed-bookings">
-          <div className="stat-content">
-            <h2>{stats.confirmedBookings.count}</h2>
-            <div className="stat-label">
-              <span>{stats.confirmedBookings.label}</span>
-            </div>
-          </div>
-          <div className="stat-icon">
-            <i className="fas fa-calendar-check"></i>
-          </div>
-        </div>
-
-        <div className="stat-card total-listings">
-          <div className="stat-content">
-            <h2>{stats.totalListings.count}</h2>
-            <div className="stat-label">
-              <span>{stats.totalListings.label}</span>
-              <p>{stats.totalListings.subtext}</p>
-            </div>
-          </div>
-          <div className="stat-icon">
-            <i className="fas fa-list"></i>
-          </div>
-        </div>
-
-        <div className="stat-card total-revenue">
-          <div className="stat-content">
-            <h2>RM {stats.totalRevenue.amount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}</h2>
-            <div className="stat-label">
-              <span>{stats.totalRevenue.label}</span>
-            </div>
-          </div>
-          <div className="stat-icon">
-            <i className="fas fa-dollar-sign"></i>
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-content">
+      {/* Recent Activities and Right Panel */}
+      <Box className="vendor-dashboard-bottom">
         {/* Recent Activities */}
-        <div className="activities-section">
-          <div className="section-header">
-            <h3>Recent Activities</h3>
-            <Link to="/activities" className="view-all">View All</Link>
-          </div>
-          <div className="activities-list">
+        <Box className="vendor-activities-card">
+          <Box className="vendor-section-header">
+            <Typography className="vendor-section-title">Recent Activities</Typography>
+            <Link to="/vendor/activities" className="vendor-view-all">
+              View All
+            </Link>
+          </Box>
+          <Box className="vendor-activities-list">
             {recentActivities.map((activity, index) => (
-              <div key={index} className="activity-item">
-                <div className="activity-content">
-                  <h4>{activity.title}</h4>
-                  <p>{activity.description}</p>
-                </div>
-                <span className="activity-time">{activity.time}</span>
-              </div>
+              <Box key={index} className="vendor-activity-item">
+                <Box className="vendor-activity-content">
+                  <Typography className="vendor-activity-title">{activity.title}</Typography>
+                  <Typography className="vendor-activity-description">{activity.description}</Typography>
+                </Box>
+                <Typography className="vendor-activity-time">{activity.time}</Typography>
+              </Box>
             ))}
-          </div>
-        </div>
+          </Box>
+        </Box>
 
-        {/* Top Performing Listings */}
-        <div className="top-listings-section">
-          <div className="section-header">
-            <h3>Top Performing Listings</h3>
-            <p className="section-subtext">Your most popular items this month</p>
-          </div>
-          <div className="listings-list">
-            {topListings.map((listing, index) => (
-              <div key={index} className="listing-item">
-                <div className="listing-info">
-                  <h4>{listing.name}</h4>
-                  <p>{listing.category}</p>
-                </div>
-                <div className="listing-rating">
-                  <span>{listing.rating}</span>
-                  <i className="fas fa-star"></i>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+        {/* Right Panel - Top Performing Listings & Quick Actions */}
+        <Box className="vendor-right-panel">
+          {/* Top Performing Listings */}
+          <Box className="vendor-listings-card">
+            <Typography className="vendor-section-title">Top Performing Listings</Typography>
+            <Typography className="vendor-section-subtitle">Your most popular items this month.</Typography>
+            <Box className="vendor-listings-list">
+              {topListings.map((listing, index) => (
+                <Box key={index} className="vendor-listing-item">
+                  <Box className="vendor-listing-info">
+                    <Typography className="vendor-listing-name">{listing.name}</Typography>
+                    <Typography className="vendor-listing-category">{listing.category}</Typography>
+                  </Box>
+                  <Box className="vendor-listing-rating">
+                    <Typography className="vendor-rating-value">{listing.rating}</Typography>
+                    <Box className="vendor-star-icon">★</Box>
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          </Box>
 
-      {/* Quick Actions */}
-      <div className="quick-actions">
-        <Link to="/booking-requests" className="action-btn review-btn">
-          <i className="fas fa-calendar-alt"></i>
-          Review Booking Requests
-        </Link>
-        <Link to="/listings/new" className="action-btn add-listing-btn">
-          <i className="fas fa-plus"></i>
-          Add New Listing
-        </Link>
-      </div>
-    </div>
+          {/* Quick Actions */}
+          <Box className="vendor-actions-card">
+            <Typography className="vendor-section-title">Quick Actions</Typography>
+            <Box className="vendor-actions-buttons">
+              <Button
+                component={Link}
+                to="/vendor/booking-requests"
+                className="vendor-action-btn vendor-action-btn-review"
+                startIcon={<i className="fas fa-eye"></i>}
+              >
+                Review Booking Requests
+              </Button>
+              <Button
+                component={Link}
+                to="/vendor/listings/new"
+                className="vendor-action-btn vendor-action-btn-add"
+                startIcon={<i className="fas fa-plus"></i>}
+              >
+                Add New Listing
+              </Button>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+    </Box>
   );
 };
 
-export default VendorDashboard; 
+export default VendorDashboard;

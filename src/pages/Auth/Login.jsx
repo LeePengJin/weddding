@@ -17,8 +17,14 @@ export default function Login() {
     setError('');
     setSubmitting(true);
     try {
-      await login(email, password);
-      navigate('/');
+      const user = await login(email, password);
+      // Redirect based on user role
+      if (user.role === 'vendor') {
+        navigate('/vendor/dashboard');
+      } else {
+        // Default to homepage for couple
+        navigate('/');
+      }
     } catch (err) {
       setError(err.message || 'Login failed');
     } finally {
