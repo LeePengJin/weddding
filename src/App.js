@@ -22,12 +22,17 @@ import ForgotPassword from './pages/Auth/ForgotPassword';
 import Otp from './pages/Auth/Otp';
 import ResetPassword from './pages/Auth/ResetPassword';
 import VendorSubmitted from './pages/Auth/VendorSubmitted';
+import AdminLogin from './pages/Admin/AdminLogin';
+import AdminLayout from './admin/components/layout/AdminLayout';
+import Dashboard from './admin/pages/Dashboard';
+import Vendors from './admin/pages/Vendors';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 const AppContent = () => {
   const location = useLocation();
   const isVendorRoute = location.pathname.startsWith('/vendor') && !['/vendor/register', '/vendor/submitted'].includes(location.pathname);
-  const hideNavbar = location.pathname === '/venue-designer' || location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/vendor/register' || location.pathname === '/vendor/submitted' || location.pathname === '/forgot-password' || location.pathname === '/otp' || location.pathname === '/reset-password';
+  const isAdminRoute = location.pathname.startsWith('/admin');
+  const hideNavbar = location.pathname === '/venue-designer' || location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/vendor/register' || location.pathname === '/vendor/submitted' || location.pathname === '/forgot-password' || location.pathname === '/otp' || location.pathname === '/reset-password' || isAdminRoute;
 
   return (
     <div className="App">
@@ -55,6 +60,10 @@ const AppContent = () => {
               <Route path="/otp" element={<Otp />} />
               <Route path="/vendor/submitted" element={<VendorSubmitted />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+              <Route path="/admin/login" element={<AdminLogin />} />
+              <Route path="/admin/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />
+              <Route path="/admin/vendors" element={<AdminLayout><Vendors /></AdminLayout>} />
               <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
               <Route path="/projects" element={<Projects />} />
               <Route path="/create-project" element={<CreateProject />} />

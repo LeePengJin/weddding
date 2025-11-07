@@ -4,6 +4,8 @@ import { apiFetch } from '../../lib/api';
 import './VendorRegister.css';
 import { Box, Button, Grid, MenuItem, TextField, Typography } from '@mui/material';
 
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:4000';
+
 const BUSINESS_TYPES = [
   'Photographer',
   'Videographer',
@@ -139,6 +141,30 @@ export default function VendorRegister() {
 
     setSubmitting(true);
     try {
+      const uploadVerificationDocuments = async (files) => {
+        if (!files.length) return [];
+        const data = new FormData();
+        files.forEach((file) => data.append('files', file));
+
+        const response = await fetch(`${API_BASE_URL}/upload/vendor-docs`, {
+          method: 'POST',
+          body: data,
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to upload verification documents');
+        }
+
+        const result = await response.json();
+        return (result.files || []).map((file) => file.url);
+      };
+
+      const uploadedDocs = await uploadVerificationDocuments(formData.verificationDocs);
+      if (!uploadedDocs.length) {
+        throw new Error('Verification documents could not be uploaded');
+      }
+
       // Map UI businessType to backend enum (DJ/Music -> DJ_Music)
       const category = (formData.businessType || '').replace('/', '_');
       const payload = {
@@ -147,8 +173,7 @@ export default function VendorRegister() {
         password: formData.password,
         category,
         location: formData.location || undefined,
-        // For now, only send file names (backend expects string[]). Actual uploads can be implemented later.
-        verificationDocuments: formData.verificationDocs.map((f) => f.name),
+        verificationDocuments: uploadedDocs,
       };
 
       const resp = await apiFetch('/auth/register/vendor/request', {
