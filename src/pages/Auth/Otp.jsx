@@ -86,7 +86,7 @@ export default function Otp() {
         .catch((err) => setError(err.message || 'Invalid or expired OTP'));
       return;
     }
-    if (purpose === 'reset') {
+    if (purpose === 'reset' || purpose === 'change_password') {
       apiFetch('/auth/forgot/verify', { method: 'POST', body: JSON.stringify({ email, code }) })
         .then(() => { sessionStorage.setItem('otpCode', code); window.location.href = '/reset-password'; })
         .catch((err) => setError(err.message || 'Invalid or expired OTP'));

@@ -6,6 +6,9 @@ const cookieParser = require('cookie-parser');
 const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
 const uploadRoutes = require('./routes/upload.routes');
+const serviceListingRoutes = require('./routes/serviceListing.routes');
+const timeSlotRoutes = require('./routes/timeSlot.routes');
+const bookingRoutes = require('./routes/booking.routes');
 
 const app = express();
 
@@ -19,6 +22,9 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use('/auth', authRoutes);
 app.use('/admin', adminRoutes);
 app.use('/upload', uploadRoutes);
+app.use('/service-listings', serviceListingRoutes);
+app.use('/time-slots', timeSlotRoutes);
+app.use('/bookings', bookingRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

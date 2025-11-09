@@ -1,0 +1,24 @@
+.availability-management {
+  padding: 20px;
+}
+
+.availability-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.availability-title {
+  font-weight: 600;
+  color: #333;
+}
+
+@media (max-width: 600px) {
+  .availability-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+  }
+}
+

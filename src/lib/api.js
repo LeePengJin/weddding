@@ -1,7 +1,13 @@
 export async function apiFetch(path, options = {}) {
+  // Don't set Content-Type for FormData - browser will set it with boundary
+  const isFormData = options.body instanceof FormData;
+  const headers = isFormData 
+    ? { ...(options.headers || {}) }
+    : { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  
   const response = await fetch(`http://localhost:4000${path}` , {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers,
     ...options,
   });
   const contentType = response.headers.get('content-type') || '';

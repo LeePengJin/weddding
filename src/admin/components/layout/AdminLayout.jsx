@@ -1,7 +1,9 @@
 import React from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { Box, Drawer, AppBar, Toolbar, Avatar } from '@mui/material';
+import { Box, Drawer, AppBar, Toolbar } from '@mui/material';
 import { apiFetch } from '../../../lib/api';
+import { useAuth } from '../../../context/AuthContext';
+import UserAvatar from '../../../components/UserAvatar/UserAvatar';
 import './AdminLayout.css';
 
 const drawerWidth = 213;
@@ -9,6 +11,7 @@ const drawerWidth = 213;
 export default function AdminLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
 
   const onLogout = async () => {
     try {
@@ -53,10 +56,10 @@ export default function AdminLayout({ children }) {
           {/* Logo */}
           <Box className="admin-sidebar-header">
             <Box className="admin-logo-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="100%" height="100%" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path
-                  d="M11.9932 5.13581C9.9938 2.7984 6.65975 2.16964 4.15469 4.31001C1.64964 6.45038 1.29697 10.029 3.2642 12.5604C4.89982 14.6651 9.84977 19.1041 11.4721 20.5408C11.6536 20.7016 11.7444 20.7819 11.8502 20.8135C11.9426 20.8411 12.0437 20.8411 12.1361 20.8135C12.2419 20.7819 12.3327 20.7016 12.5142 20.5408C14.1365 19.1041 19.0865 14.6651 20.7221 12.5604C22.6893 10.029 22.3797 6.42787 19.8316 4.31001C17.2835 2.19216 13.9925 2.7984 11.9932 5.13581Z"
-                  stroke="#f5bdba"
+                  d="M16.1111 3C19.6333 3 22 6.3525 22 9.48C22 15.8138 12.1778 21 12 21C11.8222 21 2 15.8138 2 9.48C2 6.3525 4.36667 3 7.88889 3C9.91111 3 11.2333 4.02375 12 4.92375C12.7667 4.02375 14.0889 3 16.1111 3Z"
+                  stroke="currentColor"
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -111,10 +114,9 @@ export default function AdminLayout({ children }) {
           }}
         >
           <Toolbar sx={{ minHeight: '54px !important', justifyContent: 'flex-end', paddingX: 2 }}>
-            <Avatar
-              src="/images/default-avatar.png"
-              alt="Profile"
-              sx={{ width: 35, height: 35, cursor: 'pointer' }}
+            <UserAvatar
+              user={user}
+              size={35}
               onClick={() => navigate('/admin/profile')}
             />
           </Toolbar>

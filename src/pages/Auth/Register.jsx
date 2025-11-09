@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { validateName } from '../../utils/validation';
 import './Register.css';
 import { Box, Button, TextField, Typography, Tooltip } from '@mui/material';
 import { apiFetch } from '../../lib/api';
@@ -15,11 +16,37 @@ export default function Register() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({
+    name: '',
+  });
+
+  const handleNameChange = (e) => {
+    const value = e.target.value;
+    setName(value);
+    const nameError = validateName(value);
+    setFieldErrors(prev => ({ ...prev, name: nameError }));
+    setError('');
+  };
+
+  const handleNameBlur = (e) => {
+    const value = e.target.value;
+    const nameError = validateName(value);
+    setFieldErrors(prev => ({ ...prev, name: nameError }));
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    
+    // Validate name
+    const nameError = validateName(name);
+    if (nameError) {
+      setFieldErrors(prev => ({ ...prev, name: nameError }));
+      setError(nameError);
+      return;
+    }
+    
     setSubmitting(true);
     try {
       if (password !== confirmPassword) {
@@ -55,7 +82,22 @@ export default function Register() {
           <Typography variant="h5" className="register-title">Get Started Now</Typography>
           <form onSubmit={onSubmit}>
             <Box className="form-group">
-              <TextField fullWidth label="Name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Enter your name" />
+              <TextField 
+                fullWidth 
+                label="Name" 
+                value={name} 
+                onChange={handleNameChange}
+                onBlur={handleNameBlur}
+                error={!!fieldErrors.name}
+                helperText={fieldErrors.name}
+                required 
+                placeholder="Enter your name"
+                sx={{
+                  '& .MuiFormHelperText-root': {
+                    fontSize: '12px',
+                  },
+                }}
+              />
             </Box>
             <Box className="form-group">
               <TextField fullWidth label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="Enter your email" />

@@ -8,10 +8,14 @@
     "@fortawesome/fontawesome-free": "^7.0.0",
     "@mui/icons-material": "^7.3.4",
     "@mui/material": "^7.3.4",
+    "@mui/x-date-pickers": "^8.17.0",
+    "@react-three/drei": "^10.7.6",
+    "@react-three/fiber": "^9.4.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.4",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
+    "dayjs": "^1.11.19",
     "framer-motion": "^12.23.24",
     "primeicons": "^7.0.0",
     "primereact": "^10.9.7",
@@ -19,6 +23,7 @@
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.7.1",
     "react-scripts": "5.0.1",
+    "three": "^0.181.0",
     "web-vitals": "^2.1.4"
   },
   "scripts": {

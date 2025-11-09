@@ -1,0 +1,60 @@
+.vendor-profile-page {
+  min-height: calc(100vh - 64px);
+  background-color: #f5f6fa;
+  padding: 32px 24px;
+  box-sizing: border-box;
+}
+
+.vendor-profile-container {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+/* Header Section */
+.vendor-profile-header {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.vendor-profile-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vendor-profile-avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* Main Card */
+.vendor-profile-card {
+  background-color: #ffffff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+/* Responsive Design */
+@media (max-width: 960px) {
+  .vendor-profile-page {
+    padding: 24px 16px;
+  }
+
+  .vendor-profile-container {
+    gap: 24px;
+  }
+}
+
+@media (max-width: 600px) {
+  .vendor-profile-page {
+    padding: 16px 12px;
+  }
+
+  .vendor-profile-container {
+    gap: 20px;
+  }
+}
+

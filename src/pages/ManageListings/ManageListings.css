@@ -1,0 +1,209 @@
+.manage-listings-page {
+  min-height: calc(100vh - 64px);
+  background-color: #f5f6fa;
+  padding: 32px 24px;
+  box-sizing: border-box;
+}
+
+.manage-listings-container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.manage-listings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* Responsive Design */
+@media (max-width: 960px) {
+  .manage-listings-page {
+    padding: 24px 16px;
+  }
+
+  .manage-listings-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 600px) {
+  .manage-listings-page {
+    padding: 16px 12px;
+  }
+}
+
+/* Fixed card dimensions */
+.listing-card-fixed {
+  min-height: 340px;
+  max-height: 340px;
+  width: 320px;
+  min-width: 320px;
+  max-width: 320px;
+  flex: 0 0 320px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1600px) {
+  .listing-card-fixed {
+    width: calc((100% - 72px) / 4) !important;
+    flex: 0 0 calc((100% - 72px) / 4) !important;
+    min-width: 300px;
+    max-width: 320px;
+  }
+}
+
+@media (max-width: 1400px) {
+  .listing-card-fixed {
+    width: calc((100% - 54px) / 4) !important;
+    flex: 0 0 calc((100% - 54px) / 4) !important;
+    min-width: 280px;
+    max-width: 320px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .listing-card-fixed {
+    width: calc((100% - 36px) / 3) !important;
+    flex: 0 0 calc((100% - 36px) / 3) !important;
+    min-width: 300px;
+    max-width: 320px;
+  }
+}
+
+@media (max-width: 960px) {
+  .listing-card-fixed {
+    width: calc((100% - 24px) / 2) !important;
+    flex: 0 0 calc((100% - 24px) / 2) !important;
+    min-width: unset;
+    max-width: unset;
+  }
+}
+
+@media (max-width: 600px) {
+  .listing-card-fixed {
+    width: 100% !important;
+    flex: 0 0 100% !important;
+  }
+}
+
+/* Toggle Switch - From Uiverse.io by arghyaBiswasDev */
+/* The switch - the box around the slider */
+.switch {
+  font-size: 17px;
+  position: relative;
+  display: inline-block;
+  width: 3.5em;
+  height: 2em;
+}
+
+/* Hide default HTML checkbox */
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The slider */
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #fff;
+  border: 1px solid #adb5bd;
+  transition: 0.4s;
+  border-radius: 30px;
+}
+
+.slider:before {
+  position: absolute;
+  content: '';
+  height: 1.4em;
+  width: 1.4em;
+  border-radius: 20px;
+  left: 0.27em;
+  bottom: 0.25em;
+  background-color: #adb5bd;
+  transition: 0.4s;
+}
+
+input:checked + .slider {
+  background-color: #e16789;
+  border: 1px solid #e16789;
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px #e16789;
+}
+
+input:checked + .slider:before {
+  transform: translateX(1.4em);
+  background-color: #fff;
+}
+
+/* Custom Button - From Uiverse.io by BHARGAVPATEL1244, adapted for theme */
+.custom-button.create-button {
+  outline: none;
+  cursor: pointer;
+  border: none;
+  padding: 0.9rem 2rem;
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  position: relative;
+  display: inline-block;
+  letter-spacing: 0.05rem;
+  font-weight: 700;
+  font-size: 17px;
+  border-radius: 500px;
+  overflow: hidden;
+  background: #e16789;
+  color: ghostwhite;
+  transition: all 0.4s;
+}
+
+.custom-button.create-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.custom-button.create-button span {
+  position: relative;
+  z-index: 10;
+  transition: color 0.4s;
+}
+
+.custom-button.create-button:hover:not(:disabled) span {
+  color: black;
+}
+
+.custom-button.create-button::before,
+.custom-button.create-button::after {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.custom-button.create-button::before {
+  content: '';
+  background: #000;
+  width: 120%;
+  left: -10%;
+  transform: skew(30deg);
+  transition: transform 0.4s cubic-bezier(0.3, 1, 0.8, 1);
+}
+
+.custom-button.create-button:hover:not(:disabled)::before {
+  transform: translate3d(100%, 0, 0);
+}
+

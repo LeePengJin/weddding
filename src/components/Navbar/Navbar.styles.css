@@ -139,19 +139,13 @@
   cursor: pointer;
   border-radius: 50%;
   transition: transform 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .avatar-btn:hover {
   transform: scale(1.05);
-}
-
-.profile-image {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 2px solid rgba(225, 103, 137, 0.3);
-  display: block;
 }
 
 .user-dropdown {

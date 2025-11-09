@@ -3,6 +3,9 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const { PrismaClient } = require('@prisma/client');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { sendEmail } = require('../utils/mailer');
 const { passwordPolicy, generateOtpCode } = require('../utils/security');
 const { prefixedUlid } = require('../utils/id');
@@ -11,6 +14,32 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-secret';
+
+// Setup multer for profile image uploads
+const profileUploadDir = path.join(__dirname, '..', 'uploads', 'profile');
+fs.mkdirSync(profileUploadDir, { recursive: true });
+
+const profileStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, profileUploadDir),
+  filename: (req, file, cb) => {
+    // Use user ID as filename to ensure one profile pic per user
+    const ext = path.extname(file.originalname) || '.jpg';
+    cb(null, `${req.user.sub}${ext}`);
+  },
+});
+
+const profileUpload = multer({
+  storage: profileStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (_req, file, cb) => {
+    // Only accept image files
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'), false);
+    }
+  },
+});
 
 // Legacy register endpoint (can be removed later)
 router.post('/register', async (req, res, next) => {
@@ -461,9 +490,124 @@ router.post('/login', async (req, res, next) => {
 // Get current user
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { id: true, email: true, role: true } });
+    const user = await prisma.user.findUnique({ 
+      where: { id: req.user.sub }, 
+      select: { 
+        id: true, 
+        email: true, 
+        role: true, 
+        name: true, 
+        contactNumber: true, 
+        profilePicture: true,
+        vendor: {
+          select: {
+            category: true,
+            location: true,
+            description: true,
+          }
+        }
+      } 
+    });
     res.json(user);
   } catch (err) {
+    next(err);
+  }
+});
+
+// Update profile
+router.patch('/profile', requireAuth, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const schema = z.object({
+      name: z.string().min(2).max(100).optional(),
+      contactNumber: z.string().max(20).optional(),
+      profilePicture: z.string().optional(), // Can be relative path or full URL
+      // Vendor-specific fields
+      category: z.enum(['Photographer','Videographer','Venue','Caterer','Florist','DJ_Music','Other']).optional(),
+      location: z.string().min(2).max(120).optional(),
+      description: z.string().max(2000).optional(),
+    });
+    const updateData = schema.parse(req.body || {});
+    
+    // Separate user and vendor updates
+    const userUpdate = {};
+    const vendorUpdate = {};
+    
+    if (updateData.name !== undefined) userUpdate.name = updateData.name;
+    if (updateData.contactNumber !== undefined) userUpdate.contactNumber = updateData.contactNumber;
+    if (updateData.profilePicture !== undefined) userUpdate.profilePicture = updateData.profilePicture;
+    
+    if (updateData.category !== undefined) vendorUpdate.category = updateData.category;
+    if (updateData.location !== undefined) vendorUpdate.location = updateData.location;
+    if (updateData.description !== undefined) vendorUpdate.description = updateData.description;
+    
+    // Update user and vendor in transaction
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
+        where: { id: req.user.sub },
+        data: userUpdate,
+        select: { 
+          id: true, 
+          email: true, 
+          role: true, 
+          name: true, 
+          contactNumber: true, 
+          profilePicture: true 
+        },
+      });
+      
+      // Update vendor if user is a vendor and there are vendor updates
+      if (user.role === 'vendor' && Object.keys(vendorUpdate).length > 0) {
+        await tx.vendor.update({
+          where: { userId: req.user.sub },
+          data: vendorUpdate,
+        });
+      }
+      
+      // Fetch updated vendor data if user is vendor
+      if (user.role === 'vendor') {
+        const vendor = await tx.vendor.findUnique({
+          where: { userId: req.user.sub },
+          select: {
+            category: true,
+            location: true,
+            description: true,
+          }
+        });
+        return { ...updatedUser, vendor };
+      }
+      
+      return updatedUser;
+    });
+    
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
+    }
+    next(err);
+  }
+});
+
+// Upload profile image
+router.post('/profile/image', requireAuth, profileUpload.single('profileImage'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    // Return the URL to access the uploaded file
+    const profilePictureUrl = `/uploads/profile/${req.file.filename}`;
+    res.json({ profileImageUrl: profilePictureUrl });
+  } catch (err) {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File size exceeds 5MB limit' });
+      }
+      return res.status(400).json({ error: err.message });
+    }
     next(err);
   }
 });

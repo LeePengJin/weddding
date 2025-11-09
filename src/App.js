@@ -13,6 +13,7 @@ import PaymentManagement from './pages/PaymentManagement/PaymentManagement';
 import VendorDashboard from './pages/VendorDashboard/VendorDashboard';
 import BookingRequests from './pages/BookingRequests/BookingRequests';
 import ManageListings from './pages/ManageListings/ManageListings';
+import AvailabilityManagement from './pages/AvailabilityManagement/AvailabilityManagement';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import Login from './pages/Auth/Login';
 import Register from './pages/Auth/Register';
@@ -26,6 +27,8 @@ import AdminLayout from './admin/components/layout/AdminLayout';
 import Dashboard from './admin/pages/Dashboard';
 import Vendors from './admin/pages/Vendors';
 import VendorLayout from './vendor/components/layout/VendorLayout';
+import Profile from './pages/Profile/Profile';
+import VendorProfile from './pages/VendorProfile/VendorProfile';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 const AppContent = () => {
@@ -40,9 +43,9 @@ const AppContent = () => {
         <Routes>
           <Route path="/vendor/dashboard" element={<VendorLayout><VendorDashboard /></VendorLayout>} />
           <Route path="/vendor/booking-requests" element={<VendorLayout><BookingRequests /></VendorLayout>} />
-          <Route path="/vendor/availability" element={<VendorLayout><div>Availability Page</div></VendorLayout>} />
+          <Route path="/vendor/availability" element={<VendorLayout><AvailabilityManagement /></VendorLayout>} />
           <Route path="/vendor/listings" element={<VendorLayout><ManageListings /></VendorLayout>} />
-          <Route path="/vendor/profile" element={<VendorLayout><div>Profile Page</div></VendorLayout>} />
+          <Route path="/vendor/profile" element={<VendorLayout><VendorProfile /></VendorLayout>} />
         </Routes>
       ) : (
         <>
@@ -69,6 +72,7 @@ const AppContent = () => {
               <Route path="/messages" element={<RequireAuth><Messages /></RequireAuth>} />
               <Route path="/venue-designer" element={<RequireAuth><VenueDesigner /></RequireAuth>} />
               <Route path="/payments" element={<RequireAuth><PaymentManagement /></RequireAuth>} />
+              <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
             </Routes>
           </main>
         </>

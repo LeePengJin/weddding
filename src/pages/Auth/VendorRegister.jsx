@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../lib/api';
+import { validateMalaysianContactNumber } from '../../utils/validation';
 import './VendorRegister.css';
 import { Box, Button, Grid, MenuItem, TextField, Typography } from '@mui/material';
 
@@ -31,11 +32,29 @@ export default function VendorRegister() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({
+    contactNumber: '',
+  });
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     setError('');
+    
+    // Real-time validation for contact number
+    if (name === 'contactNumber') {
+      const contactError = validateMalaysianContactNumber(value);
+      setFieldErrors(prev => ({ ...prev, contactNumber: contactError }));
+    } else {
+      // Clear contact number error if other fields change
+      setFieldErrors(prev => ({ ...prev, contactNumber: '' }));
+    }
+  };
+
+  const handleContactNumberBlur = (e) => {
+    const value = e.target.value;
+    const contactError = validateMalaysianContactNumber(value);
+    setFieldErrors(prev => ({ ...prev, contactNumber: contactError }));
   };
 
   const handleFileChange = (e) => {
@@ -110,8 +129,9 @@ export default function VendorRegister() {
     if (!formData.contactNumber.trim()) {
       return 'Contact number is required';
     }
-    if (!/^[\d\s\-\+(\)]+$/.test(formData.contactNumber)) {
-      return 'Please enter a valid contact number';
+    const contactError = validateMalaysianContactNumber(formData.contactNumber);
+    if (contactError) {
+      return contactError;
     }
     if (!formData.businessType) {
       return 'Business type is required';
@@ -217,7 +237,24 @@ export default function VendorRegister() {
 
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
-                <TextField fullWidth label="Contact number" name="contactNumber" type="tel" value={formData.contactNumber} onChange={handleChange} required placeholder="Enter company contact number" />
+                <TextField 
+                  fullWidth 
+                  label="Contact number" 
+                  name="contactNumber" 
+                  type="tel" 
+                  value={formData.contactNumber} 
+                  onChange={handleChange}
+                  onBlur={handleContactNumberBlur}
+                  error={!!fieldErrors.contactNumber}
+                  helperText={fieldErrors.contactNumber}
+                  required 
+                  placeholder="e.g., 012-3456789, 03-87654321" 
+                  sx={{
+                    '& .MuiFormHelperText-root': {
+                      fontSize: '12px',
+                    },
+                  }}
+                />
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField select fullWidth label="Business Type" name="businessType" value={formData.businessType} onChange={handleChange} required sx={{ minWidth: 280 }}>
