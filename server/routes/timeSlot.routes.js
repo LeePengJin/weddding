@@ -7,9 +7,11 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // Validation schema for time slot
+// Note: Only 'personal_time_off' is allowed for vendor-level time slots
+// Service-level availability is handled separately via ServiceAvailability model
 const timeSlotSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format'),
-  status: z.enum(['booked', 'personal_time_off']),
+  status: z.enum(['personal_time_off']).default('personal_time_off'),
 });
 
 // GET /time-slots - Get all time slots (unavailable dates) for the authenticated vendor
@@ -69,6 +71,9 @@ router.post('/', requireAuth, async (req, res, next) => {
 
     const { date, status } = timeSlotSchema.parse(req.body);
 
+    // Ensure status is always personal_time_off for vendor-level time slots
+    const finalStatus = 'personal_time_off';
+
     // Check if time slot already exists for this date
     const existingTimeSlot = await prisma.timeSlot.findUnique({
       where: {
@@ -80,10 +85,10 @@ router.post('/', requireAuth, async (req, res, next) => {
     });
 
     if (existingTimeSlot) {
-      // Update existing time slot
+      // Update existing time slot (ensure it's personal_time_off)
       const updated = await prisma.timeSlot.update({
         where: { id: existingTimeSlot.id },
-        data: { status },
+        data: { status: finalStatus },
       });
       return res.json(updated);
     }
@@ -93,7 +98,7 @@ router.post('/', requireAuth, async (req, res, next) => {
       data: {
         vendorId: req.user.sub,
         date: new Date(date),
-        status,
+        status: finalStatus,
       },
     });
 

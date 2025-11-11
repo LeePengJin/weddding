@@ -110,13 +110,19 @@ model ServiceListing {
   isActive      Boolean         @default(true)
   averageRating Decimal?        @db.Decimal(3, 2)
   has3DModel    Boolean         @default(false)
-  designElementId String?
+  designElementId String?        // For single-model listings (optional)
+  availabilityType ServiceAvailabilityType @default(exclusive)
+  maxQuantity      Int?         // For quantity_based services
+  pricingPolicy    PricingPolicy @default(flat) // How to calculate units from design
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   packages      WeddingPackage[]
   designElement  DesignElement? @relation(fields: [designElementId], references: [id], onDelete: SetNull)
   reviews        Review[]
   selectedServices SelectedService[]
+  serviceAvailability ServiceAvailability[]
+  components    ServiceComponent[] // Bundle composition (for multi-element services)
+  venueProjects  WeddingProject[] @relation("ProjectVenue") // Projects that selected this service as venue
 
   @@index([vendorId])
   @@index([isActive])
@@ -187,11 +193,16 @@ model WeddingProject {
   weddingDate    DateTime
   weddingType    WeddingType
   basePackageId  String?
+  // Link selected venue service listing (specific ballroom/venue space)
+  venueServiceListingId String?
+  status         ProjectStatus  @default(draft)
+  lastAvailabilityCheck DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   couple       Couple          @relation(fields: [coupleId], references: [userId], onDelete: Cascade)
   basePackage  WeddingPackage? @relation(fields: [basePackageId], references: [id], onDelete: SetNull)
+  venueServiceListing ServiceListing? @relation("ProjectVenue", fields: [venueServiceListingId], references: [id], onDelete: SetNull)
   budget       Budget?
   venueDesign  VenueDesign?
   tasks        Task[]
@@ -199,12 +210,20 @@ model WeddingProject {
 
   @@index([coupleId])
   @@index([weddingDate])
+  @@index([venueServiceListingId])
   @@unique([coupleId, projectName])
 }
 
 enum WeddingType {
   self_organized
   prepackaged
+}
+
+// Project lifecycle for couple-side planning
+enum ProjectStatus {
+  draft
+  ready_to_book
+  booked
 }
 
 enum BookingStatus {
@@ -232,6 +251,51 @@ enum TimeSlotStatus {
   personal_time_off
 }
 
+enum ServiceAvailabilityType {
+  exclusive       // One booking per date (e.g., single ballroom)
+  reusable        // Multiple bookings allowed (e.g., bouquets)
+  quantity_based  // Track available quantity (e.g., tables)
+}
+
+enum PricingPolicy {
+  flat            // One unit per booking (e.g., photographer)
+  per_table       // Units = number of tables placed in design (e.g., centerpieces)
+  per_set         // Units = number of table sets placed (e.g., table + chairs bundle)
+  per_guest       // Units = project guest count (e.g., catering)
+  tiered          // Advanced volume pricing (can use JSON rules if needed)
+}
+
+model ServiceAvailability {
+  id                String   @id @default(uuid())
+  serviceListingId  String
+  date              DateTime @db.Date
+  availabilityType  ServiceAvailabilityType
+  maxQuantity       Int?
+  availableQuantity Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  serviceListing ServiceListing @relation(fields: [serviceListingId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceListingId, date])
+  @@index([serviceListingId, date])
+}
+
+// Bundle composition: defines what makes up 1 unit of a service listing
+model ServiceComponent {
+  id               String @id @default(uuid())
+  serviceListingId String
+  designElementId  String
+  quantityPerUnit  Int    @default(1) // e.g., 1 table or 10 chairs per set
+  role             String? // Optional label for UI (e.g., "table", "chair")
+
+  serviceListing ServiceListing @relation(fields: [serviceListingId], references: [id], onDelete: Cascade)
+  designElement  DesignElement  @relation(fields: [designElementId], references: [id], onDelete: Cascade)
+
+  @@index([serviceListingId])
+  @@index([designElementId])
+}
+
 // 3D design: basic coordinates used for positions and camera
 model Coordinates {
   id String @id @default(uuid())
@@ -248,8 +312,9 @@ model DesignElement {
   name       String?
   elementType String?
   modelFile  String
-  services   ServiceListing[]
+  services   ServiceListing[]  // Single-model listings (via designElementId)
   placements PlacedElement[]
+  components ServiceComponent[] // Bundle components (inverse relation)
 }
 
 // A venue design (scene) for a project

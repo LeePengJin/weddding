@@ -9,6 +9,9 @@ const uploadRoutes = require('./routes/upload.routes');
 const serviceListingRoutes = require('./routes/serviceListing.routes');
 const timeSlotRoutes = require('./routes/timeSlot.routes');
 const bookingRoutes = require('./routes/booking.routes');
+const availabilityRoutes = require('./routes/availability.routes');
+const projectRoutes = require('./routes/project.routes');
+const venueRoutes = require('./routes/venue.routes');
 
 const app = express();
 
@@ -25,6 +28,9 @@ app.use('/upload', uploadRoutes);
 app.use('/service-listings', serviceListingRoutes);
 app.use('/time-slots', timeSlotRoutes);
 app.use('/bookings', bookingRoutes);
+app.use('/availability', availabilityRoutes);
+app.use('/projects', projectRoutes);
+app.use('/venues', venueRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

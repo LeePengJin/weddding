@@ -16,26 +16,25 @@ import dayjs from 'dayjs';
 import { apiFetch } from '../../lib/api';
 import './AvailabilityManagement.css';
 
-// Custom Day component to show unavailable dates
+// Custom Day component to show unavailable dates (vendor time off only)
 const CustomDay = (props) => {
-  const { day, unavailableDates, bookedDates, onDateClick, minSelectableDate, ...other } = props;
+  const { day, unavailableDates, onDateClick, minSelectableDate, ...other } = props;
   // Handle dayjs date object
   const dayjsDate = dayjs(day);
   const dateObj = day.toDate ? day.toDate() : day;
   const dateStr = dateObj.toISOString().split('T')[0];
 
   // Check date status
-  const isBooked = bookedDates.has(dateStr);
-  const isUnavailable = !isBooked && unavailableDates.has(dateStr);
+  const isUnavailable = unavailableDates.has(dateStr);
   const isBeforeMinDate = dayjsDate.startOf('day').isBefore(minSelectableDate);
-  const isDisabled = other.disabled || isBooked || isBeforeMinDate;
+  const isDisabled = other.disabled || isBeforeMinDate;
 
   return (
     <PickersDay
       {...other}
       day={day}
       disabled={isDisabled}
-      className={`${isUnavailable ? 'unavailable' : ''} ${isBooked ? 'booked' : ''} ${
+      className={`${isUnavailable ? 'unavailable' : ''} ${
         isBeforeMinDate ? 'disabled-day' : ''
       }`}
       onClick={() => {
@@ -47,13 +46,7 @@ const CustomDay = (props) => {
         }
       }}
       sx={{
-        ...(isBooked && {
-          backgroundColor: '#ffebee',
-          '&:hover': {
-            backgroundColor: '#ffcdd2',
-          },
-        }),
-        ...(isUnavailable && !isBooked && {
+        ...(isUnavailable && {
           backgroundColor: '#fff3e0',
           '&:hover': {
             backgroundColor: '#ffe0b2',
@@ -71,74 +64,30 @@ const CustomDay = (props) => {
 const AvailabilityManagement = () => {
   const minSelectableDate = dayjs().startOf('day').add(1, 'day');
   const [timeSlots, setTimeSlots] = useState([]);
-  const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [currentDate, setCurrentDate] = useState(minSelectableDate);
   const [unavailableDates, setUnavailableDates] = useState(new Set());
-  const [bookedDates, setBookedDates] = useState(new Set());
   const [pendingChanges, setPendingChanges] = useState(new Set());
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchTimeSlots();
-    fetchBookings();
   }, []);
 
   useEffect(() => {
     // Update unavailable dates set when timeSlots change
+    // Only show dates marked as personal_time_off (vendor time off)
     const dates = new Set();
     timeSlots.forEach((slot) => {
-      const dateStr = new Date(slot.date).toISOString().split('T')[0];
-      dates.add(dateStr);
+      if (slot.status === 'personal_time_off') {
+        const dateStr = new Date(slot.date).toISOString().split('T')[0];
+        dates.add(dateStr);
+      }
     });
     setUnavailableDates(dates);
   }, [timeSlots]);
-
-  useEffect(() => {
-    // Extract booked dates from bookings
-    const booked = new Set();
-    bookings.forEach((booking) => {
-      // Only consider confirmed bookings or bookings that are not cancelled/rejected
-      if (
-        booking.status !== 'cancelled' &&
-        booking.status !== 'rejected' &&
-        booking.reservedDate
-      ) {
-        const dateStr = new Date(booking.reservedDate).toISOString().split('T')[0];
-        booked.add(dateStr);
-      }
-    });
-    setBookedDates(booked);
-
-    // Automatically mark booked dates as unavailable (only add to unavailableDates if not already there)
-    const newUnavailable = new Set(unavailableDates);
-    let hasChanges = false;
-
-    booked.forEach((dateStr) => {
-      if (!unavailableDates.has(dateStr)) {
-        const existingSlot = timeSlots.find(
-          (slot) => new Date(slot.date).toISOString().split('T')[0] === dateStr
-        );
-        if (!existingSlot) {
-          // Add to pending changes to mark as booked
-          setPendingChanges((prev) => {
-            const newSet = new Set(prev);
-            newSet.add(`booked-${dateStr}`);
-            return newSet;
-          });
-          newUnavailable.add(dateStr);
-          hasChanges = true;
-        }
-      }
-    });
-
-    if (hasChanges) {
-      setUnavailableDates(newUnavailable);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookings]);
 
   const fetchTimeSlots = async () => {
     try {
@@ -162,15 +111,6 @@ const AvailabilityManagement = () => {
     }
   };
 
-  const fetchBookings = async () => {
-    try {
-      const data = await apiFetch('/bookings');
-      setBookings(data);
-    } catch (err) {
-      console.error('Failed to fetch bookings:', err);
-    }
-  };
-
   const handleDateClick = (date) => {
     if (!date) return;
 
@@ -179,8 +119,8 @@ const AvailabilityManagement = () => {
     const dateStr = dateObj.toISOString().split('T')[0];
     const dateDayjs = dayjs(dateObj).startOf('day');
 
-    // Don't allow toggling booked dates or past/today dates
-    if (bookedDates.has(dateStr) || dateDayjs.isBefore(minSelectableDate)) {
+    // Don't allow toggling past/today dates
+    if (dateDayjs.isBefore(minSelectableDate)) {
       return;
     }
 
@@ -252,12 +192,8 @@ const AvailabilityManagement = () => {
           // Extract slot ID
           const slotId = change.replace('remove-', '');
           datesToRemove.push(slotId);
-        } else if (change.startsWith('booked-')) {
-          // Extract date from booked change
-          const dateStr = change.replace('booked-', '');
-          datesToAdd.push({ date: dateStr, status: 'booked' });
         } else {
-          // It's a date string to add
+          // It's a date string to add (always personal_time_off for vendor time off)
           datesToAdd.push({ date: change, status: 'personal_time_off' });
         }
       });
@@ -284,11 +220,10 @@ const AvailabilityManagement = () => {
       // Find dates that need to be added (in unavailableDates but not in currentDateSet)
       unavailableDates.forEach((dateStr) => {
         if (!currentDateSet.has(dateStr) && !datesToAdd.find((d) => d.date === dateStr)) {
-          // Check if it's a booked date
-          const isBooked = bookedDates.has(dateStr);
+          // Always add as personal_time_off (vendor time off)
           datesToAdd.push({
             date: dateStr,
-            status: isBooked ? 'booked' : 'personal_time_off',
+            status: 'personal_time_off',
           });
         }
       });
@@ -314,7 +249,6 @@ const AvailabilityManagement = () => {
       setSuccess('Availability updated successfully');
       setPendingChanges(new Set());
       await fetchTimeSlots();
-      await fetchBookings();
     } catch (err) {
       setError(err.message || 'Failed to save availability changes');
     } finally {
@@ -337,11 +271,12 @@ const AvailabilityManagement = () => {
         <Box className="availability-header">
           <Box>
             <Typography variant="h4" component="h1" className="availability-title">
-              Manage Availability
+              Manage Vendor Time Off
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mt: 1 }}>
-              Select dates on the calendar to mark them as unavailable. All other dates are
-              considered available by default.
+              Mark dates when you are unavailable for all services (e.g., vacation, maintenance).
+              This affects all your service listings. For individual service availability, manage
+              them from your listings page.
             </Typography>
           </Box>
         </Box>
@@ -398,22 +333,11 @@ const AvailabilityManagement = () => {
                     backgroundColor: '#fff3e0 !important',
                     color: '#000',
                   },
-                  '& .MuiPickersDay-root.Mui-selected.booked': {
-                    backgroundColor: '#ffebee !important',
-                    color: '#000',
-                  },
-                  '& .MuiPickersDay-root.unavailable:not(.booked)': {
+                  '& .MuiPickersDay-root.unavailable': {
                     backgroundColor: '#fff3e0 !important',
                     color: '#000',
                     '&:hover': {
                       backgroundColor: '#ffe0b2 !important',
-                    },
-                  },
-                  '& .MuiPickersDay-root.booked': {
-                    backgroundColor: '#ffebee !important',
-                    color: '#000',
-                    '&:hover': {
-                      backgroundColor: '#ffcdd2 !important',
                     },
                   },
                   '& .MuiPickersDay-root.disabled-day': {
@@ -426,7 +350,6 @@ const AvailabilityManagement = () => {
                 slotProps={{
                   day: {
                     unavailableDates,
-                    bookedDates,
                     onDateClick: handleDateClick,
                     minSelectableDate,
                   },
@@ -445,24 +368,12 @@ const AvailabilityManagement = () => {
                 sx={{
                   width: 20,
                   height: 20,
-                  backgroundColor: '#ffebee',
-                  border: '1px solid #e0e0e0',
-                  borderRadius: 1,
-                }}
-              />
-              <Typography variant="caption">Booked</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Box
-                sx={{
-                  width: 20,
-                  height: 20,
                   backgroundColor: '#fff3e0',
                   border: '1px solid #e0e0e0',
                   borderRadius: 1,
                 }}
               />
-              <Typography variant="caption">Day Off</Typography>
+              <Typography variant="caption">Time Off</Typography>
             </Box>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <Box
