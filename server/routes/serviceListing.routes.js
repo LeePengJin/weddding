@@ -43,26 +43,48 @@ const serviceImageUpload = multer({
 
 // Validation schema for service listing
 const SAFE_TEXT = /^[A-Za-z0-9 .,'-]+$/;
-const serviceListingSchema = z.object({
-  name: z
-    .string()
-    .min(10, 'Service name must be at least 10 characters')
-    .max(100, 'Service name must be at most 100 characters')
-    .regex(SAFE_TEXT, 'Service name may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen'),
-  description: z
-    .string()
-    .min(10, 'Description must be at least 10 characters')
-    .max(2000, 'Description must be at most 2000 characters')
-    .regex(SAFE_TEXT, 'Description may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen')
-    .optional()
-    .nullable(),
-  category: z.enum(['Photographer', 'Videographer', 'Venue', 'Caterer', 'Florist', 'DJ_Music', 'Other']),
-  price: z
-    .number()
-    .min(0, 'Price cannot be less than 0')
-    .max(1000000, 'Price cannot exceed RM 1,000,000'),
-  isActive: z.boolean().optional().default(true),
-});
+const serviceListingSchema = z
+  .object({
+    name: z
+      .string()
+      .min(10, 'Service name must be at least 10 characters')
+      .max(100, 'Service name must be at most 100 characters')
+      .regex(SAFE_TEXT, 'Service name may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen'),
+    description: z
+      .string()
+      .min(10, 'Description must be at least 10 characters')
+      .max(2000, 'Description must be at most 2000 characters')
+      .regex(SAFE_TEXT, 'Description may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen')
+      .optional()
+      .nullable(),
+    category: z.enum(['Photographer', 'Videographer', 'Venue', 'Caterer', 'Florist', 'DJ_Music', 'Other']),
+    customCategory: z
+      .string()
+      .min(2, 'Custom category must be at least 2 characters')
+      .max(50, 'Custom category must be at most 50 characters')
+      .regex(SAFE_TEXT, 'Custom category may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen')
+      .optional()
+      .nullable(),
+    price: z
+      .number()
+      .min(0, 'Price cannot be less than 0')
+      .max(1000000, 'Price cannot exceed RM 1,000,000'),
+    isActive: z.boolean().optional().default(true),
+  })
+  .refine(
+    (data) => {
+      // If category is "Other", customCategory is required
+      if (data.category === 'Other') {
+        return data.customCategory && data.customCategory.trim().length >= 2;
+      }
+      // If category is not "Other", customCategory should be null/empty
+      return !data.customCategory || data.customCategory.trim().length === 0;
+    },
+    {
+      message: 'Custom category is required when category is "Other"',
+      path: ['customCategory'],
+    }
+  );
 
 // GET /service-listings - Get all service listings for the authenticated vendor
 router.get('/', requireAuth, async (req, res, next) => {
@@ -149,7 +171,7 @@ router.post('/', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    const { name, description, category, price, isActive } = serviceListingSchema.parse(req.body);
+    const { name, description, category, customCategory, price, isActive } = serviceListingSchema.parse(req.body);
 
     const listing = await prisma.serviceListing.create({
       data: {
@@ -157,6 +179,7 @@ router.post('/', requireAuth, async (req, res, next) => {
         name,
         description: description || null,
         category,
+        customCategory: category === 'Other' ? customCategory : null,
         price: parseFloat(price),
         isActive: isActive !== undefined ? isActive : true,
         images: [],
@@ -196,32 +219,80 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     }
 
     // Partial schema for updates
-    const updateSchema = z.object({
-      name: z
-        .string()
-        .min(10, 'Service name must be at least 10 characters')
-        .max(100, 'Service name must be at most 100 characters')
-        .regex(SAFE_TEXT, 'Service name may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen')
-        .optional(),
-      description: z
-        .string()
-        .min(10, 'Description must be at least 10 characters')
-        .max(2000, 'Description must be at most 2000 characters')
-        .regex(SAFE_TEXT, 'Description may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen')
-        .optional()
-        .nullable(),
-      category: z.enum(['Photographer', 'Videographer', 'Venue', 'Caterer', 'Florist', 'DJ_Music', 'Other']).optional(),
-      price: z
-        .number()
-        .min(0, 'Price cannot be less than 0')
-        .max(1000000, 'Price cannot exceed RM 1,000,000')
-        .optional(),
-      isActive: z.boolean().optional(),
-    });
+    const updateSchema = z
+      .object({
+        name: z
+          .string()
+          .min(10, 'Service name must be at least 10 characters')
+          .max(100, 'Service name must be at most 100 characters')
+          .regex(SAFE_TEXT, 'Service name may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen')
+          .optional(),
+        description: z
+          .string()
+          .min(10, 'Description must be at least 10 characters')
+          .max(2000, 'Description must be at most 2000 characters')
+          .regex(SAFE_TEXT, 'Description may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen')
+          .optional()
+          .nullable(),
+        category: z.enum(['Photographer', 'Videographer', 'Venue', 'Caterer', 'Florist', 'DJ_Music', 'Other']).optional(),
+        customCategory: z
+          .string()
+          .min(2, 'Custom category must be at least 2 characters')
+          .max(50, 'Custom category must be at most 50 characters')
+          .regex(SAFE_TEXT, 'Custom category may only include letters, numbers, spaces, period, comma, apostrophe, and hyphen')
+          .optional()
+          .nullable(),
+        price: z
+          .number()
+          .min(0, 'Price cannot be less than 0')
+          .max(1000000, 'Price cannot exceed RM 1,000,000')
+          .optional(),
+        isActive: z.boolean().optional(),
+      })
+      .refine(
+        (data) => {
+          // If category is "Other", customCategory is required
+          if (data.category === 'Other') {
+            return data.customCategory && data.customCategory.trim().length >= 2;
+          }
+          // If category is provided and not "Other", customCategory should be null/empty
+          if (data.category && data.category !== 'Other') {
+            return !data.customCategory || data.customCategory.trim().length === 0;
+          }
+          return true;
+        },
+        {
+          message: 'Custom category is required when category is "Other"',
+          path: ['customCategory'],
+        }
+      );
 
     const updateData = updateSchema.parse(req.body);
     if (updateData.price !== undefined) {
       updateData.price = parseFloat(updateData.price);
+    }
+
+    // Handle customCategory based on category
+    if (updateData.category !== undefined) {
+      if (updateData.category === 'Other') {
+        // Ensure customCategory is set when category is Other
+        if (!updateData.customCategory) {
+          return res.status(400).json({ error: 'Custom category is required when category is "Other"' });
+        }
+        updateData.customCategory = updateData.customCategory;
+      } else {
+        // Clear customCategory when category is not Other
+        updateData.customCategory = null;
+      }
+    } else if (updateData.customCategory !== undefined) {
+      // If only customCategory is being updated, check current category
+      const currentListing = await prisma.serviceListing.findUnique({
+        where: { id: req.params.id },
+        select: { category: true },
+      });
+      if (currentListing.category !== 'Other') {
+        updateData.customCategory = null;
+      }
     }
 
     const updatedListing = await prisma.serviceListing.update({

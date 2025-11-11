@@ -39,8 +39,8 @@
 
 /* Fixed card dimensions */
 .listing-card-fixed {
-  min-height: 340px;
-  max-height: 340px;
+  min-height: 400px;
+  max-height: 400px;
   width: 320px;
   min-width: 320px;
   max-width: 320px;
@@ -205,5 +205,17 @@ input:checked + .slider:before {
 
 .custom-button.create-button:hover:not(:disabled)::before {
   transform: translate3d(100%, 0, 0);
+}
+
+/* Description truncation - Strictly 2 lines */
+.listing-description-clamp {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  line-height: 1.4 !important;
+  max-height: 2.8rem !important;
+  word-break: break-word;
 }
 

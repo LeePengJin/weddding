@@ -75,6 +75,7 @@ const ManageListings = () => {
     name: '',
     description: '',
     category: '',
+    customCategory: '',
     price: '',
     isActive: true,
   });
@@ -122,6 +123,7 @@ const ManageListings = () => {
         name: listing.name || '',
         description: listing.description || '',
         category: listing.category || '',
+        customCategory: listing.customCategory || '',
         price: listing.price || '',
         isActive: listing.isActive !== undefined ? listing.isActive : true,
       });
@@ -135,6 +137,7 @@ const ManageListings = () => {
         name: '',
         description: '',
         category: '',
+        customCategory: '',
         price: '',
         isActive: true,
       });
@@ -157,6 +160,7 @@ const ManageListings = () => {
       name: '',
       description: '',
       category: '',
+      customCategory: '',
       price: '',
       isActive: true,
     });
@@ -258,6 +262,10 @@ const ManageListings = () => {
     const descriptionError = validateServiceDescription(formData.description);
     const priceError = validateServicePrice(formData.price);
     const categoryError = !formData.category ? 'Category is required' : '';
+    const customCategoryError =
+      formData.category === 'Other' && (!formData.customCategory || formData.customCategory.trim().length < 2)
+        ? 'Custom category is required (2-50 characters)'
+        : '';
     const imageError = validateServiceImages(images);
 
     setFieldErrors({
@@ -265,10 +273,11 @@ const ManageListings = () => {
       description: descriptionError,
       price: priceError,
       category: categoryError,
+      customCategory: customCategoryError,
       images: imageError,
     });
 
-    return !nameError && !descriptionError && !priceError && !categoryError && !imageError;
+    return !nameError && !descriptionError && !priceError && !categoryError && !customCategoryError && !imageError;
   };
 
   const handleSave = async () => {
@@ -288,6 +297,7 @@ const ManageListings = () => {
           name: formData.name,
           description: formData.description || null,
           category: formData.category,
+          customCategory: formData.category === 'Other' ? formData.customCategory : null,
           price: parseFloat(formData.price),
           isActive: formData.isActive,
         };
@@ -328,6 +338,7 @@ const ManageListings = () => {
           name: formData.name,
           description: formData.description || null,
           category: formData.category,
+          customCategory: formData.category === 'Other' ? formData.customCategory : null,
           price: parseFloat(formData.price),
           isActive: formData.isActive,
         };
@@ -413,10 +424,14 @@ const ManageListings = () => {
 
   // Filter listings based on search and active filter
   const filteredListings = listings.filter((listing) => {
+    const displayCategory = listing.category === 'Other' && listing.customCategory 
+      ? listing.customCategory 
+      : listing.category;
     const matchesSearch =
       listing.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (listing.description && listing.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      listing.category.toLowerCase().includes(searchQuery.toLowerCase());
+      listing.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (listing.customCategory && listing.customCategory.toLowerCase().includes(searchQuery.toLowerCase()));
     
     const matchesActiveFilter = !showActiveOnly || listing.isActive;
     
@@ -438,7 +453,9 @@ const ManageListings = () => {
         comparison = new Date(a.createdAt) - new Date(b.createdAt);
         break;
       case 'category':
-        comparison = a.category.localeCompare(b.category);
+        const categoryA = a.category === 'Other' && a.customCategory ? a.customCategory : a.category;
+        const categoryB = b.category === 'Other' && b.customCategory ? b.customCategory : b.category;
+        comparison = categoryA.localeCompare(categoryB);
         break;
       default:
         comparison = 0;
@@ -668,10 +685,14 @@ const ManageListings = () => {
         ) : (
           <Box
             sx={{
-              display: 'flex',
-              flexWrap: 'wrap',
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: '1fr',
+                sm: 'repeat(2, 1fr)',
+                md: 'repeat(3, 1fr)',
+                lg: 'repeat(4, 1fr)',
+              },
               gap: 3,
-              justifyContent: 'space-between',
             }}
           >
             {paginatedListings.map((listing) => (
@@ -679,8 +700,10 @@ const ManageListings = () => {
                 key={listing.id}
                 className="listing-card-fixed"
                 sx={{
-                  height: '340px',
-                  width: '340px',
+                  height: '420px',
+                  width: '100%',
+                  maxWidth: '340px',
+                  mx: 'auto',
                   display: 'flex',
                   flexDirection: 'column',
                   borderRadius: 1.5,
@@ -696,7 +719,7 @@ const ManageListings = () => {
                 {/* Image */}
                 <CardMedia
                   component="img"
-                  height="140"
+                  height="200"
                     image={
                       listing.images && listing.images.length > 0
                         ? getImageUrl(listing.images[0])
@@ -706,9 +729,9 @@ const ManageListings = () => {
                     sx={{ objectFit: 'cover' }}
                   />
 
-                  <CardContent sx={{ flexGrow: 1, p: 2, display: 'flex', flexDirection: 'column' }}>
+                  <CardContent sx={{ flexGrow: 1, p: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     {/* Header with menu */}
-                    <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
+                    <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1} sx={{ flexShrink: 0 }}>
                       <Typography
                         variant="h6"
                         sx={{
@@ -729,16 +752,16 @@ const ManageListings = () => {
                       <IconButton
                         size="small"
                         onClick={(e) => handleMenuOpen(e, listing)}
-                        sx={{ color: '#666', p: 0.5 }}
+                        sx={{ color: '#666', p: 0.5, flexShrink: 0 }}
                       >
                         <MoreVertIcon fontSize="small" />
                       </IconButton>
                     </Box>
 
                     {/* Category and Status Chips */}
-                    <Box display="flex" gap={1} mb={1.5} flexWrap="wrap">
+                    <Box display="flex" gap={1} mb={1.5} flexWrap="wrap" sx={{ flexShrink: 0 }}>
                       <Chip
-                        label={listing.category}
+                        label={listing.category === 'Other' && listing.customCategory ? listing.customCategory : listing.category}
                         size="small"
                         sx={{
                           backgroundColor: '#f3f4f6',
@@ -760,26 +783,32 @@ const ManageListings = () => {
                       />
                     </Box>
 
-                    {/* Description */}
+                    {/* Description - Strictly 2 lines with ellipsis */}
+                    <Box
+                      sx={{
+                        flex: '1 1 auto',
+                        minHeight: '2.8rem',
+                        maxHeight: '2.8rem',
+                        overflow: 'hidden',
+                        mb: 1.5,
+                      }}
+                    >
                     <Typography
                       variant="body2"
                       color="text.secondary"
+                        className="listing-description-clamp"
                       sx={{
-                        mb: 'auto',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 3,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        lineHeight: 1.5,
-                        fontSize: '0.875rem',
-                        flexGrow: 1,
+                          fontSize: '0.8rem',
+                          margin: 0,
+                          padding: 0,
                       }}
                     >
                       {listing.description || 'No description provided'}
                     </Typography>
+                    </Box>
 
-                    {/* Price */}
-                    <Box sx={{ mt: 2 }}>
+                    {/* Price - Always visible at bottom */}
+                    <Box sx={{ mt: 'auto', pt: 1.5, borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
                       <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a1a1a', fontSize: '1.1rem' }}>
                         RM {parseFloat(listing.price).toLocaleString()}
                       </Typography>
@@ -863,13 +892,33 @@ const ManageListings = () => {
               sx={{ '& .MuiInputBase-input':{border: 'none'}, '& .MuiFormHelperText-root': { fontSize: '12px' } }}
             />
 
+            {/* 3D Model Preview - Show second (after service name) */}
+            {editingListing && editingListing.has3DModel && editingListing.designElement && (
+              <Box>
+                <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+                  3D Model Preview
+                </Typography>
+                <Model3DViewer
+                  modelUrl={editingListing.designElement.modelFile}
+                  width="100%"
+                  height="400px"
+                />
+              </Box>
+            )}
+
             {/* Category */}
             <TextField
               fullWidth
               select
               label="Category"
               value={formData.category}
-              onChange={(e) => handleInputChange('category', e.target.value)}
+              onChange={(e) => {
+                handleInputChange('category', e.target.value);
+                // Clear customCategory if category is not "Other"
+                if (e.target.value !== 'Other') {
+                  handleInputChange('customCategory', '');
+                }
+              }}
               error={!!fieldErrors.category}
               helperText={fieldErrors.category}
               required
@@ -881,6 +930,20 @@ const ManageListings = () => {
                 </MenuItem>
               ))}
             </TextField>
+
+            {/* Custom Category - Only show when "Other" is selected */}
+            {formData.category === 'Other' && (
+              <TextField
+                fullWidth
+                label="Custom Category Name"
+                value={formData.customCategory}
+                onChange={(e) => handleInputChange('customCategory', e.target.value)}
+                error={!!fieldErrors.customCategory}
+                helperText={fieldErrors.customCategory || 'Enter a custom category name (2-50 characters)'}
+                required
+                sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
+              />
+            )}
 
             {/* Description */}
             <TextField
@@ -1042,20 +1105,6 @@ const ManageListings = () => {
                       <CloseIcon fontSize="small" />
                     </IconButton>
                   </Box>
-                  
-                  {/* 3D Model Preview */}
-                  {editingListing && editingListing.has3DModel && editingListing.designElement && (
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-                        3D Model Preview
-                      </Typography>
-                      <Model3DViewer
-                        modelUrl={editingListing.designElement.modelFile}
-                        width="100%"
-                        height="400px"
-                      />
-                    </Box>
-                  )}
                 </>
               )}
             </Box>

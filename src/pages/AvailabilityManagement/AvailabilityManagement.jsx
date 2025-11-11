@@ -18,26 +18,30 @@ import './AvailabilityManagement.css';
 
 // Custom Day component to show unavailable dates
 const CustomDay = (props) => {
-  const { day, unavailableDates, bookedDates, onDateClick, ...other } = props;
+  const { day, unavailableDates, bookedDates, onDateClick, minSelectableDate, ...other } = props;
   // Handle dayjs date object
+  const dayjsDate = dayjs(day);
   const dateObj = day.toDate ? day.toDate() : day;
   const dateStr = dateObj.toISOString().split('T')[0];
-  
-  // Check if date is booked first (booked takes priority)
+
+  // Check date status
   const isBooked = bookedDates.has(dateStr);
-  // Only show as unavailable if it's in unavailableDates AND not booked
   const isUnavailable = !isBooked && unavailableDates.has(dateStr);
+  const isBeforeMinDate = dayjsDate.startOf('day').isBefore(minSelectableDate);
+  const isDisabled = other.disabled || isBooked || isBeforeMinDate;
 
   return (
     <PickersDay
       {...other}
       day={day}
-      className={`${isUnavailable ? 'unavailable' : ''} ${isBooked ? 'booked' : ''}`}
+      disabled={isDisabled}
+      className={`${isUnavailable ? 'unavailable' : ''} ${isBooked ? 'booked' : ''} ${
+        isBeforeMinDate ? 'disabled-day' : ''
+      }`}
       onClick={() => {
-        if (onDateClick) {
+        if (!isDisabled && onDateClick) {
           onDateClick(day);
         }
-        // Also call the default onClick if it exists
         if (other.onClick) {
           other.onClick();
         }
@@ -55,20 +59,23 @@ const CustomDay = (props) => {
             backgroundColor: '#ffe0b2',
           },
         }),
-        cursor: isBooked ? 'not-allowed' : 'pointer',
-        opacity: isBooked ? 0.7 : 1,
+        ...(isBeforeMinDate && {
+          opacity: 0.35,
+        }),
+        cursor: isDisabled ? 'not-allowed' : 'pointer',
       }}
     />
   );
 };
 
 const AvailabilityManagement = () => {
+  const minSelectableDate = dayjs().startOf('day').add(1, 'day');
   const [timeSlots, setTimeSlots] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  const [currentDate, setCurrentDate] = useState(dayjs());
+  const [currentDate, setCurrentDate] = useState(minSelectableDate);
   const [unavailableDates, setUnavailableDates] = useState(new Set());
   const [bookedDates, setBookedDates] = useState(new Set());
   const [pendingChanges, setPendingChanges] = useState(new Set());
@@ -170,9 +177,10 @@ const AvailabilityManagement = () => {
     // Handle dayjs date object
     const dateObj = date.toDate ? date.toDate() : date;
     const dateStr = dateObj.toISOString().split('T')[0];
+    const dateDayjs = dayjs(dateObj).startOf('day');
 
-    // Don't allow toggling booked dates
-    if (bookedDates.has(dateStr)) {
+    // Don't allow toggling booked dates or past/today dates
+    if (bookedDates.has(dateStr) || dateDayjs.isBefore(minSelectableDate)) {
       return;
     }
 
@@ -370,7 +378,30 @@ const AvailabilityManagement = () => {
                     setCurrentDate(newDate);
                   }
                 }}
+                shouldDisableDate={(date) => date.startOf('day').isBefore(minSelectableDate)}
+                disableHighlightToday
                 sx={{
+                  '& .MuiPickersDay-root': {
+                    transition: 'all 0.15s ease-in-out',
+                  },
+                  '& .MuiPickersDay-root.Mui-selected': {
+                    backgroundColor: 'transparent !important',
+                    border: '2px solid #E16789',
+                    color: '#E16789',
+                    fontWeight: 600,
+                    boxShadow: 'none',
+                    '&:hover': {
+                      backgroundColor: '#fde4eb !important',
+                    },
+                  },
+                  '& .MuiPickersDay-root.Mui-selected.unavailable': {
+                    backgroundColor: '#fff3e0 !important',
+                    color: '#000',
+                  },
+                  '& .MuiPickersDay-root.Mui-selected.booked': {
+                    backgroundColor: '#ffebee !important',
+                    color: '#000',
+                  },
                   '& .MuiPickersDay-root.unavailable:not(.booked)': {
                     backgroundColor: '#fff3e0 !important',
                     color: '#000',
@@ -385,6 +416,9 @@ const AvailabilityManagement = () => {
                       backgroundColor: '#ffcdd2 !important',
                     },
                   },
+                  '& .MuiPickersDay-root.disabled-day': {
+                    color: '#b0b0b0',
+                  },
                 }}
                 slots={{
                   day: CustomDay,
@@ -394,6 +428,7 @@ const AvailabilityManagement = () => {
                     unavailableDates,
                     bookedDates,
                     onDateClick: handleDateClick,
+                    minSelectableDate,
                   },
                 }}
               />
@@ -415,7 +450,7 @@ const AvailabilityManagement = () => {
                   borderRadius: 1,
                 }}
               />
-              <Typography variant="caption">Booked (Auto Unavailable)</Typography>
+              <Typography variant="caption">Booked</Typography>
             </Box>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <Box
@@ -441,6 +476,9 @@ const AvailabilityManagement = () => {
               />
               <Typography variant="caption">Available</Typography>
             </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+              Dates up to and including today are locked.
+            </Typography>
           </Box>
 
           {/* Save Changes Button */}

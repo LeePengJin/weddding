@@ -104,6 +104,7 @@ model ServiceListing {
   name          String
   description   String?
   category      VendorCategory
+  customCategory String?         // Custom category name when category is "Other"
   price         Decimal         @db.Decimal(12, 2)
   images        String[]        @default([])
   isActive      Boolean         @default(true)

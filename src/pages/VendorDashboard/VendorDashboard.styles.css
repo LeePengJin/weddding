@@ -299,24 +299,23 @@
 }
 
 .vendor-action-btn-review {
-  background: #ffffff;
-  color: #1f2937;
-  border: 1px solid #d1d5db;
+  background: #e16789;
+  border: none;
 }
 
 .vendor-action-btn-review:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
+  background: #d1537a;
+  color: #ffffff;
 }
 
 .vendor-action-btn-add {
   background: #e16789;
-  color: #ffffff;
   border: none;
 }
 
 .vendor-action-btn-add:hover {
   background: #d1537a;
+  color: #ffffff;
 }
 
 /* Responsive Design */
