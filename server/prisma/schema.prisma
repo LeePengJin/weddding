@@ -83,6 +83,7 @@ model Vendor {
   conversations        Conversation[]
   bookings             Booking[]
   timeSlots            TimeSlot[]
+  designElements       DesignElement[]
 }
 
 // Initial set of categories; we keep OTHER to allow future expansion
@@ -285,12 +286,12 @@ model ServiceAvailability {
 model ServiceComponent {
   id               String @id @default(uuid())
   serviceListingId String
-  designElementId  String
+  designElementId  String? // Optional - component can exist without 3D model
   quantityPerUnit  Int    @default(1) // e.g., 1 table or 10 chairs per set
   role             String? // Optional label for UI (e.g., "table", "chair")
 
   serviceListing ServiceListing @relation(fields: [serviceListingId], references: [id], onDelete: Cascade)
-  designElement  DesignElement  @relation(fields: [designElementId], references: [id], onDelete: Cascade)
+  designElement  DesignElement?  @relation(fields: [designElementId], references: [id], onDelete: SetNull)
 
   @@index([serviceListingId])
   @@index([designElementId])
@@ -309,12 +310,18 @@ model Coordinates {
 // Library of reusable 3D elements
 model DesignElement {
   id         String           @id @default(uuid())
+  vendorId   String           // Owner vendor
+  vendor     Vendor           @relation(fields: [vendorId], references: [userId], onDelete: Cascade)
   name       String?
   elementType String?
   modelFile  String
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
   services   ServiceListing[]  // Single-model listings (via designElementId)
   placements PlacedElement[]
   components ServiceComponent[] // Bundle components (inverse relation)
+
+  @@index([vendorId])
 }
 
 // A venue design (scene) for a project

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../lib/api';
 import dayjs from 'dayjs';
+import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
 import './Projects.styles.css';
 
 const Projects = () => {
@@ -9,6 +10,7 @@ const Projects = () => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, projectId: null, projectName: '' });
 
   useEffect(() => {
     fetchProjects();
@@ -34,8 +36,35 @@ const Projects = () => {
     return dayjs(dateString).format('DD-MM-YYYY');
   };
 
-  const handleProjectClick = (projectId) => {
+  const handleProjectClick = (projectId, e) => {
+    // Don't navigate if clicking on delete button
+    if (e && e.target.closest('.project-delete-button')) {
+      return;
+    }
     navigate(`/project-dashboard?projectId=${projectId}`);
+  };
+
+  const handleDeleteClick = (e, projectId, projectName) => {
+    e.stopPropagation();
+    setDeleteDialog({ open: true, projectId, projectName });
+  };
+
+  const handleConfirmDelete = async () => {
+    try {
+      await apiFetch(`/projects/${deleteDialog.projectId}`, {
+        method: 'DELETE',
+      });
+      // Refresh projects list
+      fetchProjects();
+      setDeleteDialog({ open: false, projectId: null, projectName: '' });
+    } catch (err) {
+      setError(err.message || 'Failed to delete project');
+      setDeleteDialog({ open: false, projectId: null, projectName: '' });
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setDeleteDialog({ open: false, projectId: null, projectName: '' });
   };
 
   return (
@@ -68,8 +97,16 @@ const Projects = () => {
             <div
               key={project.id}
               className="project-card"
-              onClick={() => handleProjectClick(project.id)}
+              onClick={(e) => handleProjectClick(project.id, e)}
             >
+              <button
+                className="project-delete-button"
+                onClick={(e) => handleDeleteClick(e, project.id, project.projectName)}
+                aria-label={`Delete ${project.projectName}`}
+                title="Delete project"
+              >
+                <i className="fas fa-trash-alt"></i>
+              </button>
               <div className="project-card-content">
                 <h3 className="project-name">{project.projectName}</h3>
                 <p className="project-last-update">
@@ -91,6 +128,16 @@ const Projects = () => {
           </Link>
         </div>
       )}
+
+      <ConfirmationDialog
+        open={deleteDialog.open}
+        onClose={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+        title="Delete Project?"
+        description={`Are you sure you want to delete "${deleteDialog.projectName}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+      />
     </div>
   );
 };

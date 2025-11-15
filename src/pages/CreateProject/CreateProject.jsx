@@ -118,34 +118,30 @@ const CreateProject = () => {
   };
 
   const renderProgressBar = () => {
-    const steps = [
-      { num: 1, label: 'Date & Time' },
-      { num: 2, label: 'Venue' },
-      { num: 3, label: 'Preparation' },
-      { num: 4, label: 'Project Name' },
-      { num: 5, label: 'Summary' }
-    ];
+    const stepsList = [1, 2, 3, 4, 5];
+    const progressRatio =
+      stepsList.length > 1 ? (step - 1) / (stepsList.length - 1) : 0;
 
     return (
       <div className="create-project-progress">
-        <div className="progress-steps">
-          {steps.map((stepItem, index) => (
-            <div key={stepItem.num} className="progress-step-wrapper">
-              <div className={`progress-step ${step >= stepItem.num ? 'active' : ''} ${step === stepItem.num ? 'current' : ''}`}>
-                <div className="step-circle">
-                  {step > stepItem.num ? (
-                    <i className="fas fa-check"></i>
-                  ) : (
-                    <span>{stepItem.num}</span>
-                  )}
-                </div>
-                <div className="step-label">{stepItem.label}</div>
+        <div
+          className="progress-stepper"
+          style={{ '--progress-ratio': progressRatio }}
+        >
+          {stepsList.map((stepNumber) => {
+            const status =
+              stepNumber < step ? 'completed' : stepNumber === step ? 'current' : 'upcoming';
+
+            return (
+              <div key={stepNumber} className={`stepper-circle ${status}`}>
+                {status === 'completed' ? (
+                  <i className="fas fa-check"></i>
+                ) : (
+                  <span>{stepNumber}</span>
+                )}
               </div>
-              {index < steps.length - 1 && (
-                <div className={`progress-line ${step > stepItem.num ? 'active' : ''}`}></div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -199,17 +195,21 @@ const CreateProject = () => {
         </div>
 
         <div className="navigation-buttons">
-          {step > 1 && (
+          {step > 1 ? (
             <button className="nav-button prev-button" onClick={prevStep}>
               <i className="fas fa-arrow-left"></i>
               <span>Previous</span>
             </button>
+          ) : (
+            <span className="nav-button-spacer" />
           )}
-          {step < 5 && (
+          {step < 5 ? (
             <button className="nav-button next-button" onClick={nextStep}>
               <span>Next</span>
               <i className="fas fa-arrow-right"></i>
             </button>
+          ) : (
+            <span className="nav-button-spacer" />
           )}
         </div>
       </div>

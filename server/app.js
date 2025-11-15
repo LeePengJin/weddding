@@ -12,6 +12,7 @@ const bookingRoutes = require('./routes/booking.routes');
 const availabilityRoutes = require('./routes/availability.routes');
 const projectRoutes = require('./routes/project.routes');
 const venueRoutes = require('./routes/venue.routes');
+const designElementRoutes = require('./routes/designElement.routes');
 
 const app = express();
 
@@ -31,6 +32,7 @@ app.use('/bookings', bookingRoutes);
 app.use('/availability', availabilityRoutes);
 app.use('/projects', projectRoutes);
 app.use('/venues', venueRoutes);
+app.use('/design-elements', designElementRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

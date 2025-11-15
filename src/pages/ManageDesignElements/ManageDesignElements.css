@@ -1,0 +1,26 @@
+.manage-design-elements-page {
+  min-height: 100vh;
+  background-color: #f5f6fa;
+  padding: 40px 20px;
+}
+
+.manage-design-elements-container {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.manage-design-elements-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 30px;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .manage-design-elements-header {
+    flex-direction: column;
+  }
+}
+

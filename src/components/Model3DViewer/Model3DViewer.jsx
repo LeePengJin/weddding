@@ -124,7 +124,7 @@ const Model3DViewer = ({ modelUrl, width = '100%', height = '400px' }) => {
               </mesh>
             }
           >
-            <PerspectiveCamera makeDefault position={[0, 0, 5]} fov={50} />
+            <PerspectiveCamera makeDefault position={[0, 0, 2.5]} fov={50} />
             <ambientLight intensity={0.5} />
             <directionalLight position={[10, 10, 5]} intensity={1} />
             <directionalLight position={[-10, -10, -5]} intensity={0.5} />
@@ -134,8 +134,8 @@ const Model3DViewer = ({ modelUrl, width = '100%', height = '400px' }) => {
               enablePan={true}
               enableZoom={true}
               enableRotate={true}
-              minDistance={2}
-              maxDistance={10}
+              minDistance={1}
+              maxDistance={8}
             />
           </Suspense>
         </Canvas>

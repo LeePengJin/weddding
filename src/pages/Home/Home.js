@@ -11,7 +11,16 @@ import {
   IconButton,
   Fade,
 } from '@mui/material';
-import { ChevronLeft, ChevronRight } from '@mui/icons-material';
+import {
+  ChevronLeft,
+  ChevronRight,
+  CreateNewFolder as CreateProjectIcon,
+  ViewInAr as View3DIcon,
+  AccountBalanceWallet as BudgetIcon,
+  Checklist as ChecklistIcon,
+  Payment as PaymentIcon,
+  Apps as PlatformIcon,
+} from '@mui/icons-material';
 import TiltedCard from '../../components/TiltedCard/TiltedCard';
 import './Home.styles.css';
 
@@ -19,12 +28,12 @@ const HERO_IMAGE = 'https://www.figma.com/api/mcp/asset/c2f0c88c-14cb-4ef4-b162-
 const TESTIMONIAL_BG = 'https://www.figma.com/api/mcp/asset/4ded24f0-d5cd-4c2f-ad3a-fa4e629a8abb';
 
 const FEATURE_ICONS = [
-  'https://www.figma.com/api/mcp/asset/a97089b4-a415-4495-9846-8e522bab5759',
-  'https://www.figma.com/api/mcp/asset/b1b01ac6-413a-4c88-afe6-4bd4ff3caaf9',
-  'https://www.figma.com/api/mcp/asset/73664980-3f4a-41e7-b7f1-4ec7be272d74',
-  'https://www.figma.com/api/mcp/asset/d1b95157-da07-4fb5-842e-aa59834eeb90',
-  'https://www.figma.com/api/mcp/asset/06f15c92-72ee-4b38-92f9-dd6e88402a8c',
-  'https://www.figma.com/api/mcp/asset/5e38b571-f58f-4954-a9e4-0d4ecda2cfe4',
+  CreateProjectIcon,
+  View3DIcon,
+  BudgetIcon,
+  ChecklistIcon,
+  PaymentIcon,
+  PlatformIcon,
 ];
 
 const FEATURES = [
@@ -242,7 +251,9 @@ const Home = () => {
                   >
                     <CardContent sx={{ width: '100%' }}>
                       <Box sx={{ display: 'flex', justifyContent: 'center', marginBottom: 2 }}>
-                        <img src={FEATURE_ICONS[index]} alt="" style={{ width: '56px', height: '56px' }} />
+                        {React.createElement(FEATURE_ICONS[index], {
+                          sx: { fontSize: '56px', color: '#e16789' },
+                        })}
                       </Box>
                       <Typography
                         variant="h6"

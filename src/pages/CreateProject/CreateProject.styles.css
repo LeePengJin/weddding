@@ -25,133 +25,136 @@
 .create-project-subtitle {
   font-family: 'Playfair Display', serif;
   font-size: 16px;
-  color: #333;
+  font-weight: 400;
+  color: #666;
   margin: 0;
-  opacity: 0.8;
+  line-height: 1.6;
 }
 
-/* Progress Bar */
+/* Step Progress Indicator */
 .create-project-progress {
   margin-bottom: 40px;
   animation: fadeIn 0.8s ease-out;
 }
 
-.progress-steps {
+.progress-stepper {
+  position: relative;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  position: relative;
-  max-width: 770px;
-  margin: 0 auto;
-  padding: 0 20px;
+  width: 100%;
+  padding: 0;
 }
 
-.progress-step-wrapper {
-  display: flex;
-  align-items: center;
-  flex: 1;
-  position: relative;
+.progress-stepper::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(76px / 2);
+  width: calc(100% - 76px);
+  height: 4px;
+  background: rgba(225, 103, 137, 0.18);
+  border-radius: 999px;
+  transform: translateY(-50%);
 }
 
-.progress-step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  position: relative;
-  z-index: 2;
-  flex: 1;
-  transition: all 0.3s ease;
+.progress-stepper::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: calc(76px / 2);
+  width: calc((100% - 76px) * var(--progress-ratio, 0));
+  height: 4px;
+  background: linear-gradient(90deg, #E16789 0%, #d4567a 100%);
+  border-radius: 999px;
+  transform: translateY(-50%);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.step-circle {
-  width: 48px;
-  height: 48px;
+.stepper-circle {
+  width: 76px;
+  height: 76px;
   border-radius: 50%;
-  background: white;
-  border: 2px solid #d9d9d9;
+  background: #ffffff;
+  border: 4px solid rgba(225, 103, 137, 0.35);
+  box-shadow: 0px 4px 12px rgba(225, 103, 137, 0.18);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  font-size: 16px;
-  color: #999;
-  transition: all 0.3s ease;
-  cursor: pointer;
-}
-
-.step-circle i {
-  color: white;
-  font-size: 18px;
-}
-
-.progress-step.active .step-circle {
-  background: #e16789;
-  border-color: #e16789;
-  color: white;
-  transform: scale(1.1);
-  box-shadow: 0 4px 12px rgba(225, 103, 137, 0.3);
-}
-
-.progress-step.current .step-circle {
-  animation: pulse 2s infinite;
-}
-
-.step-label {
-  margin-top: 10px;
-  font-size: 14px;
-  color: #999;
-  font-weight: 500;
-  text-align: center;
-  transition: all 0.3s ease;
-  white-space: nowrap;
-}
-
-.progress-step.active .step-label {
-  color: #e16789;
-  font-weight: 700;
-}
-
-.progress-line {
-  flex: 1;
-  height: 2px;
-  background: #d9d9d9;
-  margin: 0 10px;
+  font-family: 'Playfair Display', serif;
+  font-size: 26px;
+  font-weight: 600;
+  color: #E16789;
   position: relative;
-  top: -24px;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
 }
 
-.progress-line.active {
-  background: #e16789;
-  height: 3px;
+.stepper-circle.completed {
+  background: linear-gradient(135deg, #E16789 0%, #d4567a 100%);
+  border: none;
+  color: white;
+  box-shadow: 0px 12px 24px rgba(225, 103, 137, 0.35);
 }
+
+.stepper-circle.current {
+  background: linear-gradient(135deg, #E16789 0%, #d4567a 100%);
+  color: white;
+  border: 4px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0px 10px 22px rgba(225, 103, 137, 0.35);
+}
+
+.stepper-circle.current span {
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.stepper-circle.upcoming {
+  background: #ffffff;
+  border: 4px solid rgba(225, 103, 137, 0.35);
+  color: #E16789;
+}
+
+.stepper-circle.completed i {
+  font-size: 28px;
+  color: white;
+}
+
 
 /* Content Area */
 .create-project-content {
   background: white;
   border-radius: 12px;
-  border: 1px solid #d9d9d9;
-  padding: 30px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e0e0e0;
+  padding: 24px;
+  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.1);
   animation: fadeInUp 0.6s ease-out;
+  transition: box-shadow 0.3s ease;
+}
+
+.create-project-content:hover {
+  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.12);
 }
 
 .step-container {
   min-height: 400px;
+  width: 100%;
 }
 
 /* Error Message */
 .error-message {
   background: #fee;
   border: 1px solid #fcc;
-  border-radius: 6px;
-  padding: 12px 16px;
-  margin-bottom: 20px;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   color: #c33;
-  animation: shake 0.5s ease;
+  font-size: 14px;
+  animation: fadeInDown 0.3s ease;
+  box-shadow: 0px 2px 6px rgba(204, 0, 0, 0.1);
 }
 
 .error-message i {
@@ -161,6 +164,7 @@
 /* Step Content */
 .step-content {
   animation: fadeIn 0.4s ease-out;
+  width: 100%;
 }
 
 .step-header {
@@ -193,27 +197,40 @@
 }
 
 .step-description {
-  margin-bottom: 30px;
+  margin-bottom: 24px;
 }
 
 .step-description p {
   font-size: 16px;
+  font-weight: 400;
   color: #666;
   margin: 0;
+  line-height: 1.6;
 }
 
 /* Step 1: Date & Time Selection */
 .date-time-selection {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 30px;
-  margin-bottom: 30px;
+  grid-template-columns: minmax(0, 3fr) minmax(260px, 1fr);
+  gap: 24px;
+  margin-bottom: 32px;
+  align-items: flex-start;
 }
 
 .date-time-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  width: 100%;
+}
+
+.date-time-group.calendar-group {
+  grid-column: auto;
+  width: 100%;
+}
+
+.date-time-group.time-group {
+  max-width: 100%;
 }
 
 .date-time-label {
@@ -221,6 +238,7 @@
   font-size: 16px;
   font-weight: 700;
   color: #333;
+  margin-bottom: 4px;
 }
 
 .date-picker-input,
@@ -236,11 +254,13 @@
 .preview-card {
   background: rgba(225, 103, 137, 0.1);
   border: 1px solid rgba(225, 103, 137, 0.3);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 20px;
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 16px;
+  box-shadow: 0px 2px 6px rgba(225, 103, 137, 0.1);
+  transition: all 0.3s ease;
 }
 
 .preview-card i {
@@ -253,21 +273,33 @@
 }
 
 .preview-label {
-  font-size: 12px;
+  font-size: 14px;
   color: #999;
-  margin: 0 0 5px 0;
+  margin: 0 0 8px 0;
+  font-weight: 500;
 }
 
 .preview-value {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   color: #333;
   margin: 0;
+  line-height: 1.5;
 }
 
 /* Step 2: Venue Selection */
-.venue-search-form {
+.venue-search-section {
+  display: flex;
+  align-items: center;
+  gap: 20px;
   margin-bottom: 30px;
+  flex-wrap: wrap;
+}
+
+.venue-search-form {
+  flex: 1;
+  min-width: 250px;
+  margin-bottom: 0;
 }
 
 .search-input-wrapper {
@@ -286,18 +318,25 @@
 
 .venue-search-input {
   width: 100%;
-  padding: 12px 15px 12px 45px;
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
+  padding: 14px 16px 14px 48px;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
   font-size: 16px;
   font-family: 'Playfair Display', serif;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.05);
+  background: white;
 }
 
 .venue-search-input:focus {
   outline: none;
-  border-color: #e16789;
-  box-shadow: 0 0 0 3px rgba(225, 103, 137, 0.1);
+  border-color: #E16789;
+  box-shadow: 0px 0px 0px 3px rgba(225, 103, 137, 0.1), 0px 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.venue-search-input:hover {
+  border-color: #E16789;
+  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .loading-venues,
@@ -326,18 +365,19 @@
 }
 
 .venue-card {
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   background: white;
+  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .venue-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-  border-color: #e16789;
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.15);
+  border-color: #E16789;
 }
 
 .venue-card.selected {
@@ -384,6 +424,69 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
+.venue-info-button {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.92);
+  color: #E16789;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.venue-info-button:hover {
+  background: #E16789;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(225, 103, 137, 0.25);
+  transform: translateY(-1px);
+}
+
+.venue-info-button:focus-visible {
+  outline: 2px solid rgba(225, 103, 137, 0.8);
+  outline-offset: 2px;
+}
+
+.venue-filter-controls {
+  margin-bottom: 0;
+  padding: 12px 16px;
+  background: rgba(225, 103, 137, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(225, 103, 137, 0.2);
+  white-space: nowrap;
+}
+
+.venue-filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333;
+  user-select: none;
+}
+
+.venue-filter-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: #E16789;
+}
+
+.venue-filter-toggle span {
+  font-weight: 500;
+}
+
 .venue-availability-overlay {
   position: absolute;
   bottom: 10px;
@@ -419,6 +522,414 @@
   color: #f44336;
 }
 
+.venue-details-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1200;
+}
+
+.venue-details-modal {
+  position: relative;
+  background: #ffffff;
+  border-radius: 18px;
+  max-width: 720px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.25);
+  animation: modalFadeIn 0.25s ease;
+}
+
+.venue-details-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.venue-details-close:hover {
+  background: #E16789;
+  color: #ffffff;
+}
+
+.venue-details-close:focus-visible {
+  outline: 2px solid rgba(225, 103, 137, 0.8);
+  outline-offset: 2px;
+}
+
+.venue-details-close-bottom {
+  margin-top: 24px;
+  padding: 12px 24px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.venue-details-close-bottom:hover {
+  background: #f5f5f5;
+  border-color: #E16789;
+  color: #E16789;
+}
+
+.venue-details-close-bottom:focus-visible {
+  outline: 2px solid rgba(225, 103, 137, 0.8);
+  outline-offset: 2px;
+}
+
+.venue-details-close-bottom i {
+  font-size: 14px;
+}
+
+.venue-details-hero {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 18px 18px 0 0;
+  background: linear-gradient(135deg, #f8f5f6 0%, #f0f4f8 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.venue-details-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease, box-shadow 0.35s ease;
+  cursor: zoom-in;
+}
+
+.venue-details-hero img:hover {
+  transform: scale(1.02);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.22);
+}
+
+.venue-hero-control {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(15, 23, 42, 0.65);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.3);
+  z-index: 2;
+}
+
+.venue-hero-control.prev {
+  left: 18px;
+}
+
+.venue-hero-control.next {
+  right: 18px;
+}
+
+.venue-hero-control:hover {
+  background: rgba(225, 103, 137, 0.85);
+  transform: translateY(-50%) scale(1.05);
+}
+
+.venue-hero-control:focus-visible {
+  outline: 2px solid rgba(225, 103, 137, 0.8);
+  outline-offset: 2px;
+}
+
+.venue-hero-counter {
+  position: absolute;
+  right: 20px;
+  bottom: 18px;
+  background: rgba(15, 23, 42, 0.58);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+  z-index: 2;
+}
+
+.venue-hero-thumbnails {
+  display: flex;
+  gap: 12px;
+  padding: 14px 32px 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(225, 103, 137, 0.4) transparent;
+}
+
+.venue-hero-thumbnails::-webkit-scrollbar {
+  height: 6px;
+}
+
+.venue-hero-thumbnails::-webkit-scrollbar-thumb {
+  background: rgba(225, 103, 137, 0.4);
+  border-radius: 999px;
+}
+
+.venue-thumbnail {
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  width: 74px;
+  height: 54px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.venue-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.venue-thumbnail:hover,
+.venue-thumbnail:focus-visible {
+  border-color: rgba(225, 103, 137, 0.45);
+  transform: translateY(-2px);
+}
+
+.venue-thumbnail.active {
+  border-color: #E16789;
+  box-shadow: 0 6px 18px rgba(225, 103, 137, 0.35);
+}
+
+.venue-thumbnail:focus-visible {
+  outline: 2px solid rgba(225, 103, 137, 0.6);
+  outline-offset: 2px;
+}
+
+.venue-fullscreen-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  z-index: 1300;
+  animation: modalFadeIn 0.25s ease;
+}
+
+.venue-fullscreen-inner {
+  position: relative;
+  width: min(960px, 92vw);
+  background: #111827;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 32px 80px rgba(15, 23, 42, 0.6);
+}
+
+.venue-fullscreen-inner img {
+  width: 100%;
+  height: auto;
+  max-height: 80vh;
+  object-fit: cover;
+  display: block;
+  cursor: zoom-out;
+}
+
+.venue-fullscreen-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(15, 23, 42, 0.7);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 2;
+}
+
+.venue-fullscreen-close:hover {
+  background: rgba(225, 103, 137, 0.9);
+  transform: scale(1.05);
+}
+
+.venue-fullscreen-close:focus-visible {
+  outline: 2px solid rgba(225, 103, 137, 0.8);
+  outline-offset: 2px;
+}
+
+.venue-fullscreen-control {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(15, 23, 42, 0.75);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 2;
+}
+
+.venue-fullscreen-control.prev {
+  left: 24px;
+}
+
+.venue-fullscreen-control.next {
+  right: 24px;
+}
+
+.venue-fullscreen-control:hover {
+  background: rgba(225, 103, 137, 0.95);
+  transform: translateY(-50%) scale(1.08);
+}
+
+.venue-fullscreen-control:focus-visible {
+  outline: 2px solid rgba(225, 103, 137, 0.8);
+  outline-offset: 2px;
+}
+
+.venue-fullscreen-counter {
+  position: absolute;
+  bottom: 22px;
+  right: 24px;
+  background: rgba(15, 23, 42, 0.7);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 999px;
+  letter-spacing: 0.5px;
+  z-index: 2;
+  backdrop-filter: blur(4px);
+}
+
+.venue-details-content {
+  padding: 28px 32px 36px;
+}
+
+.venue-details-content h3 {
+  font-family: 'Playfair Display', serif;
+  font-size: 26px;
+  margin: 0 0 18px;
+  color: #1f2937;
+}
+
+.venue-details-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px 18px;
+  margin-bottom: 24px;
+}
+
+.venue-details-meta p {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: #4b5563;
+}
+
+.venue-details-meta i {
+  color: #E16789;
+}
+
+.venue-details-section {
+  margin-bottom: 24px;
+}
+
+.venue-details-section h4 {
+  font-size: 18px;
+  margin: 0 0 12px;
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.venue-details-section p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #4b5563;
+}
+
+.venue-amenities-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 16px;
+}
+
+.venue-amenities-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.venue-amenities-list i {
+  color: #4caf50;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .venue-info {
   padding: 15px;
 }
@@ -438,12 +949,13 @@
 }
 
 .venue-details p {
-  font-size: 12px;
+  font-size: 14px;
   color: #666;
   margin: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  line-height: 1.5;
 }
 
 .venue-details i {
@@ -476,19 +988,20 @@
 }
 
 .wedding-type-card {
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
-  padding: 30px;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 24px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   background: white;
+  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .wedding-type-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-  border-color: #e16789;
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.15);
+  border-color: #E16789;
 }
 
 .wedding-type-card.selected {
@@ -526,10 +1039,11 @@
 }
 
 .type-description {
-  font-size: 14px;
+  font-size: 16px;
   color: #666;
   margin: 0;
-  line-height: 1.5;
+  line-height: 1.6;
+  font-weight: 400;
 }
 
 .packages-section {
@@ -641,23 +1155,31 @@
 
 .project-name-input {
   width: 100%;
-  padding: 15px 20px;
-  border: 1px solid #d9d9d9;
-  border-radius: 6px;
+  padding: 16px 20px;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
   font-size: 18px;
   font-family: 'Playfair Display', serif;
   text-align: center;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.05);
+  background: white;
 }
 
 .project-name-input:focus {
   outline: none;
-  border-color: #e16789;
-  box-shadow: 0 0 0 3px rgba(225, 103, 137, 0.1);
+  border-color: #E16789;
+  box-shadow: 0px 0px 0px 3px rgba(225, 103, 137, 0.1), 0px 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.project-name-input:hover {
+  border-color: #E16789;
+  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .project-name-input.error {
   border-color: #f44336;
+  box-shadow: 0px 0px 0px 3px rgba(244, 67, 54, 0.1);
 }
 
 .input-error-message,
@@ -705,20 +1227,23 @@
 }
 
 .suggestion-chip {
-  padding: 8px 16px;
-  border: 1px solid #d9d9d9;
-  border-radius: 20px;
+  padding: 10px 18px;
+  border: 1px solid #e0e0e0;
+  border-radius: 24px;
   background: white;
   color: #666;
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .suggestion-chip:hover {
-  border-color: #e16789;
-  color: #e16789;
+  border-color: #E16789;
+  color: #E16789;
   background: rgba(225, 103, 137, 0.05);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0px 4px 8px rgba(225, 103, 137, 0.2);
 }
 
 /* Step 5: Summary */
@@ -730,7 +1255,7 @@
 }
 
 .summary-section {
-  border-bottom: 1px solid #d9d9d9;
+  border-bottom: 1px solid #e0e0e0;
   padding: 20px 0;
 }
 
@@ -766,8 +1291,10 @@
 
 .summary-item {
   display: flex;
-  gap: 10px;
-  font-size: 14px;
+  gap: 12px;
+  font-size: 16px;
+  padding: 8px 0;
+  transition: all 0.2s ease;
 }
 
 .summary-item.full-width {
@@ -777,11 +1304,14 @@
 .summary-label {
   font-weight: 700;
   color: #333;
-  min-width: 120px;
+  min-width: 140px;
+  font-size: 16px;
 }
 
 .summary-value {
   color: #666;
+  font-size: 16px;
+  font-weight: 400;
 }
 
 .availability-checking {
@@ -857,16 +1387,17 @@
 }
 
 .confirm-button {
-  background: #e16789;
+  background: linear-gradient(135deg, #E16789 0%, #d4567a 100%);
   color: white;
   flex: 1;
   justify-content: center;
+  box-shadow: 0px 2px 6px rgba(225, 103, 137, 0.3);
 }
 
 .confirm-button:hover:not(:disabled) {
-  background: #d4567a;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(225, 103, 137, 0.3);
+  background: linear-gradient(135deg, #d4567a 0%, #c34569 100%);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0px 4px 16px rgba(225, 103, 137, 0.4);
 }
 
 .action-button:disabled {
@@ -878,45 +1409,62 @@
 .navigation-buttons {
   display: flex;
   justify-content: space-between;
-  margin-top: 30px;
-  padding-top: 30px;
+  margin-top: 24px;
+  padding-top: 24px;
   border-top: 1px solid #e0e0e0;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
 }
 
 .nav-button {
-  padding: 12px 24px;
+  padding: 14px 28px;
   border: none;
-  border-radius: 6px;
+  border-radius: 12px;
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 10px;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: 'Playfair Display', serif;
+  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .prev-button {
   background: #f5f5f5;
   color: #333;
-  border: 1px solid #d9d9d9;
+  border: 1px solid #e0e0e0;
 }
 
 .prev-button:hover {
-  background: #e0e0e0;
+  background: #e8e8e8;
+  transform: translateY(-2px);
+  box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .next-button {
-  background: #e16789;
+  background: linear-gradient(135deg, #E16789 0%, #d4567a 100%);
   color: white;
   margin-left: auto;
 }
 
 .next-button:hover {
-  background: #d4567a;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(225, 103, 137, 0.3);
+  background: linear-gradient(135deg, #d4567a 0%, #c34569 100%);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0px 4px 16px rgba(225, 103, 137, 0.4);
+}
+
+.nav-button:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.nav-button-spacer {
+  display: inline-block;
+  width: 180px;
+  height: 54px;
+  visibility: hidden;
 }
 
 /* Animations */
@@ -986,7 +1534,131 @@
 /* Responsive Design */
 @media (max-width: 768px) {
   .create-project-container {
-    padding: 20px 15px;
+    padding: 24px 16px;
+  }
+
+  .create-project-title {
+    font-size: 28px;
+  }
+
+  .create-project-subtitle {
+    font-size: 16px;
+  }
+
+  .create-project-content {
+    padding: 20px;
+  }
+
+  .date-time-selection {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .date-time-group.calendar-group {
+    grid-column: 1;
+  }
+
+  .date-time-group.time-group {
+    max-width: 100%;
+  }
+
+  .venues-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .wedding-type-options {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .packages-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .summary-actions {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .action-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .navigation-buttons {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .nav-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .nav-button-spacer {
+    display: none;
+  }
+
+  .next-button {
+    margin-left: 0;
+  }
+
+  .progress-bar-label {
+    font-size: 12px;
+  }
+
+  .venue-details-modal {
+    max-width: 100%;
+    max-height: 92vh;
+  }
+
+  .venue-details-content {
+    padding: 24px 20px 28px;
+  }
+
+  .venue-details-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .venue-details-hero {
+    aspect-ratio: 4 / 3;
+  }
+
+  .venue-hero-control {
+    width: 36px;
+    height: 36px;
+  }
+
+  .venue-hero-counter {
+    right: 16px;
+    bottom: 14px;
+  }
+
+  .venue-hero-thumbnails {
+    padding: 12px 20px 2px;
+    gap: 10px;
+  }
+
+  .venue-thumbnail {
+    width: 68px;
+    height: 50px;
+  }
+
+  .venue-fullscreen-backdrop {
+    padding: 24px;
+  }
+
+  .venue-fullscreen-control {
+    width: 42px;
+    height: 42px;
+  }
+}
+
+@media (max-width: 480px) {
+  .create-project-container {
+    padding: 20px 12px;
   }
 
   .create-project-title {
@@ -997,78 +1669,81 @@
     font-size: 14px;
   }
 
-  .progress-steps {
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-
-  .progress-step {
-    flex: 0 0 auto;
-    min-width: 80px;
-  }
-
-  .step-label {
-    font-size: 12px;
-  }
-
-  .progress-line {
-    display: none;
-  }
-
-  .create-project-content {
-    padding: 20px;
-  }
-
-  .date-time-selection {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-
-  .venues-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .wedding-type-options {
-    grid-template-columns: 1fr;
-  }
-
-  .packages-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .summary-actions {
-    flex-direction: column;
-  }
-
-  .action-button {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .navigation-buttons {
-    flex-direction: column;
-  }
-
-  .next-button {
-    margin-left: 0;
-    width: 100%;
-  }
-}
-
-@media (max-width: 480px) {
-  .create-project-title {
+  .step-title {
     font-size: 20px;
   }
 
-  .step-title {
-    font-size: 18px;
+  .step-description p {
+    font-size: 14px;
+  }
+
+  .create-project-content {
+    padding: 16px;
   }
 
   .venue-card {
-    margin-bottom: 15px;
+    margin-bottom: 16px;
   }
 
   .wedding-type-card {
     padding: 20px;
+  }
+
+  .project-name-input {
+    font-size: 16px;
+    padding: 14px 16px;
+  }
+
+  .summary-item {
+    font-size: 14px;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .summary-label {
+    min-width: auto;
+    font-size: 14px;
+  }
+
+  .summary-value {
+    font-size: 14px;
+  }
+
+  .venue-info-button {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .venue-details-content {
+    padding: 20px 18px 24px;
+  }
+
+  .venue-details-content h3 {
+    font-size: 22px;
+  }
+
+  .venue-hero-control {
+    width: 32px;
+    height: 32px;
+  }
+
+  .venue-thumbnail {
+    width: 60px;
+    height: 44px;
+  }
+
+  .venue-hero-thumbnails {
+    padding: 10px 16px 0;
+    gap: 8px;
+  }
+
+  .venue-fullscreen-control {
+    width: 36px;
+    height: 36px;
+  }
+
+  .venue-fullscreen-backdrop {
+    padding: 16px;
   }
 }

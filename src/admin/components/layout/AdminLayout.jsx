@@ -1,6 +1,11 @@
 import React from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Box, Drawer, AppBar, Toolbar } from '@mui/material';
+import {
+  Dashboard as DashboardIcon,
+  VerifiedUser as VerifiedUserIcon,
+  Logout as LogoutIcon,
+} from '@mui/icons-material';
 import { apiFetch } from '../../../lib/api';
 import { useAuth } from '../../../context/AuthContext';
 import UserAvatar from '../../../components/UserAvatar/UserAvatar';
@@ -24,12 +29,12 @@ export default function AdminLayout({ children }) {
     {
       label: 'Dashboard',
       path: '/admin/dashboard',
-      icon: 'https://www.figma.com/api/mcp/asset/2e132df0-c9c2-46c2-92aa-cd94095244a1',
+      icon: DashboardIcon,
     },
     {
       label: 'Vendor Verification',
       path: '/admin/vendors',
-      icon: 'https://www.figma.com/api/mcp/asset/4f315dc4-7386-4251-9342-19e8fa3f6950',
+      icon: VerifiedUserIcon,
     },
   ];
 
@@ -71,28 +76,31 @@ export default function AdminLayout({ children }) {
 
           {/* Divider */}
           <Box className="admin-sidebar-divider">
-            <img src="https://www.figma.com/api/mcp/asset/38fa94e3-ae67-49b8-b8dd-8a452be60b35" alt="" />
+            <Box sx={{ width: '100%', height: '1px', backgroundColor: '#d9d9d9' }} />
           </Box>
 
           {/* Menu Items */}
           <Box className="admin-sidebar-nav">
-            {menuItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`admin-nav-item ${location.pathname === item.path ? 'active' : ''}`}
-              >
-                <Box className="admin-nav-icon">
-                  <img src={item.icon} alt="" />
-                </Box>
-                <Box className="admin-nav-label">{item.label}</Box>
-              </Link>
-            ))}
+            {menuItems.map((item) => {
+              const IconComponent = item.icon;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`admin-nav-item ${location.pathname === item.path ? 'active' : ''}`}
+                >
+                  <Box className="admin-nav-icon">
+                    <IconComponent sx={{ fontSize: '15px', color: 'inherit' }} />
+                  </Box>
+                  <Box className="admin-nav-label">{item.label}</Box>
+                </Link>
+              );
+            })}
 
             {/* Logout */}
             <Box className="admin-nav-item admin-logout-item" onClick={onLogout}>
               <Box className="admin-nav-icon">
-                <img src="https://www.figma.com/api/mcp/asset/76d764b2-eb08-4515-a5c8-e21a6d6d6ed0" alt="" />
+                <LogoutIcon sx={{ fontSize: '15px', color: 'inherit' }} />
               </Box>
               <Box className="admin-nav-label">Logout</Box>
             </Box>

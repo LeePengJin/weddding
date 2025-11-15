@@ -38,6 +38,12 @@ router.get('/check', async (req, res, next) => {
 
 // Helper function to check availability for a single service
 async function checkServiceAvailability(serviceListingId, date) {
+  // Parse date string (YYYY-MM-DD) as local date to avoid timezone issues
+  // When using new Date("YYYY-MM-DD"), it's interpreted as UTC, which can cause off-by-one day errors
+  // By appending 'T00:00:00', we ensure it's treated as local midnight
+  const [year, month, day] = date.split('-').map(Number);
+  const localDate = new Date(year, month - 1, day); // month is 0-indexed
+  
   const serviceListing = await prisma.serviceListing.findUnique({
     where: { id: serviceListingId },
     include: {
@@ -45,7 +51,7 @@ async function checkServiceAvailability(serviceListingId, date) {
         include: {
           timeSlots: {
             where: {
-              date: new Date(date),
+              date: localDate,
               status: 'personal_time_off',
             },
           },

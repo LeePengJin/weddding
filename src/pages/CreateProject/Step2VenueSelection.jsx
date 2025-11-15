@@ -1,74 +1,140 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiFetch } from '../../lib/api';
 import './CreateProject.styles.css';
+
+const normalizeVenueImages = (venue) => {
+  if (!venue) return [];
+
+  const images = [];
+
+  if (Array.isArray(venue.images)) {
+    images.push(...venue.images);
+  }
+
+  if (Array.isArray(venue.galleryImages)) {
+    images.push(...venue.galleryImages);
+  }
+
+  if (venue.imageUrl) {
+    images.push(venue.imageUrl);
+  }
+
+  // Remove falsy values and duplicates
+  return [...new Set(images.filter(Boolean))];
+};
 
 const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
   const [venues, setVenues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [availabilityStatus, setAvailabilityStatus] = useState({}); // venueId -> { available, checking }
+  const [detailsVenue, setDetailsVenue] = useState(null);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isImageFullscreen, setIsImageFullscreen] = useState(false);
+  const [showUnavailableVenues, setShowUnavailableVenues] = useState(false);
+  const checkedVenuesRef = useRef(new Set()); // Track which venue+date combinations we've checked
+
+  const { weddingDate } = formData;
+  const venueImages = useMemo(() => normalizeVenueImages(detailsVenue), [detailsVenue]);
+  const hasMultipleImages = venueImages.length > 1;
 
   useEffect(() => {
-    fetchVenues();
-  }, []);
+    let isActive = true;
+    const controller = new AbortController();
 
-  useEffect(() => {
-    // Check availability for all venues when date is available
-    if (formData.weddingDate && venues.length > 0) {
-      venues.forEach(venue => {
-        // Only check if we haven't checked this venue for this date yet
-        const statusKey = `${venue.id}-${formData.weddingDate}`;
-        if (!availabilityStatus[venue.id] || 
-            (availabilityStatus[venue.id].lastCheckedDate !== formData.weddingDate && !availabilityStatus[venue.id].checking)) {
-          checkVenueAvailability(venue.id);
+    const fetchVenues = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const params = new URLSearchParams();
+        if (searchTerm.trim()) params.append('search', searchTerm.trim());
+        if (weddingDate) params.append('date', weddingDate);
+
+        const query = params.toString();
+        const endpoint = query ? `/venues/search?${query}` : '/venues/search';
+
+        const data = await apiFetch(endpoint, { signal: controller.signal });
+
+        if (!isActive) {
+          return;
         }
-      });
-    }
-  }, [formData.weddingDate, venues.length]); // Only depend on length, not the array itself
 
-  const fetchVenues = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const params = new URLSearchParams();
-      if (searchTerm) params.append('search', searchTerm);
-      if (formData.weddingDate) params.append('date', formData.weddingDate);
-
-      const data = await apiFetch(`/venues/search?${params.toString()}`);
-      // API returns { venues: [...], total: number, ... }
-      // Ensure we always have an array
-      if (data && Array.isArray(data.venues)) {
-        setVenues(data.venues);
-      } else if (Array.isArray(data)) {
-        // Fallback: if API returns array directly
-        setVenues(data);
-      } else {
+        if (data && Array.isArray(data.venues)) {
+          setVenues(data.venues);
+        } else if (Array.isArray(data)) {
+          setVenues(data);
+        } else {
+          setVenues([]);
+        }
+      } catch (err) {
+        if (!isActive || err.name === 'AbortError') {
+          return;
+        }
+        setError(err.message || 'Failed to fetch venues');
         setVenues([]);
+      } finally {
+        if (isActive) {
+          setLoading(false);
+        }
       }
-    } catch (err) {
-      setError(err.message || 'Failed to fetch venues');
-      setVenues([]); // Ensure venues is always an array
-    } finally {
-      setLoading(false);
+    };
+
+    const debounceId = setTimeout(fetchVenues, 250);
+
+    return () => {
+      isActive = false;
+      controller.abort();
+      clearTimeout(debounceId);
+    };
+  }, [searchTerm, weddingDate, setError]);
+
+  useEffect(() => {
+    setAvailabilityStatus({});
+    checkedVenuesRef.current.clear(); // Clear checked venues when date changes
+  }, [weddingDate]);
+
+  useEffect(() => {
+    if (!detailsVenue) {
+      setIsImageFullscreen(false);
+      setCurrentImageIndex(0);
+      return;
     }
-  };
 
-  const checkVenueAvailability = async (venueId) => {
-    if (!formData.weddingDate) return;
+    setCurrentImageIndex(0);
+    setIsImageFullscreen(false);
+  }, [detailsVenue]);
 
-    setAvailabilityStatus(prev => ({ ...prev, [venueId]: { checking: true } }));
+  useEffect(() => {
+    if (currentImageIndex > 0 && currentImageIndex >= venueImages.length) {
+      setCurrentImageIndex(0);
+    }
+  }, [venueImages, currentImageIndex]);
+
+  const checkVenueAvailability = useCallback(async (venueId) => {
+    if (!weddingDate) return;
+
+    const requestedDate = weddingDate;
+
+    setAvailabilityStatus(prev => ({
+      ...prev,
+      [venueId]: {
+        ...(prev[venueId] || {}),
+        checking: true
+      }
+    }));
 
     try {
       // API expects date in YYYY-MM-DD format, not ISO datetime
       // formData.weddingDate is already in YYYY-MM-DD format from the date picker
-      const dateStr = formData.weddingDate;
+      const dateStr = requestedDate;
       
+      console.log(`Checking availability for venue ${venueId} on date ${dateStr}`);
       const response = await apiFetch(
         `/availability/check?serviceListingId=${venueId}&date=${dateStr}`
       );
 
-      // Log for debugging
-      console.log('Availability check response:', response);
+      console.log(`Availability response for venue ${venueId}:`, response);
 
       setAvailabilityStatus(prev => ({
         ...prev,
@@ -77,7 +143,7 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
           checking: false,
           reason: response.reason || null,
           details: response,
-          lastCheckedDate: formData.weddingDate
+          lastCheckedDate: requestedDate
         }
       }));
     } catch (err) {
@@ -88,26 +154,103 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
           available: false, 
           checking: false, 
           error: err.message,
-          reason: 'Error checking availability'
+          reason: 'Error checking availability',
+          lastCheckedDate: requestedDate
         }
       }));
     }
-  };
+  }, [weddingDate]);
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    fetchVenues();
-  };
+  useEffect(() => {
+    if (!weddingDate || venues.length === 0) {
+      return;
+    }
+
+    // Check availability for all venues when date or venues change
+    venues.forEach((venue) => {
+      const checkKey = `${venue.id}-${weddingDate}`;
+      
+      // Only check if we haven't checked this venue+date combination yet
+      if (!checkedVenuesRef.current.has(checkKey)) {
+        checkedVenuesRef.current.add(checkKey);
+        checkVenueAvailability(venue.id);
+      }
+    });
+  }, [weddingDate, venues, checkVenueAvailability]);
 
   const handleVenueSelect = (venue) => {
     updateFormData('venueServiceListingId', venue.id);
     updateFormData('venue', venue);
     setError(null);
     
-    // Check availability immediately
-    if (formData.weddingDate) {
-      checkVenueAvailability(venue.id);
+    // Only check availability if not already checked for this date
+    if (weddingDate) {
+      const status = availabilityStatus[venue.id];
+      if (!status || status.lastCheckedDate !== weddingDate || status.checking) {
+        checkVenueAvailability(venue.id);
+      }
     }
+  };
+
+  const openVenueDetails = (venue, e) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    setDetailsVenue(venue);
+    setCurrentImageIndex(0);
+    setIsImageFullscreen(false);
+  };
+
+  const closeVenueDetails = () => {
+    setIsImageFullscreen(false);
+    setDetailsVenue(null);
+  };
+
+  useEffect(() => {
+    if (!detailsVenue) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        if (isImageFullscreen) {
+          setIsImageFullscreen(false);
+          return;
+        }
+        setDetailsVenue(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [detailsVenue, isImageFullscreen]);
+
+  const handleNextImage = (event) => {
+    if (event) event.stopPropagation();
+    if (!hasMultipleImages) return;
+    setCurrentImageIndex((prev) => (prev + 1) % venueImages.length);
+  };
+
+  const handlePrevImage = (event) => {
+    if (event) event.stopPropagation();
+    if (!hasMultipleImages) return;
+    setCurrentImageIndex((prev) => (prev - 1 + venueImages.length) % venueImages.length);
+  };
+
+  const handleThumbnailSelect = (index, event) => {
+    if (event) event.stopPropagation();
+    if (index < 0 || index >= venueImages.length) return;
+    setCurrentImageIndex(index);
+    setIsImageFullscreen(false);
+  };
+
+  const openImageFullscreen = (event) => {
+    if (event) event.stopPropagation();
+    if (!venueImages.length) return;
+    setIsImageFullscreen(true);
+  };
+
+  const closeImageFullscreen = (event) => {
+    if (event) event.stopPropagation();
+    setIsImageFullscreen(false);
   };
 
   const getAvailabilityBadge = (venueId) => {
@@ -155,6 +298,8 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
     return url;
   };
 
+  const activeImage = venueImages[currentImageIndex] || detailsVenue?.imageUrl || null;
+
   return (
     <div className="step-content step2-content">
       <div className="step-header">
@@ -168,19 +313,32 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
         <p>Select Your Perfect Venue</p>
       </div>
 
-      <form className="venue-search-form" onSubmit={handleSearch}>
-        <div className="search-input-wrapper">
-          <i className="fas fa-search search-icon"></i>
-          <input
-            type="text"
-            className="venue-search-input"
-            placeholder="Search Venue"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSearch(e)}
-          />
-        </div>
-      </form>
+      <div className="venue-search-section">
+        <form className="venue-search-form" onSubmit={(e) => e.preventDefault()}>
+          <div className="search-input-wrapper">
+            <i className="fas fa-search search-icon"></i>
+            <input
+              type="text"
+              className="venue-search-input"
+              placeholder="Search Venue"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </form>
+        {weddingDate && (
+          <div className="venue-filter-controls">
+            <label className="venue-filter-toggle">
+              <input
+                type="checkbox"
+                checked={showUnavailableVenues}
+                onChange={(e) => setShowUnavailableVenues(e.target.checked)}
+              />
+              <span>Show unavailable venues</span>
+            </label>
+          </div>
+        )}
+      </div>
 
       {loading ? (
         <div className="loading-venues">
@@ -194,10 +352,20 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
         </div>
       ) : (
         <div className="venues-grid">
-          {venues.map((venue) => {
-            const isSelected = formData.venueServiceListingId === venue.id;
-            const status = availabilityStatus[venue.id];
-            const showUnavailable = status && !status.checking && !status.available;
+            {venues
+              .filter((venue) => {
+                if (!weddingDate) return true;
+                const status = availabilityStatus[venue.id];
+                // If still checking, show it
+                if (!status || status.checking) return true;
+                // If unavailable and we're not showing unavailable, hide it
+                if (!status.available && !showUnavailableVenues) return false;
+                return true;
+              })
+              .map((venue) => {
+                const isSelected = formData.venueServiceListingId === venue.id;
+                const status = availabilityStatus[venue.id];
+                const showUnavailable = status && !status.checking && !status.available;
 
             return (
               <div
@@ -206,6 +374,15 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
                 onClick={() => !showUnavailable && handleVenueSelect(venue)}
               >
                 <div className="venue-image-wrapper">
+                  <button
+                    type="button"
+                    className="venue-info-button"
+                    onClick={(e) => openVenueDetails(venue, e)}
+                    aria-label={`View details for ${venue.name}`}
+                    title="View details"
+                  >
+                    <i className="fas fa-info"></i>
+                  </button>
                   <img
                     src={getImageUrl(venue.images?.[0] || venue.imageUrl)}
                     alt={venue.name}
@@ -257,6 +434,220 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
             );
           })}
         </div>
+      )}
+
+      {detailsVenue && (
+        <>
+          <div
+            className="venue-details-modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Venue details for ${detailsVenue.name}`}
+            onClick={closeVenueDetails}
+          >
+            <div
+              className="venue-details-modal"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="venue-details-close"
+                onClick={closeVenueDetails}
+                aria-label="Close venue details"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+
+              <div className="venue-details-hero">
+                {hasMultipleImages && (
+                  <>
+                    <button
+                      type="button"
+                      className="venue-hero-control prev"
+                      onClick={handlePrevImage}
+                      aria-label="Previous image"
+                    >
+                      <i className="fas fa-chevron-left"></i>
+                    </button>
+                    <button
+                      type="button"
+                      className="venue-hero-control next"
+                      onClick={handleNextImage}
+                      aria-label="Next image"
+                    >
+                      <i className="fas fa-chevron-right"></i>
+                    </button>
+                    <div className="venue-hero-counter">
+                      {currentImageIndex + 1} / {venueImages.length}
+                    </div>
+                  </>
+                )}
+                <img
+                  src={getImageUrl(activeImage)}
+                  alt={detailsVenue.name}
+                  onClick={openImageFullscreen}
+                  role={venueImages.length ? 'button' : undefined}
+                  tabIndex={venueImages.length ? 0 : -1}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      openImageFullscreen(event);
+                    }
+                  }}
+                  onError={(e) => {
+                    e.target.src = '/placeholder-venue.jpg';
+                  }}
+                />
+              </div>
+
+              {hasMultipleImages && (
+                <div className="venue-hero-thumbnails">
+                  {venueImages.map((image, index) => (
+                    <button
+                      type="button"
+                      key={`${image}-${index}`}
+                      className={`venue-thumbnail ${index === currentImageIndex ? 'active' : ''}`}
+                      onClick={(event) => handleThumbnailSelect(index, event)}
+                      aria-label={`View image ${index + 1}`}
+                    >
+                      <img
+                        src={getImageUrl(image)}
+                        alt={`${detailsVenue.name} thumbnail ${index + 1}`}
+                        onError={(e) => {
+                          e.target.src = '/placeholder-venue.jpg';
+                        }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="venue-details-content">
+                <h3>{detailsVenue.name}</h3>
+
+                <div className="venue-details-meta">
+                  {detailsVenue.vendor?.businessName && (
+                    <p>
+                      <i className="fas fa-building"></i>
+                      {detailsVenue.vendor.businessName}
+                    </p>
+                  )}
+                  {detailsVenue.location && (
+                    <p>
+                      <i className="fas fa-map-pin"></i>
+                      {detailsVenue.location}
+                    </p>
+                  )}
+                  {detailsVenue.capacity && (
+                    <p>
+                      <i className="fas fa-users"></i>
+                      {detailsVenue.capacity}+ guests
+                    </p>
+                  )}
+                  {detailsVenue.price && (
+                    <p>
+                      <i className="fas fa-tag"></i>
+                      RM {detailsVenue.price.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+
+                {detailsVenue.description && (
+                  <div className="venue-details-section">
+                    <h4>About this venue</h4>
+                    <p>{detailsVenue.description}</p>
+                  </div>
+                )}
+
+                {Array.isArray(detailsVenue.amenities) && detailsVenue.amenities.length > 0 && (
+                  <div className="venue-details-section">
+                    <h4>Amenities</h4>
+                    <ul className="venue-amenities-list">
+                      {detailsVenue.amenities.map((amenity) => (
+                        <li key={amenity}>
+                          <i className="fas fa-check"></i>
+                          {amenity}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {detailsVenue.extraDetails && (
+                  <div className="venue-details-section">
+                    <h4>Additional Details</h4>
+                    <p>{detailsVenue.extraDetails}</p>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="venue-details-close-bottom"
+                  onClick={closeVenueDetails}
+                  aria-label="Close venue details"
+                >
+                  <i className="fas fa-times"></i>
+                  <span>Close</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {isImageFullscreen && (
+            <div
+              className="venue-fullscreen-backdrop"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Fullscreen view of ${detailsVenue.name}`}
+              onClick={closeImageFullscreen}
+            >
+              <div
+                className="venue-fullscreen-inner"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className="venue-fullscreen-close"
+                  onClick={closeImageFullscreen}
+                  aria-label="Close image viewer"
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+
+                <img
+                  src={getImageUrl(activeImage)}
+                  alt={`${detailsVenue.name} fullscreen`}
+                  onError={(e) => {
+                    e.target.src = '/placeholder-venue.jpg';
+                  }}
+                />
+
+                {hasMultipleImages && (
+                  <>
+                    <button
+                      type="button"
+                      className="venue-fullscreen-control prev"
+                      onClick={handlePrevImage}
+                      aria-label="Previous image"
+                    >
+                      <i className="fas fa-chevron-left"></i>
+                    </button>
+                    <button
+                      type="button"
+                      className="venue-fullscreen-control next"
+                      onClick={handleNextImage}
+                      aria-label="Next image"
+                    >
+                      <i className="fas fa-chevron-right"></i>
+                    </button>
+                    <div className="venue-fullscreen-counter">
+                      {currentImageIndex + 1} / {venueImages.length}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {!formData.weddingDate && (

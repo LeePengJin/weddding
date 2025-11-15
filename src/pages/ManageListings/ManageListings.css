@@ -148,65 +148,6 @@ input:checked + .slider:before {
   background-color: #fff;
 }
 
-/* Custom Button - From Uiverse.io by BHARGAVPATEL1244, adapted for theme */
-.custom-button.create-button {
-  outline: none;
-  cursor: pointer;
-  border: none;
-  padding: 0.9rem 2rem;
-  margin: 0;
-  font-family: inherit;
-  font-size: inherit;
-  position: relative;
-  display: inline-block;
-  letter-spacing: 0.05rem;
-  font-weight: 700;
-  font-size: 17px;
-  border-radius: 500px;
-  overflow: hidden;
-  background: #e16789;
-  color: ghostwhite;
-  transition: all 0.4s;
-}
-
-.custom-button.create-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.custom-button.create-button span {
-  position: relative;
-  z-index: 10;
-  transition: color 0.4s;
-}
-
-.custom-button.create-button:hover:not(:disabled) span {
-  color: black;
-}
-
-.custom-button.create-button::before,
-.custom-button.create-button::after {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 0;
-}
-
-.custom-button.create-button::before {
-  content: '';
-  background: #000;
-  width: 120%;
-  left: -10%;
-  transform: skew(30deg);
-  transition: transform 0.4s cubic-bezier(0.3, 1, 0.8, 1);
-}
-
-.custom-button.create-button:hover:not(:disabled)::before {
-  transform: translate3d(100%, 0, 0);
-}
-
 /* Description truncation - Strictly 2 lines */
 .listing-description-clamp {
   display: -webkit-box !important;

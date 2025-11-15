@@ -9,6 +9,37 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+// Helper function to compute has3DModel based on designElementId and components
+async function computeHas3DModel(listingId) {
+  const listing = await prisma.serviceListing.findUnique({
+    where: { id: listingId },
+    include: {
+      designElement: true,
+      components: {
+        include: {
+          designElement: true,
+        },
+      },
+    },
+  });
+
+  if (!listing) return false;
+
+  // For non-bundle services: check if designElementId exists and has modelFile
+  if (listing.designElementId && listing.designElement && listing.designElement.modelFile) {
+    return true;
+  }
+
+  // For bundle services: check if any component has a designElement with modelFile
+  if (listing.components && listing.components.length > 0) {
+    return listing.components.some(
+      (comp) => comp.designElement && comp.designElement.modelFile
+    );
+  }
+
+  return false;
+}
+
 // Setup multer for service listing image uploads
 const serviceImageUploadDir = path.join(__dirname, '..', 'uploads', 'service');
 fs.mkdirSync(serviceImageUploadDir, { recursive: true });
@@ -42,7 +73,8 @@ const serviceImageUpload = multer({
 });
 
 // Validation schema for service listing
-const SAFE_TEXT = /^[A-Za-z0-9 .,'-]+$/;
+// Allow common special characters: &, (, ), [, ], /, \, :, ;, !, ?, @, #, $, %, *, +, =, |, ~, `, ^, {, }
+const SAFE_TEXT = /^[A-Za-z0-9 .,'\-&()[\]/\\:;!?@#$%*+=|~`^{}]+$/;
 const serviceListingSchema = z
   .object({
     name: z
@@ -70,6 +102,25 @@ const serviceListingSchema = z
       .min(0, 'Price cannot be less than 0')
       .max(1000000, 'Price cannot exceed RM 1,000,000'),
     isActive: z.boolean().optional().default(true),
+    availabilityType: z.enum(['exclusive', 'reusable', 'quantity_based']).optional().default('exclusive'),
+    maxQuantity: z
+      .number()
+      .int()
+      .positive('Max quantity must be a positive integer')
+      .optional()
+      .nullable(),
+    pricingPolicy: z.enum(['flat', 'per_table', 'per_set', 'per_guest', 'tiered']).optional().default('flat'),
+    designElementId: z.string().uuid('Invalid design element ID').nullable().optional(),
+    components: z
+      .array(
+        z.object({
+          designElementId: z.string().uuid('Invalid design element ID'),
+          quantityPerUnit: z.number().int().positive('Quantity per unit must be a positive integer'),
+          role: z.string().max(50, 'Role must be at most 50 characters').optional().nullable(),
+        })
+      )
+      .optional()
+      .default([]),
   })
   .refine(
     (data) => {
@@ -84,7 +135,39 @@ const serviceListingSchema = z
       message: 'Custom category is required when category is "Other"',
       path: ['customCategory'],
     }
+  )
+  .refine(
+    (data) => {
+      // If availabilityType is quantity_based, maxQuantity is required
+      if (data.availabilityType === 'quantity_based') {
+        return data.maxQuantity !== null && data.maxQuantity !== undefined && data.maxQuantity > 0;
+      }
+      return true;
+    },
+    {
+      message: 'Max quantity is required when availability type is quantity_based',
+      path: ['maxQuantity'],
+    }
   );
+
+// GET /service-listings/design-elements - Get all design elements for component selection (vendor's own elements)
+router.get('/design-elements', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'vendor') {
+      return res.status(403).json({ error: 'Vendor access required' });
+    }
+
+    // Get all design elements owned by this vendor
+    const designElements = await prisma.designElement.findMany({
+      where: { vendorId: req.user.sub },
+      orderBy: { name: 'asc' },
+    });
+
+    res.json(designElements);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /service-listings - Get all service listings for the authenticated vendor
 router.get('/', requireAuth, async (req, res, next) => {
@@ -98,6 +181,11 @@ router.get('/', requireAuth, async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
       include: {
         designElement: true,
+        components: {
+          include: {
+            designElement: true,
+          },
+        },
       },
     });
 
@@ -136,6 +224,11 @@ router.get('/:id', requireAuth, async (req, res, next) => {
       },
       include: {
         designElement: true,
+        components: {
+          include: {
+            designElement: true,
+          },
+        },
       },
     });
 
@@ -171,24 +264,91 @@ router.post('/', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    const { name, description, category, customCategory, price, isActive } = serviceListingSchema.parse(req.body);
+    const validatedData = serviceListingSchema.parse(req.body);
+    const { components, ...listingData } = validatedData;
 
+    // Create the listing
     const listing = await prisma.serviceListing.create({
       data: {
         vendorId: req.user.sub,
-        name,
-        description: description || null,
-        category,
-        customCategory: category === 'Other' ? customCategory : null,
-        price: parseFloat(price),
-        isActive: isActive !== undefined ? isActive : true,
+        name: listingData.name,
+        description: listingData.description || null,
+        category: listingData.category,
+        customCategory: listingData.category === 'Other' ? listingData.customCategory : null,
+        price: parseFloat(listingData.price),
+        isActive: listingData.isActive !== undefined ? listingData.isActive : true,
         images: [],
+        availabilityType: listingData.availabilityType || 'exclusive',
+        maxQuantity: listingData.availabilityType === 'quantity_based' ? listingData.maxQuantity : null,
+        pricingPolicy: listingData.pricingPolicy || 'flat',
+        designElementId: listingData.designElementId || null,
+      },
+      include: {
+        components: {
+          include: {
+            designElement: true,
+          },
+        },
+      },
+    });
+
+    // Create service components if provided
+    if (components && components.length > 0) {
+      await prisma.serviceComponent.createMany({
+        data: components.map((comp) => ({
+          serviceListingId: listing.id,
+          designElementId: comp.designElementId,
+          quantityPerUnit: comp.quantityPerUnit,
+          role: comp.role || null,
+        })),
+      });
+
+      // Compute and update has3DModel based on components
+      const has3D = await computeHas3DModel(listing.id);
+      await prisma.serviceListing.update({
+        where: { id: listing.id },
+        data: { has3DModel: has3D },
+      });
+
+      // Fetch the listing again with components
+      const listingWithComponents = await prisma.serviceListing.findUnique({
+        where: { id: listing.id },
+        include: {
+          designElement: true,
+          components: {
+            include: {
+              designElement: true,
+            },
+          },
+        },
+      });
+
+      return res.status(201).json({
+        ...listingWithComponents,
+        price: listingWithComponents.price.toString(),
+      });
+    }
+
+    // Compute and update has3DModel if designElementId was provided
+    if (listingData.designElementId) {
+      const has3D = await computeHas3DModel(listing.id);
+      await prisma.serviceListing.update({
+        where: { id: listing.id },
+        data: { has3DModel: has3D },
+      });
+    }
+
+    // Fetch listing with designElement if it exists
+    const finalListing = await prisma.serviceListing.findUnique({
+      where: { id: listing.id },
+      include: {
+        designElement: true,
       },
     });
 
     res.status(201).json({
-      ...listing,
-      price: listing.price.toString(),
+      ...finalListing,
+      price: finalListing.price.toString(),
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -248,6 +408,24 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
           .max(1000000, 'Price cannot exceed RM 1,000,000')
           .optional(),
         isActive: z.boolean().optional(),
+        availabilityType: z.enum(['exclusive', 'reusable', 'quantity_based']).optional(),
+        maxQuantity: z
+          .number()
+          .int()
+          .positive('Max quantity must be a positive integer')
+          .optional()
+          .nullable(),
+        pricingPolicy: z.enum(['flat', 'per_table', 'per_set', 'per_guest', 'tiered']).optional(),
+        designElementId: z.string().uuid('Invalid design element ID').nullable().optional(),
+        components: z
+          .array(
+            z.object({
+              designElementId: z.string().uuid('Invalid design element ID'),
+              quantityPerUnit: z.number().int().positive('Quantity per unit must be a positive integer'),
+              role: z.string().max(50, 'Role must be at most 50 characters').optional().nullable(),
+            })
+          )
+          .optional(),
       })
       .refine(
         (data) => {
@@ -265,9 +443,24 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
           message: 'Custom category is required when category is "Other"',
           path: ['customCategory'],
         }
+      )
+      .refine(
+        (data) => {
+          // If availabilityType is quantity_based, maxQuantity is required
+          if (data.availabilityType === 'quantity_based') {
+            return data.maxQuantity !== null && data.maxQuantity !== undefined && data.maxQuantity > 0;
+          }
+          return true;
+        },
+        {
+          message: 'Max quantity is required when availability type is quantity_based',
+          path: ['maxQuantity'],
+        }
       );
 
-    const updateData = updateSchema.parse(req.body);
+    const validatedData = updateSchema.parse(req.body);
+    const { components, ...updateData } = validatedData;
+    
     if (updateData.price !== undefined) {
       updateData.price = parseFloat(updateData.price);
     }
@@ -295,10 +488,97 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       }
     }
 
+    // Handle maxQuantity based on availabilityType
+    if (updateData.availabilityType !== undefined) {
+      if (updateData.availabilityType === 'quantity_based') {
+        if (!updateData.maxQuantity || updateData.maxQuantity <= 0) {
+          return res.status(400).json({ error: 'Max quantity is required when availability type is quantity_based' });
+        }
+      } else {
+        // Clear maxQuantity when not quantity_based
+        updateData.maxQuantity = null;
+      }
+    }
+
     const updatedListing = await prisma.serviceListing.update({
       where: { id: req.params.id },
       data: updateData,
+      include: {
+        designElement: true,
+        components: {
+          include: {
+            designElement: true,
+          },
+        },
+      },
     });
+
+    // Update components if provided
+    if (components !== undefined) {
+      // Delete existing components
+      await prisma.serviceComponent.deleteMany({
+        where: { serviceListingId: req.params.id },
+      });
+
+      // Create new components
+      if (components.length > 0) {
+        await prisma.serviceComponent.createMany({
+          data: components.map((comp) => ({
+            serviceListingId: req.params.id,
+            designElementId: comp.designElementId,
+            quantityPerUnit: comp.quantityPerUnit,
+            role: comp.role || null,
+          })),
+        });
+      }
+
+      // Compute and update has3DModel based on components
+      const has3D = await computeHas3DModel(req.params.id);
+      await prisma.serviceListing.update({
+        where: { id: req.params.id },
+        data: { has3DModel: has3D },
+      });
+
+      // Fetch updated listing with components
+      const listingWithComponents = await prisma.serviceListing.findUnique({
+        where: { id: req.params.id },
+        include: {
+          designElement: true,
+          components: {
+            include: {
+              designElement: true,
+            },
+          },
+        },
+      });
+
+      return res.json({
+        ...listingWithComponents,
+        price: listingWithComponents.price.toString(),
+      });
+    }
+
+    // Compute and update has3DModel if designElementId was changed
+    if (updateData.designElementId !== undefined) {
+      const has3D = await computeHas3DModel(req.params.id);
+      const finalListing = await prisma.serviceListing.update({
+        where: { id: req.params.id },
+        data: { has3DModel: has3D },
+        include: {
+          designElement: true,
+          components: {
+            include: {
+              designElement: true,
+            },
+          },
+        },
+      });
+
+      return res.json({
+        ...finalListing,
+        price: finalListing.price.toString(),
+      });
+    }
 
     res.json({
       ...updatedListing,
@@ -482,7 +762,7 @@ const createModel3DUpload = (listingId) => {
 
   return multer({
     storage: model3DStorage,
-    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+    limits: { fileSize: 150 * 1024 * 1024 }, // 150MB max
     fileFilter: (_req, file, cb) => {
       const ext = path.extname(file.originalname).toLowerCase();
       if (ext === '.glb') {
@@ -494,7 +774,7 @@ const createModel3DUpload = (listingId) => {
   });
 };
 
-// POST /service-listings/:id/model3d - Upload 3D model for a service listing
+// POST /service-listings/:id/model3d - Upload 3D model for a service listing (single model for non-bundle services)
 router.post('/:id/model3d', requireAuth, async (req, res, next) => {
   try {
     if (req.user.role !== 'vendor') {
@@ -550,6 +830,7 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
           // Create new design element
           designElement = await prisma.designElement.create({
             data: {
+              vendorId: req.user.sub,
               name: existingListing.name,
               elementType: existingListing.category,
               modelFile: modelPath,
@@ -557,23 +838,121 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
           });
         }
 
-        // Update service listing with designElementId and has3DModel
+        // Update service listing with designElementId and compute has3DModel
+        const has3D = await computeHas3DModel(req.params.id);
         await prisma.serviceListing.update({
           where: { id: req.params.id },
           data: {
             designElementId: designElement.id,
-            has3DModel: true,
+            has3DModel: has3D,
           },
         });
 
         res.json({
           message: '3D model uploaded successfully',
           has3DModel: true,
+          designElement: designElement,
         });
       } catch (dbErr) {
         // Delete uploaded file if database operation fails
         if (req.file && fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
+        }
+        next(dbErr);
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /service-listings/:id/model3d/bundle - Upload multiple 3D models for bundle services
+// Each file creates a DesignElement that can be used in components
+router.post('/:id/model3d/bundle', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'vendor') {
+      return res.status(403).json({ error: 'Vendor access required' });
+    }
+
+    // Check if listing exists and belongs to vendor
+    const existingListing = await prisma.serviceListing.findFirst({
+      where: {
+        id: req.params.id,
+        vendorId: req.user.sub,
+      },
+    });
+
+    if (!existingListing) {
+      return res.status(404).json({ error: 'Service listing not found' });
+    }
+
+    // Create multer instance for multiple files
+    const model3DStorage = multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, model3DUploadDir),
+      filename: (req, file, cb) => {
+        const listingId = req.params.id;
+        const timestamp = Date.now();
+        const random = Math.floor(Math.random() * 10000);
+        const ext = path.extname(file.originalname) || '.glb';
+        cb(null, `${listingId}_${timestamp}_${random}${ext}`);
+      },
+    });
+
+    const model3DUploadMultiple = multer({
+      storage: model3DStorage,
+      limits: { fileSize: 150 * 1024 * 1024 }, // 150MB max per file
+      fileFilter: (_req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (ext === '.glb') {
+          cb(null, true);
+        } else {
+          cb(new Error('Only .glb files are allowed (GLTF Binary format)'), false);
+        }
+      },
+    });
+
+    model3DUploadMultiple.array('model3DFiles', 10)(req, res, async (err) => {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ error: 'No 3D model files provided' });
+      }
+
+      try {
+        const createdElements = [];
+
+        // Create a DesignElement for each uploaded file
+        for (const file of req.files) {
+          const modelPath = `/uploads/models3d/${file.filename}`;
+          const elementName = req.body[`elementName_${file.originalname}`] || file.originalname.replace('.glb', '');
+          const elementType = req.body[`elementType_${file.originalname}`] || existingListing.category;
+
+          const designElement = await prisma.designElement.create({
+            data: {
+              vendorId: req.user.sub,
+              name: elementName,
+              elementType: elementType,
+              modelFile: modelPath,
+            },
+          });
+
+          createdElements.push(designElement);
+        }
+
+        res.json({
+          message: `${createdElements.length} 3D model(s) uploaded successfully`,
+          designElements: createdElements,
+        });
+      } catch (dbErr) {
+        // Delete uploaded files if database operation fails
+        if (req.files) {
+          req.files.forEach((file) => {
+            if (fs.existsSync(file.path)) {
+              fs.unlinkSync(file.path);
+            }
+          });
         }
         next(dbErr);
       }
@@ -618,12 +997,13 @@ router.delete('/:id/model3d', requireAuth, async (req, res, next) => {
       });
     }
 
-    // Update service listing
+    // Update service listing - compute has3DModel (will check components too)
+    const has3D = await computeHas3DModel(req.params.id);
     await prisma.serviceListing.update({
       where: { id: req.params.id },
       data: {
         designElementId: null,
-        has3DModel: false,
+        has3DModel: has3D,
       },
     });
 

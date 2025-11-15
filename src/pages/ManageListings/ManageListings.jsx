@@ -20,6 +20,18 @@ import {
   Stack,
   Menu,
   Pagination,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  TableSortLabel,
+  RadioGroup,
+  Radio,
+  FormControlLabel,
+  FormControl,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -78,11 +90,25 @@ const ManageListings = () => {
     customCategory: '',
     price: '',
     isActive: true,
+    availabilityType: 'exclusive',
+    maxQuantity: '',
+    pricingPolicy: 'flat',
   });
+  const [components, setComponents] = useState([]);
+  const [designElements, setDesignElements] = useState([]);
+  const [loadingDesignElements, setLoadingDesignElements] = useState(false);
   const [images, setImages] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
   const [model3DFile, setModel3DFile] = useState(null);
   const [model3DPreview, setModel3DPreview] = useState(null);
+  const [selectedDesignElementId, setSelectedDesignElementId] = useState(''); // For selecting existing design element (non-bundle)
+  const [useExistingDesignElement, setUseExistingDesignElement] = useState(false); // Toggle: select existing vs upload new
+  const [model3DFiles, setModel3DFiles] = useState([]); // For bundle services - multiple files
+  const [model3DPreviews, setModel3DPreviews] = useState([]); // Preview info for multiple models
+  const [component3DFiles, setComponent3DFiles] = useState({}); // Component index -> File object
+  const [component3DPreviews, setComponent3DPreviews] = useState({}); // Component index -> Preview info
+  const [previewComponentIndex, setPreviewComponentIndex] = useState(null); // Which component's 3D model to preview
+  const [previewBlobUrl, setPreviewBlobUrl] = useState(null); // Track blob URL for cleanup
   const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -92,8 +118,50 @@ const ManageListings = () => {
   useEffect(() => {
     if (user && user.role === 'vendor') {
       fetchListings();
+      fetchDesignElements();
     }
   }, [user]);
+
+  // Manage blob URL for preview when component index or files change
+  useEffect(() => {
+    // Store previous blob URL for cleanup
+    const prevBlobUrl = previewBlobUrl;
+    
+    // Create new blob URL if needed
+    let newBlobUrl = null;
+    if (previewComponentIndex !== null && component3DFiles[previewComponentIndex]) {
+      const file = component3DFiles[previewComponentIndex];
+      newBlobUrl = URL.createObjectURL(file);
+      setPreviewBlobUrl(newBlobUrl);
+    } else {
+      setPreviewBlobUrl(null);
+    }
+    
+    // Cleanup previous blob URL on next render or unmount
+    return () => {
+      if (prevBlobUrl) {
+        URL.revokeObjectURL(prevBlobUrl);
+      }
+      if (newBlobUrl && newBlobUrl !== prevBlobUrl) {
+        // Also cleanup new blob URL if component unmounts before next render
+        URL.revokeObjectURL(newBlobUrl);
+      }
+    };
+  }, [previewComponentIndex, component3DFiles]);
+
+  // Fetch design elements for component selection
+  const fetchDesignElements = async () => {
+    try {
+      setLoadingDesignElements(true);
+      const data = await apiFetch('/service-listings/design-elements');
+      setDesignElements(data || []);
+    } catch (err) {
+      console.error('Failed to fetch design elements:', err);
+      setDesignElements([]);
+    } finally {
+      setLoadingDesignElements(false);
+    }
+  };
 
   // Update document title
   useEffect(() => {
@@ -126,11 +194,32 @@ const ManageListings = () => {
         customCategory: listing.customCategory || '',
         price: listing.price || '',
         isActive: listing.isActive !== undefined ? listing.isActive : true,
+        availabilityType: listing.availabilityType || 'exclusive',
+        maxQuantity: listing.maxQuantity ? listing.maxQuantity.toString() : '',
+        pricingPolicy: listing.pricingPolicy || 'flat',
       });
+      // Map components to include designElementId (not just the full designElement object)
+      const mappedComponents = (listing.components || []).map((comp) => ({
+        id: comp.id || `existing-${comp.designElementId}`,
+        designElementId: comp.designElementId || comp.designElement?.id || '',
+        quantityPerUnit: comp.quantityPerUnit || 1,
+        role: comp.role || '',
+      }));
+      setComponents(mappedComponents);
       setImages([]);
       setImagePreviews(listing.images || []);
       setModel3DFile(null);
       setModel3DPreview(listing.has3DModel ? 'existing' : null);
+      // Set selected design element if listing has one
+      if (listing.designElementId) {
+        setSelectedDesignElementId(listing.designElementId);
+        setUseExistingDesignElement(true);
+      } else {
+        setSelectedDesignElementId('');
+        setUseExistingDesignElement(false);
+      }
+      setModel3DFiles([]);
+      setModel3DPreviews([]);
     } else {
       setEditingListing(null);
       setFormData({
@@ -140,11 +229,24 @@ const ManageListings = () => {
         customCategory: '',
         price: '',
         isActive: true,
+        availabilityType: 'exclusive',
+        maxQuantity: '',
+        pricingPolicy: 'flat',
       });
+      setComponents([]);
       setImages([]);
       setImagePreviews([]);
       setModel3DFile(null);
       setModel3DPreview(null);
+      setSelectedDesignElementId('');
+      setUseExistingDesignElement(false);
+      setModel3DFiles([]);
+      setModel3DPreviews([]);
+    }
+    setPreviewComponentIndex(null);
+    if (previewBlobUrl) {
+      URL.revokeObjectURL(previewBlobUrl);
+      setPreviewBlobUrl(null);
     }
     setFieldErrors({});
     setError('');
@@ -163,7 +265,11 @@ const ManageListings = () => {
       customCategory: '',
       price: '',
       isActive: true,
+      availabilityType: 'exclusive',
+      maxQuantity: '',
+      pricingPolicy: 'flat',
     });
+    setComponents([]);
     setImages([]);
     setImagePreviews([]);
     setModel3DFile(null);
@@ -267,6 +373,10 @@ const ManageListings = () => {
         ? 'Custom category is required (2-50 characters)'
         : '';
     const imageError = validateServiceImages(images);
+    const maxQuantityError =
+      formData.availabilityType === 'quantity_based' && (!formData.maxQuantity || parseFloat(formData.maxQuantity) <= 0)
+        ? 'Max quantity is required and must be greater than 0'
+        : '';
 
     setFieldErrors({
       name: nameError,
@@ -275,14 +385,31 @@ const ManageListings = () => {
       category: categoryError,
       customCategory: customCategoryError,
       images: imageError,
+      maxQuantity: maxQuantityError,
     });
 
-    return !nameError && !descriptionError && !priceError && !categoryError && !customCategoryError && !imageError;
+    return !nameError && !descriptionError && !priceError && !categoryError && !customCategoryError && !imageError && !maxQuantityError;
   };
 
   const handleSave = async () => {
     if (!validateAllFields()) {
       setError('Please fix the errors before saving');
+      return;
+    }
+
+    // Validate components
+    // A component is valid if it has either:
+    // 1. A designElementId selected, OR
+    // 2. A 3D model file uploaded (which will create a design element)
+    const invalidComponents = components.filter((comp, idx) => {
+      const hasDesignElement = !!comp.designElementId;
+      const has3DFile = !!component3DFiles[idx];
+      const hasValidQuantity = comp.quantityPerUnit && comp.quantityPerUnit > 0;
+      return (!hasDesignElement && !has3DFile) || !hasValidQuantity;
+    });
+    
+    if (invalidComponents.length > 0) {
+      setError('Please ensure all components have either a design element selected or a 3D model uploaded, and valid quantity');
       return;
     }
 
@@ -300,12 +427,35 @@ const ManageListings = () => {
           customCategory: formData.category === 'Other' ? formData.customCategory : null,
           price: parseFloat(formData.price),
           isActive: formData.isActive,
+          availabilityType: formData.availabilityType,
+          maxQuantity: formData.availabilityType === 'quantity_based' ? parseInt(formData.maxQuantity) : null,
+          pricingPolicy: formData.pricingPolicy,
+          // Include designElementId for non-bundle services
+          ...(components.length === 0 && useExistingDesignElement && selectedDesignElementId
+            ? { designElementId: selectedDesignElementId }
+            : components.length === 0 && !useExistingDesignElement && !model3DFile
+            ? { designElementId: null }
+            : {}),
+          // Only include components that already have designElementId
+          // Components with uploaded 3D files will be added after upload
+          components: components
+            .filter((comp) => comp.designElementId) // Only existing design elements
+            .map((comp) => ({
+              designElementId: comp.designElementId,
+              quantityPerUnit: parseInt(comp.quantityPerUnit),
+              role: comp.role || null,
+            })),
         };
 
-        await apiFetch(`/service-listings/${editingListing.id}`, {
+        const updatedListing = await apiFetch(`/service-listings/${editingListing.id}`, {
           method: 'PATCH',
           body: JSON.stringify(updateData),
         });
+
+        // Update editingListing with the response to get the latest designElement
+        if (updatedListing) {
+          setEditingListing(updatedListing);
+        }
 
         // Upload new images if any
         if (images.length > 0) {
@@ -320,18 +470,109 @@ const ManageListings = () => {
           });
         }
 
-        // Upload 3D model if provided
-        if (model3DFile) {
+        // Handle 3D model upload for non-bundle services (only if uploading new file)
+        if (components.length === 0 && model3DFile && !useExistingDesignElement) {
+          // Upload new 3D model
           const formData3D = new FormData();
           formData3D.append('model3D', model3DFile);
 
-          await apiFetch(`/service-listings/${editingListing.id}/model3d`, {
+          const uploadResponse = await apiFetch(`/service-listings/${editingListing.id}/model3d`, {
             method: 'POST',
             body: formData3D,
           });
+          
+          // Refetch listing to get updated designElement
+          if (uploadResponse) {
+            const refreshedListing = await apiFetch(`/service-listings/${editingListing.id}`);
+            if (refreshedListing) {
+              setEditingListing(refreshedListing);
+            }
+          }
+        } else if (model3DFiles.length > 0) {
+          // Multiple models for bundle services (legacy - not recommended)
+          const formData3D = new FormData();
+          model3DFiles.forEach((file) => {
+            formData3D.append('model3DFiles', file);
+          });
+
+          const response = await apiFetch(`/service-listings/${editingListing.id}/model3d/bundle`, {
+            method: 'POST',
+            body: formData3D,
+          });
+
+          if (response.designElements) {
+            await fetchDesignElements();
+          }
+        }
+
+        // Upload 3D models for individual components and update components array
+        let updatedComponentsList = [...components];
+        for (const [indexStr, file] of Object.entries(component3DFiles)) {
+          const index = parseInt(indexStr);
+          const component = updatedComponentsList[index];
+          
+          if (!component || !component.designElementId) {
+            // Create new design element
+            const formData3D = new FormData();
+            formData3D.append('model3D', file);
+            formData3D.append('name', component.role || `Component ${index + 1}`);
+            if (formData.category) {
+              formData3D.append('elementType', formData.category);
+            }
+
+            const newElement = await apiFetch('/design-elements', {
+              method: 'POST',
+              body: formData3D,
+            });
+
+            // Update component with new design element ID
+            updatedComponentsList[index] = {
+              ...updatedComponentsList[index],
+              designElementId: newElement.id,
+            };
+          } else {
+            // Update existing design element
+            const formData3D = new FormData();
+            formData3D.append('model3D', file);
+
+            await apiFetch(`/design-elements/${component.designElementId}/model3d`, {
+              method: 'POST',
+              body: formData3D,
+            });
+          }
+        }
+
+        // Update listing with final components (including newly created design elements)
+        if (Object.keys(component3DFiles).length > 0) {
+          const finalUpdateData = {
+            components: updatedComponentsList
+              .filter((comp) => comp.designElementId)
+              .map((comp) => ({
+                designElementId: comp.designElementId,
+                quantityPerUnit: parseInt(comp.quantityPerUnit),
+                role: comp.role || null,
+              })),
+          };
+
+          await apiFetch(`/service-listings/${editingListing.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(finalUpdateData),
+          });
+
+          await fetchDesignElements();
         }
 
         setSuccess('Listing updated successfully!');
+        
+        // Refetch the updated listing to ensure we have the latest designElement data
+        try {
+          const refreshedListing = await apiFetch(`/service-listings/${editingListing.id}`);
+          if (refreshedListing) {
+            setEditingListing(refreshedListing);
+          }
+        } catch (err) {
+          console.error('Failed to refetch listing:', err);
+        }
       } else {
         // Create new listing
         const createData = {
@@ -341,6 +582,22 @@ const ManageListings = () => {
           customCategory: formData.category === 'Other' ? formData.customCategory : null,
           price: parseFloat(formData.price),
           isActive: formData.isActive,
+          availabilityType: formData.availabilityType,
+          maxQuantity: formData.availabilityType === 'quantity_based' ? parseInt(formData.maxQuantity) : null,
+          pricingPolicy: formData.pricingPolicy,
+          // Include designElementId for non-bundle services
+          ...(components.length === 0 && useExistingDesignElement && selectedDesignElementId
+            ? { designElementId: selectedDesignElementId }
+            : {}),
+          // Only include components that already have designElementId
+          // Components with uploaded 3D files will be added after upload
+          components: components
+            .filter((comp) => comp.designElementId) // Only existing design elements
+            .map((comp) => ({
+              designElementId: comp.designElementId,
+              quantityPerUnit: parseInt(comp.quantityPerUnit),
+              role: comp.role || null,
+            })),
         };
 
         const newListing = await apiFetch('/service-listings', {
@@ -361,15 +618,98 @@ const ManageListings = () => {
           });
         }
 
-        // Upload 3D model if provided
-        if (model3DFile) {
-          const formData3D = new FormData();
-          formData3D.append('model3D', model3DFile);
+        // Handle 3D model for non-bundle services
+        if (components.length === 0) {
+          if (useExistingDesignElement && selectedDesignElementId) {
+            // Link existing design element
+            await apiFetch(`/service-listings/${newListing.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                designElementId: selectedDesignElementId,
+              }),
+            });
+          } else if (model3DFile) {
+            // Upload new 3D model
+            const formData3D = new FormData();
+            formData3D.append('model3D', model3DFile);
 
-          await apiFetch(`/service-listings/${newListing.id}/model3d`, {
+            await apiFetch(`/service-listings/${newListing.id}/model3d`, {
+              method: 'POST',
+              body: formData3D,
+            });
+          }
+        } else if (model3DFiles.length > 0) {
+          // Multiple models for bundle services (legacy - not recommended)
+          const formData3D = new FormData();
+          model3DFiles.forEach((file) => {
+            formData3D.append('model3DFiles', file);
+          });
+
+          const response = await apiFetch(`/service-listings/${newListing.id}/model3d/bundle`, {
             method: 'POST',
             body: formData3D,
           });
+
+          if (response.designElements) {
+            await fetchDesignElements();
+          }
+        }
+
+        // Upload 3D models for individual components and update components array
+        let updatedComponentsList = [...components];
+        for (const [indexStr, file] of Object.entries(component3DFiles)) {
+          const index = parseInt(indexStr);
+          const component = updatedComponentsList[index];
+          
+          if (!component || !component.designElementId) {
+            // Create new design element
+            const formData3D = new FormData();
+            formData3D.append('model3D', file);
+            formData3D.append('name', component.role || `Component ${index + 1}`);
+            if (formData.category) {
+              formData3D.append('elementType', formData.category);
+            }
+
+            const newElement = await apiFetch('/design-elements', {
+              method: 'POST',
+              body: formData3D,
+            });
+
+            // Update component with new design element ID
+            updatedComponentsList[index] = {
+              ...updatedComponentsList[index],
+              designElementId: newElement.id,
+            };
+          } else {
+            // Update existing design element
+            const formData3D = new FormData();
+            formData3D.append('model3D', file);
+
+            await apiFetch(`/design-elements/${component.designElementId}/model3d`, {
+              method: 'POST',
+              body: formData3D,
+            });
+          }
+        }
+
+        // Update listing with final components (including newly created design elements)
+        if (Object.keys(component3DFiles).length > 0) {
+          const finalUpdateData = {
+            components: updatedComponentsList
+              .filter((comp) => comp.designElementId)
+              .map((comp) => ({
+                designElementId: comp.designElementId,
+                quantityPerUnit: parseInt(comp.quantityPerUnit),
+                role: comp.role || null,
+              })),
+          };
+
+          await apiFetch(`/service-listings/${newListing.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(finalUpdateData),
+          });
+
+          await fetchDesignElements();
         }
 
         setSuccess('Listing created successfully!');
@@ -492,10 +832,10 @@ const ManageListings = () => {
         return;
       }
 
-      // Check file size (max 50MB for 3D models)
-      const maxSize = 50 * 1024 * 1024;
+      // Check file size (max 150MB for 3D models)
+      const maxSize = 150 * 1024 * 1024;
       if (file.size > maxSize) {
-        setError('3D model file size must be less than 50MB');
+        setError('3D model file size must be less than 150MB');
         if (e.target) {
           e.target.value = '';
         }
@@ -508,6 +848,57 @@ const ManageListings = () => {
     }
   };
 
+  // Handle multiple 3D model files for bundle services
+  const handle3DModelsChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    const maxSize = 150 * 1024 * 1024; // 150MB per file
+        const validFiles = [];
+        const invalidFiles = [];
+
+        files.forEach((file) => {
+          const fileName = file.name.toLowerCase();
+          if (!fileName.endsWith('.glb')) {
+            invalidFiles.push(`${file.name}: Not a .glb file`);
+            return;
+          }
+          if (file.size > maxSize) {
+            invalidFiles.push(`${file.name}: File size exceeds 150MB`);
+        return;
+      }
+      validFiles.push(file);
+    });
+
+    if (invalidFiles.length > 0) {
+      setError(`Some files were rejected:\n${invalidFiles.join('\n')}`);
+    }
+
+    if (validFiles.length > 0) {
+      setModel3DFiles(validFiles);
+      setModel3DPreviews(validFiles.map((file) => ({
+        name: file.name,
+        size: file.size,
+        id: `preview-${Date.now()}-${Math.random()}`,
+      })));
+      if (invalidFiles.length === 0) {
+        setError('');
+      }
+    }
+
+    // Clear file input
+    if (e.target) {
+      e.target.value = '';
+    }
+  };
+
+  const handleRemove3DModelFile = (index) => {
+    const newFiles = model3DFiles.filter((_, i) => i !== index);
+    const newPreviews = model3DPreviews.filter((_, i) => i !== index);
+    setModel3DFiles(newFiles);
+    setModel3DPreviews(newPreviews);
+  };
+
   const handleRemove3DModel = () => {
     setModel3DFile(null);
     setModel3DPreview(null);
@@ -516,6 +907,73 @@ const ManageListings = () => {
     if (fileInput) {
       fileInput.value = '';
     }
+  };
+
+  // Component management handlers
+  const handleAddComponent = () => {
+    setComponents([
+      ...components,
+      {
+        id: `temp-${Date.now()}`,
+        designElementId: '',
+        quantityPerUnit: 1,
+        role: '',
+      },
+    ]);
+  };
+
+  const handleRemoveComponent = (index) => {
+    setComponents(components.filter((_, i) => i !== index));
+  };
+
+  const handleComponentChange = (index, field, value) => {
+    const updated = [...components];
+    updated[index] = { ...updated[index], [field]: value };
+    setComponents(updated);
+  };
+
+  // Handle 3D model upload for a specific component
+  const handleComponent3DModelChange = (index, e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const fileName = file.name.toLowerCase();
+      if (!fileName.endsWith('.glb')) {
+        setError(`Component ${index + 1}: Please select a .glb file (GLTF Binary format)`);
+        if (e.target) {
+          e.target.value = '';
+        }
+        return;
+      }
+
+      const maxSize = 150 * 1024 * 1024;
+        if (file.size > maxSize) {
+          setError(`Component ${index + 1}: File size must be less than 150MB`);
+        if (e.target) {
+          e.target.value = '';
+        }
+        return;
+      }
+
+      setComponent3DFiles((prev) => ({ ...prev, [index]: file }));
+      setComponent3DPreviews((prev) => ({
+        ...prev,
+        [index]: { name: file.name, size: file.size },
+      }));
+      setError('');
+    }
+  };
+
+  const handleRemoveComponent3DModel = (index) => {
+    setComponent3DFiles((prev) => {
+      const updated = { ...prev };
+      delete updated[index];
+      return updated;
+    });
+    setComponent3DPreviews((prev) => {
+      const updated = { ...prev };
+      delete updated[index];
+      return updated;
+    });
   };
 
   const handleMenuOpen = (event, listing) => {
@@ -586,13 +1044,21 @@ const ManageListings = () => {
                 <span className="slider"></span>
               </label>
             </Box>
-            <button
-              className="custom-button create-button"
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
               onClick={() => handleOpenModal()}
-              type="button"
+              sx={{
+                backgroundColor: '#e16789',
+                color: '#ffffff',
+                textTransform: 'none',
+                px: 3,
+                fontWeight: 600,
+                '&:hover': { backgroundColor: '#d1537a' },
+              }}
             >
-              <span>Create New Listing</span>
-            </button>
+              Create New Listing
+            </Button>
           </Box>
         </Box>
 
@@ -609,7 +1075,7 @@ const ManageListings = () => {
             sx={{
               '& .MuiInputBase-input':{border: 'none'},
               '& .MuiOutlinedInput-root': {
-                borderRadius: 2,
+                borderRadius: 1,
                 backgroundColor: '#fff',
               },
             }}
@@ -622,7 +1088,7 @@ const ManageListings = () => {
             sx={{
               minWidth: 150,
               '& .MuiOutlinedInput-root': {
-                borderRadius: 2,
+                borderRadius: 1,
                 backgroundColor: '#fff',
               },
             }}
@@ -640,7 +1106,7 @@ const ManageListings = () => {
             sx={{
               minWidth: 120,
               '& .MuiOutlinedInput-root': {
-                borderRadius: 2,
+                borderRadius: 1,
                 backgroundColor: '#fff',
               },
             }}
@@ -650,7 +1116,7 @@ const ManageListings = () => {
           </TextField>
         </Box>
 
-        {/* Listings Grid */}
+        {/* Listings Table */}
         {loading ? (
           <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
             <CircularProgress />
@@ -663,13 +1129,21 @@ const ManageListings = () => {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               Create your first service listing to get started.
             </Typography>
-            <button
-              className="custom-button create-button"
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
               onClick={() => handleOpenModal()}
-              type="button"
+              sx={{
+                backgroundColor: '#e16789',
+                color: '#ffffff',
+                textTransform: 'none',
+                px: 3,
+                fontWeight: 600,
+                '&:hover': { backgroundColor: '#d1537a' },
+              }}
             >
-              <span>Create New Listing</span>
-            </button>
+              Create New Listing
+            </Button>
           </Card>
         ) : sortedListings.length === 0 ? (
           <Card sx={{ p: 4, textAlign: 'center' }}>
@@ -683,140 +1157,203 @@ const ManageListings = () => {
             </Typography>
           </Card>
         ) : (
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: '1fr',
-                sm: 'repeat(2, 1fr)',
-                md: 'repeat(3, 1fr)',
-                lg: 'repeat(4, 1fr)',
-              },
-              gap: 3,
-            }}
-          >
-            {paginatedListings.map((listing) => (
-              <Card
-                key={listing.id}
-                className="listing-card-fixed"
-                sx={{
-                  height: '420px',
-                  width: '100%',
-                  maxWidth: '340px',
-                  mx: 'auto',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  borderRadius: 1.5,
-                  border: '1px solid #e0e0e0',
-                  transition: 'all 0.3s ease',
-                  overflow: 'hidden',
-                  '&:hover': {
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                    transform: 'translateY(-2px)',
-                  },
-                }}
-              >
-                {/* Image */}
-                <CardMedia
-                  component="img"
-                  height="200"
-                    image={
-                      listing.images && listing.images.length > 0
-                        ? getImageUrl(listing.images[0])
-                        : '/images/default-product.jpg'
-                    }
-                    alt={listing.name}
-                    sx={{ objectFit: 'cover' }}
-                  />
-
-                  <CardContent sx={{ flexGrow: 1, p: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    {/* Header with menu */}
-                    <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1} sx={{ flexShrink: 0 }}>
-                      <Typography
-                        variant="h6"
+          <TableContainer component={Paper}>
+            <Table sx={{ tableLayout: 'fixed' }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell align="center" sx={{ width: 100 }}>Image</TableCell>
+                  <TableCell align="center" sx={{ width: 200 }}>
+                    <TableSortLabel
+                      active={sortBy === 'name'}
+                      direction={sortBy === 'name' ? sortOrder : 'asc'}
+                      onClick={() => {
+                        if (sortBy === 'name') {
+                          setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortBy('name');
+                          setSortOrder('asc');
+                        }
+                      }}
+                    >
+                      <Box component="span" sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>Name</Box>
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="center" sx={{ width: 150 }}>
+                    <TableSortLabel
+                      active={sortBy === 'category'}
+                      direction={sortBy === 'category' ? sortOrder : 'asc'}
+                      onClick={() => {
+                        if (sortBy === 'category') {
+                          setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortBy('category');
+                          setSortOrder('asc');
+                        }
+                      }}
+                    >
+                      <Box component="span" sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>Category</Box>
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="center" sx={{ width: 120 }}>
+                    <TableSortLabel
+                      active={sortBy === 'price'}
+                      direction={sortBy === 'price' ? sortOrder : 'asc'}
+                      onClick={() => {
+                        if (sortBy === 'price') {
+                          setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortBy('price');
+                          setSortOrder('asc');
+                        }
+                      }}
+                    >
+                      <Box component="span" sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>Price</Box>
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="center" sx={{ width: 100 }}>Status</TableCell>
+                  <TableCell align="center" sx={{ width: 140 }}>Availability</TableCell>
+                  <TableCell align="center" sx={{ width: 120 }}>Pricing Policy</TableCell>
+                  <TableCell align="center" sx={{ width: 200 }}>Components</TableCell>
+                  <TableCell align="center" sx={{ width: 120 }}>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {paginatedListings.map((listing) => (
+                  <TableRow key={listing.id} hover>
+                    <TableCell align="center" sx={{ width: 100 }}>
+                      <Box
                         sx={{
-                          fontWeight: 600,
-                          color: '#1a1a1a',
-                          fontSize: '1rem',
-                          flex: 1,
-                          mr: 1,
-                          lineHeight: 1.3,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
+                          width: 80,
+                          height: 80,
+                          mx: 'auto',
+                          borderRadius: 1,
                           overflow: 'hidden',
+                          backgroundColor: '#f5f5f5',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          position: 'relative',
                         }}
                       >
-                        {listing.name}
+                        {listing.images && listing.images.length > 0 ? (
+                          <img
+                            src={getImageUrl(listing.images[0])}
+                            alt={listing.name}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                            }}
+                            onError={(e) => {
+                              e.target.style.display = 'none';
+                              const icon = e.target.nextElementSibling;
+                              if (icon) icon.style.display = 'flex';
+                            }}
+                          />
+                        ) : null}
+                        <ImageIcon
+                          sx={{
+                            color: '#ccc',
+                            fontSize: 32,
+                            display: (!listing.images || listing.images.length === 0) ? 'flex' : 'none',
+                            position: 'absolute',
+                          }}
+                        />
+                      </Box>
+                    </TableCell>
+                    <TableCell sx={{ width: 200 }}>
+                      <Typography noWrap title={listing.name}>{listing.name || '-'}</Typography>
+                    </TableCell>
+                    <TableCell sx={{ width: 150 }}>
+                      <Typography noWrap title={listing.category === 'Other' && listing.customCategory ? listing.customCategory : listing.category}>
+                        {listing.category === 'Other' && listing.customCategory ? listing.customCategory : listing.category}
                       </Typography>
-                      <IconButton
-                        size="small"
-                        onClick={(e) => handleMenuOpen(e, listing)}
-                        sx={{ color: '#666', p: 0.5, flexShrink: 0 }}
-                      >
-                        <MoreVertIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-
-                    {/* Category and Status Chips */}
-                    <Box display="flex" gap={1} mb={1.5} flexWrap="wrap" sx={{ flexShrink: 0 }}>
+                    </TableCell>
+                    <TableCell align="center" sx={{ width: 120 }}>
+                      RM {parseFloat(listing.price).toLocaleString()}
+                    </TableCell>
+                    <TableCell align="center" sx={{ width: 100 }}>
                       <Chip
-                        label={listing.category === 'Other' && listing.customCategory ? listing.customCategory : listing.category}
                         size="small"
-                        sx={{
-                          backgroundColor: '#f3f4f6',
-                          color: '#666',
-                          fontSize: '0.7rem',
-                          height: '24px',
-                        }}
+                        label={listing.isActive ? 'Active' : 'Inactive'}
+                        color={listing.isActive ? 'success' : 'default'}
                       />
-                      <Chip
-                        label={listing.isActive ? 'active' : 'inactive'}
-                        size="small"
-                        sx={{
-                          backgroundColor: listing.isActive ? '#d4edda' : '#f8d7da',
-                          color: listing.isActive ? '#155724' : '#721c24',
-                          fontSize: '0.7rem',
-                          height: '24px',
-                          fontWeight: 500,
-                        }}
-                      />
-                    </Box>
-
-                    {/* Description - Strictly 2 lines with ellipsis */}
-                    <Box
-                      sx={{
-                        flex: '1 1 auto',
-                        minHeight: '2.8rem',
-                        maxHeight: '2.8rem',
-                        overflow: 'hidden',
-                        mb: 1.5,
-                      }}
-                    >
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                        className="listing-description-clamp"
-                      sx={{
-                          fontSize: '0.8rem',
-                          margin: 0,
-                          padding: 0,
-                      }}
-                    >
-                      {listing.description || 'No description provided'}
-                    </Typography>
-                    </Box>
-
-                    {/* Price - Always visible at bottom */}
-                    <Box sx={{ mt: 'auto', pt: 1.5, borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 600, color: '#1a1a1a', fontSize: '1.1rem' }}>
-                        RM {parseFloat(listing.price).toLocaleString()}
-                      </Typography>
-                    </Box>
-                  </CardContent>
-                </Card>
-            ))}
-          </Box>
+                    </TableCell>
+                    <TableCell align="center" sx={{ width: 140 }}>
+                      {listing.availabilityType ? (
+                        <Chip
+                          size="small"
+                          label={listing.availabilityType === 'exclusive' ? 'Exclusive' : listing.availabilityType === 'reusable' ? 'Reusable' : 'Quantity-based'}
+                          sx={{
+                            backgroundColor: listing.availabilityType === 'exclusive' ? '#e3f2fd' : listing.availabilityType === 'reusable' ? '#f3e5f5' : '#fff3e0',
+                            color: listing.availabilityType === 'exclusive' ? '#1976d2' : listing.availabilityType === 'reusable' ? '#7b1fa2' : '#e65100',
+                          }}
+                        />
+                      ) : (
+                        '-'
+                      )}
+                      {listing.availabilityType === 'quantity_based' && listing.maxQuantity && (
+                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                          Max: {listing.maxQuantity}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell align="center" sx={{ width: 120 }}>
+                      {listing.pricingPolicy && listing.pricingPolicy !== 'flat' ? (
+                        <Chip
+                          size="small"
+                          label={listing.pricingPolicy.replace('_', ' ')}
+                          sx={{
+                            backgroundColor: '#e8f5e9',
+                            color: '#2e7d32',
+                          }}
+                        />
+                      ) : (
+                        'Flat'
+                      )}
+                    </TableCell>
+                    <TableCell sx={{ width: 200 }}>
+                      {listing.components && listing.components.length > 0 ? (
+                        <Typography variant="body2" sx={{ fontSize: '0.75rem' }} noWrap title={
+                          listing.components.map((comp, idx) => {
+                            const elementName = comp.designElement?.name || comp.designElement?.elementType || 'Element';
+                            return `${comp.quantityPerUnit} ${comp.role || elementName}`;
+                          }).join(', ')
+                        }>
+                          {listing.components.map((comp, idx) => {
+                            const elementName = comp.designElement?.name || comp.designElement?.elementType || 'Element';
+                            return `${comp.quantityPerUnit} ${comp.role || elementName}`;
+                          }).join(', ')}
+                        </Typography>
+                      ) : (
+                        '-'
+                      )}
+                    </TableCell>
+                    <TableCell align="center" sx={{ width: 120 }}>
+                      <Stack direction="row" spacing={1} justifyContent="center">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenModal(listing)}
+                          title="Edit"
+                          sx={{ color: '#666' }}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleDeleteClick(listing.id)}
+                          title="Delete"
+                          sx={{ color: '#d32f2f' }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         )}
 
         {/* Pagination */}
@@ -893,17 +1430,137 @@ const ManageListings = () => {
             />
 
             {/* 3D Model Preview - Show second (after service name) */}
-            {editingListing && editingListing.has3DModel && editingListing.designElement && (
-              <Box>
-                <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-                  3D Model Preview
-                </Typography>
-                <Model3DViewer
-                  modelUrl={editingListing.designElement.modelFile}
-                  width="100%"
-                  height="400px"
-                />
-              </Box>
+            {editingListing && (
+              <>
+                {/* Single model preview (non-bundle) */}
+                {components.length === 0 && (() => {
+                  // Check if we have a design element from editingListing or from selectedDesignElementId
+                  let designElement = editingListing.designElement;
+                  
+                  // If no designElement in editingListing but we have selectedDesignElementId, find it
+                  if (!designElement && selectedDesignElementId && useExistingDesignElement) {
+                    designElement = designElements.find(el => el.id === selectedDesignElementId);
+                  }
+                  
+                  // Show preview if we have a design element with a model file
+                  if (designElement && designElement.modelFile) {
+                    const getModelUrl = (modelFile) => {
+                      if (!modelFile) return null;
+                      if (modelFile.startsWith('http://') || modelFile.startsWith('https://')) {
+                        return modelFile;
+                      }
+                      if (modelFile.startsWith('/uploads')) {
+                        return `http://localhost:4000${modelFile}`;
+                      }
+                      return modelFile;
+                    };
+                    
+                    return (
+                      <Box>
+                        <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+                          3D Model Preview
+                        </Typography>
+                        <Model3DViewer
+                          modelUrl={getModelUrl(designElement.modelFile)}
+                          width="100%"
+                          height="400px"
+                        />
+                      </Box>
+                    );
+                  }
+                  return null;
+                })()}
+                
+                {/* Bundle preview with component switching */}
+                {components.length > 0 && (
+                  <Box>
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        3D Model Preview
+                      </Typography>
+                      <TextField
+                        select
+                        size="small"
+                        value={previewComponentIndex !== null ? previewComponentIndex : ''}
+                        onChange={(e) => setPreviewComponentIndex(e.target.value !== '' ? parseInt(e.target.value) : null)}
+                        sx={{ minWidth: 200 }}
+                      >
+                        <MenuItem value="">
+                          <em>Select component to preview</em>
+                        </MenuItem>
+                        {components.map((component, index) => {
+                          const hasModel = component.designElementId || component3DFiles[index];
+                          if (!hasModel) return null;
+                          
+                          const element = designElements.find(el => el.id === component.designElementId);
+                          const componentName = component.role || element?.name || element?.elementType || `Component ${index + 1}`;
+                          
+                          return (
+                            <MenuItem key={index} value={index}>
+                              {componentName}
+                            </MenuItem>
+                          );
+                        })}
+                      </TextField>
+                    </Box>
+                    {previewComponentIndex !== null && (() => {
+                      const component = components[previewComponentIndex];
+                      if (!component) return null;
+                      
+                      // Check if there's a newly uploaded file
+                      if (component3DFiles[previewComponentIndex] && previewBlobUrl) {
+                        return (
+                          <Model3DViewer
+                            modelUrl={previewBlobUrl}
+                            width="100%"
+                            height="400px"
+                          />
+                        );
+                      }
+                      
+                      // Check if there's an existing design element
+                      if (component.designElementId) {
+                        const element = designElements.find(el => el.id === component.designElementId);
+                        if (element && element.modelFile) {
+                          const getModelUrl = (modelFile) => {
+                            if (!modelFile) return null;
+                            if (modelFile.startsWith('http://') || modelFile.startsWith('https://')) {
+                              return modelFile;
+                            }
+                            if (modelFile.startsWith('/uploads')) {
+                              return `http://localhost:4000${modelFile}`;
+                            }
+                            return modelFile;
+                          };
+                          
+                          return (
+                            <Model3DViewer
+                              modelUrl={getModelUrl(element.modelFile)}
+                              width="100%"
+                              height="400px"
+                            />
+                          );
+                        }
+                      }
+                      
+                      return (
+                        <Box sx={{ p: 3, textAlign: 'center', backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            No 3D model available for this component
+                          </Typography>
+                        </Box>
+                      );
+                    })()}
+                    {previewComponentIndex === null && (
+                      <Box sx={{ p: 3, textAlign: 'center', backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Select a component from the dropdown to preview its 3D model
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                )}
+              </>
             )}
 
             {/* Category */}
@@ -974,6 +1631,229 @@ const ManageListings = () => {
               inputProps={{ min: 0, step: 0.01 }}
               sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
             />
+
+            {/* Availability Type */}
+            <TextField
+              fullWidth
+              select
+              label="Availability Type"
+              value={formData.availabilityType}
+              onChange={(e) => handleInputChange('availabilityType', e.target.value)}
+              helperText="How this service can be booked"
+              sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
+            >
+              <MenuItem value="exclusive">
+                Exclusive - One booking per date (e.g., single ballroom)
+              </MenuItem>
+              <MenuItem value="reusable">
+                Reusable - Multiple bookings allowed (e.g., bouquets)
+              </MenuItem>
+              <MenuItem value="quantity_based">
+                Quantity-based - Track available quantity (e.g., table sets)
+              </MenuItem>
+            </TextField>
+
+            {/* Max Quantity - Only show when quantity_based */}
+            {formData.availabilityType === 'quantity_based' && (
+              <TextField
+                fullWidth
+                label="Max Quantity"
+                type="number"
+                value={formData.maxQuantity}
+                onChange={(e) => handleInputChange('maxQuantity', e.target.value)}
+                error={!!fieldErrors.maxQuantity}
+                helperText={fieldErrors.maxQuantity || 'Maximum available quantity for this service'}
+                required
+                inputProps={{ min: 1, step: 1 }}
+                sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
+              />
+            )}
+
+            {/* Pricing Policy */}
+            <TextField
+              fullWidth
+              select
+              label="Pricing Policy"
+              value={formData.pricingPolicy}
+              onChange={(e) => handleInputChange('pricingPolicy', e.target.value)}
+              helperText="How units are calculated from 3D design"
+              sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
+            >
+              <MenuItem value="flat">Flat - One unit per booking</MenuItem>
+              <MenuItem value="per_table">Per Table - Units = number of tables in design</MenuItem>
+              <MenuItem value="per_set">Per Set - Units = number of table sets in design</MenuItem>
+              <MenuItem value="per_guest">Per Guest - Units = project guest count</MenuItem>
+              <MenuItem value="tiered">Tiered - Advanced volume pricing</MenuItem>
+            </TextField>
+
+            {/* Service Components Section */}
+            <Box>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                  Service Components (Optional - for bundle services)
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={handleAddComponent}
+                  sx={{
+                    textTransform: 'none',
+                    borderColor: '#e0e0e0',
+                    color: '#666',
+                    '&:hover': { borderColor: '#e16789', color: '#e16789' },
+                  }}
+                >
+                  Add Component
+                </Button>
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                Define what makes up 1 unit of this service (e.g., "Table Set" = 1 table + 10 chairs).
+                <br />
+                <strong>Tip:</strong> Upload 3D models in the <a href="/vendor/design-elements" target="_blank" style={{ color: '#e16789', textDecoration: 'none' }}>Design Elements Library</a> first, then select them here for better organization and reuse.
+              </Typography>
+
+              {components.length > 0 && (
+                <Stack spacing={2}>
+                  {components.map((component, index) => (
+                    <Box
+                      key={component.id || index}
+                      sx={{
+                        p: 2,
+                        border: '1px solid #e0e0e0',
+                        borderRadius: 2,
+                        backgroundColor: '#fafafa',
+                      }}
+                    >
+                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          Component {index + 1}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleRemoveComponent(index)}
+                          sx={{ color: '#d32f2f' }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
+                      <Stack spacing={2}>
+                        <Box display="flex" gap={1} alignItems="flex-start">
+                          <TextField
+                            fullWidth
+                            select
+                            label="Design Element"
+                            value={component.designElementId || ''}
+                            onChange={(e) => handleComponentChange(index, 'designElementId', e.target.value)}
+                            size="small"
+                            helperText="Select existing or upload new 3D model below"
+                            disabled={loadingDesignElements}
+                          >
+                            <MenuItem value="">
+                              <em>None selected</em>
+                            </MenuItem>
+                            {designElements.map((element) => (
+                              <MenuItem key={element.id} value={element.id}>
+                                {element.name || element.elementType || `Element ${element.id.slice(0, 8)}`}
+                              </MenuItem>
+                            ))}
+                          </TextField>
+                        </Box>
+                        
+                        {/* Per-component 3D model upload */}
+                        <Box>
+                          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontWeight: 500 }}>
+                            Or upload new 3D model for this component:
+                          </Typography>
+                          <input
+                            type="file"
+                            accept=".glb"
+                            onChange={(e) => handleComponent3DModelChange(index, e)}
+                            style={{ display: 'none' }}
+                            id={`component-3d-upload-${index}`}
+                          />
+                          <label htmlFor={`component-3d-upload-${index}`}>
+                            <Button
+                              variant="outlined"
+                              component="span"
+                              size="small"
+                              startIcon={<ThreeDIcon />}
+                              sx={{
+                                textTransform: 'none',
+                                borderColor: '#e0e0e0',
+                                color: '#666',
+                                fontSize: '0.75rem',
+                                '&:hover': { borderColor: '#e16789', color: '#e16789' },
+                              }}
+                            >
+                              Upload 3D Model
+                            </Button>
+                          </label>
+                          
+                          {component3DPreviews[index] && (
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                mt: 1,
+                                p: 1,
+                                backgroundColor: '#f5f5f5',
+                                borderRadius: 1,
+                              }}
+                            >
+                              <ThreeDIcon sx={{ color: '#666', fontSize: '1rem' }} />
+                              <Typography variant="caption" sx={{ flex: 1, color: '#666' }}>
+                                {component3DPreviews[index].name} ({(component3DPreviews[index].size / 1024 / 1024).toFixed(2)} MB)
+                              </Typography>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleRemoveComponent3DModel(index)}
+                                sx={{ color: '#d32f2f', padding: '4px' }}
+                              >
+                                <CloseIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+                          )}
+                          
+                          {component3DFiles[index] && (
+                            <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
+                              ✓ 3D model will be uploaded and linked to this component
+                            </Typography>
+                          )}
+                        </Box>
+                        <Box display="flex" gap={2}>
+                          <TextField
+                            fullWidth
+                            label="Quantity Per Unit"
+                            type="number"
+                            value={component.quantityPerUnit}
+                            onChange={(e) => handleComponentChange(index, 'quantityPerUnit', parseInt(e.target.value) || 1)}
+                            size="small"
+                            required
+                            inputProps={{ min: 1, step: 1 }}
+                          />
+                          <TextField
+                            fullWidth
+                            label="Role (Optional)"
+                            value={component.role || ''}
+                            onChange={(e) => handleComponentChange(index, 'role', e.target.value)}
+                            placeholder="e.g., table, chair"
+                            size="small"
+                          />
+                        </Box>
+                      </Stack>
+                    </Box>
+                  ))}
+                </Stack>
+              )}
+
+              {components.length === 0 && (
+                <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', textAlign: 'center', py: 2 }}>
+                  No components added. Click "Add Component" to define bundle composition.
+                </Typography>
+              )}
+            </Box>
 
             {/* Images */}
             <Box>
@@ -1053,58 +1933,197 @@ const ManageListings = () => {
 
             {/* 3D Model Upload */}
             <Box>
-              <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-                3D Model (Optional, .glb format only, max 50MB)
-              </Typography>
-              <input
-                type="file"
-                accept=".glb"
-                onChange={handle3DModelChange}
-                style={{ display: 'none' }}
-                id="3d-model-upload"
-              />
-              <label htmlFor="3d-model-upload">
-                <Button
-                  variant="outlined"
-                  component="span"
-                  startIcon={<ThreeDIcon />}
-                  sx={{
-                    mb: 2,
-                    textTransform: 'none',
-                    borderColor: '#e0e0e0',
-                    color: '#666',
-                    '&:hover': { borderColor: '#e16789', color: '#e16789' },
-                  }}
-                >
-                  {model3DPreview ? 'Change 3D Model' : 'Upload 3D Model'}
-                </Button>
-              </label>
-
-              {model3DPreview && (
+              {components.length === 0 ? (
+                // Single 3D model for non-bundle services
                 <>
-                  <Box
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1,
-                      p: 1.5,
-                      backgroundColor: '#f5f5f5',
-                      borderRadius: 1,
-                      mb: 2,
-                    }}
-                  >
-                    <ThreeDIcon sx={{ color: '#666' }} />
-                    <Typography variant="body2" sx={{ flex: 1, color: '#666' }}>
-                      {model3DPreview === 'existing' ? '3D Model uploaded' : model3DPreview}
-                    </Typography>
-                    <IconButton
-                      size="small"
-                      onClick={handleRemove3DModel}
-                      sx={{ color: '#d32f2f' }}
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+                    3D Model (Optional)
+                  </Typography>
+                  
+                  {/* Toggle between existing and new */}
+                  <FormControl component="fieldset" sx={{ mb: 2, width: '100%' }}>
+                    <RadioGroup
+                      row
+                      value={useExistingDesignElement ? 'existing' : 'upload'}
+                      onChange={(e) => {
+                        const value = e.target.value === 'existing';
+                        setUseExistingDesignElement(value);
+                        if (!value) {
+                          setSelectedDesignElementId('');
+                        } else {
+                          setModel3DFile(null);
+                          setModel3DPreview(null);
+                        }
+                      }}
                     >
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
+                      <FormControlLabel
+                        value="existing"
+                        control={<Radio size="small" />}
+                        label="Select from existing"
+                      />
+                      <FormControlLabel
+                        value="upload"
+                        control={<Radio size="small" />}
+                        label="Upload new"
+                      />
+                    </RadioGroup>
+                  </FormControl>
+
+                  {useExistingDesignElement ? (
+                    // Select from existing design elements
+                    <Box sx={{ mb: 2 }}>
+                      <TextField
+                        select
+                        fullWidth
+                        label="Select Design Element"
+                        value={selectedDesignElementId}
+                        onChange={(e) => setSelectedDesignElementId(e.target.value)}
+                        size="small"
+                        sx={{ mb: 1 }}
+                      >
+                        <MenuItem value="">
+                          <em>None</em>
+                        </MenuItem>
+                        {designElements.map((element) => (
+                          <MenuItem key={element.id} value={element.id}>
+                            {element.name || element.elementType || `Element ${element.id.slice(0, 8)}`}
+                            {element.modelFile && ' (3D Model)'}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                      {selectedDesignElementId && (
+                        <Typography variant="caption" color="text.secondary">
+                          Selected design element will be linked to this listing
+                        </Typography>
+                      )}
+                    </Box>
+                  ) : (
+                    // Upload new 3D model
+                    <>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                        .glb format only, max 150MB
+                      </Typography>
+                      <input
+                        type="file"
+                        accept=".glb"
+                        onChange={handle3DModelChange}
+                        style={{ display: 'none' }}
+                        id="3d-model-upload"
+                      />
+                      <label htmlFor="3d-model-upload">
+                        <Button
+                          variant="outlined"
+                          component="span"
+                          startIcon={<ThreeDIcon />}
+                          sx={{
+                            mb: 2,
+                            textTransform: 'none',
+                            borderColor: '#e0e0e0',
+                            color: '#666',
+                            '&:hover': { borderColor: '#e16789', color: '#e16789' },
+                          }}
+                        >
+                          {model3DPreview ? 'Change 3D Model' : 'Upload 3D Model'}
+                        </Button>
+                      </label>
+
+                      {model3DPreview && (
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            p: 1.5,
+                            backgroundColor: '#f5f5f5',
+                            borderRadius: 1,
+                            mb: 2,
+                          }}
+                        >
+                          <ThreeDIcon sx={{ color: '#666' }} />
+                          <Typography variant="body2" sx={{ flex: 1, color: '#666' }}>
+                            {model3DPreview === 'existing' ? '3D Model uploaded' : model3DPreview}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            onClick={handleRemove3DModel}
+                            sx={{ color: '#d32f2f' }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      )}
+                    </>
+                  )}
+                </>
+              ) : (
+                // Multiple 3D models for bundle services
+                <>
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
+                    3D Models for Components (Optional, .glb format only, max 150MB each)
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                    Upload 3D model files for each component. Each file will create a DesignElement that you can then select in the components section above. You can upload up to {components.length} file(s) matching your components.
+                  </Typography>
+                  <input
+                    type="file"
+                    accept=".glb"
+                    multiple
+                    onChange={handle3DModelsChange}
+                    style={{ display: 'none' }}
+                    id="3d-models-upload"
+                  />
+                  <label htmlFor="3d-models-upload">
+                    <Button
+                      variant="outlined"
+                      component="span"
+                      startIcon={<ThreeDIcon />}
+                      sx={{
+                        mb: 2,
+                        textTransform: 'none',
+                        borderColor: '#e0e0e0',
+                        color: '#666',
+                        '&:hover': { borderColor: '#e16789', color: '#e16789' },
+                      }}
+                    >
+                      Upload 3D Model Files
+                    </Button>
+                  </label>
+
+                  {model3DPreviews.length > 0 && (
+                    <Stack spacing={1} sx={{ mb: 2 }}>
+                      {model3DPreviews.map((preview, index) => (
+                        <Box
+                          key={preview.id}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1,
+                            p: 1.5,
+                            backgroundColor: '#f5f5f5',
+                            borderRadius: 1,
+                          }}
+                        >
+                          <ThreeDIcon sx={{ color: '#666' }} />
+                          <Typography variant="body2" sx={{ flex: 1, color: '#666' }}>
+                            {preview.name} ({(preview.size / 1024 / 1024).toFixed(2)} MB)
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleRemove3DModelFile(index)}
+                            sx={{ color: '#d32f2f' }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      ))}
+                    </Stack>
+                  )}
+
+                  {components.length > 0 && model3DPreviews.length === 0 && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontStyle: 'italic' }}>
+                      Note: 3D models are optional. You can add components without 3D models, or upload models later.
+                    </Typography>
+                  )}
                 </>
               )}
             </Box>
@@ -1149,30 +2168,6 @@ const ManageListings = () => {
           </Button>
         </DialogActions>
       </Dialog>
-
-      {/* Options Menu */}
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={handleMenuClose}
-        anchorOrigin={{
-          vertical: 'bottom',
-          horizontal: 'right',
-        }}
-        transformOrigin={{
-          vertical: 'top',
-          horizontal: 'right',
-        }}
-      >
-        <MenuItem onClick={handleEditFromMenu}>
-          <EditIcon sx={{ mr: 1, fontSize: '18px' }} />
-          Edit
-        </MenuItem>
-        <MenuItem onClick={handleDeleteFromMenu} sx={{ color: '#d32f2f' }}>
-          <DeleteIcon sx={{ mr: 1, fontSize: '18px' }} />
-          Delete
-        </MenuItem>
-      </Menu>
 
       {/* Delete Confirmation Dialog */}
       <ConfirmationDialog

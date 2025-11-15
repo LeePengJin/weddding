@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { DateCalendar } from '@mui/x-date-pickers/DateCalendar';
 import { TimePicker } from '@mui/x-date-pickers/TimePicker';
+import { Paper } from '@mui/material';
 import dayjs from 'dayjs';
 import './CreateProject.styles.css';
 
@@ -56,37 +57,104 @@ const Step1DateSelection = ({ formData, updateFormData, error, setError }) => {
         </div>
 
         <div className="date-time-selection">
-          <div className="date-time-group">
+          <div className="date-time-group calendar-group">
             <label className="date-time-label">Select Your Wedding Date</label>
-            <DatePicker
-              value={selectedDate}
-              onChange={handleDateChange}
-              minDate={minDate}
-              slotProps={{
-                textField: {
-                  error: !!dateError,
-                  helperText: dateError,
-                  fullWidth: true,
-                  className: 'date-picker-input'
+            <Paper 
+              elevation={0}
+              sx={{
+                border: '1px solid #e0e0e0',
+                borderRadius: '12px',
+                overflow: 'visible',
+                boxShadow: '0px 2px 6px rgba(0,0,0,0.1)',
+                transition: 'all 0.3s ease',
+                width: '100%',
+                maxWidth: '100%',
+                '&:hover': {
+                  boxShadow: '0px 4px 12px rgba(0,0,0,0.15)',
                 }
               }}
-              sx={{
-                width: '100%',
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: '6px',
-                  fontFamily: 'Playfair Display, serif',
-                  '&:hover fieldset': {
-                    borderColor: '#e16789',
+            >
+              <DateCalendar
+                value={selectedDate}
+                onChange={handleDateChange}
+                minDate={minDate}
+                disableHighlightToday
+                sx={{
+                  width: '100%',
+                  '& *::-webkit-scrollbar': {
+                    display: 'none'
                   },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#e16789',
+                  '& *': {
+                    scrollbarWidth: 'none'
                   },
-                },
-              }}
-            />
+                  '& .MuiPickersDay-root': {
+                    borderRadius: '0',
+                    transition: 'all 0.2s ease',
+                    fontSize: '14px',
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 400,
+                    color: '#222730',
+                    backgroundColor: 'transparent',
+                    '&:hover': {
+                      backgroundColor: 'rgba(225, 103, 137, 0.1)',
+                    },
+                  },
+                  '& .MuiPickersDay-root.Mui-selected': {
+                    backgroundColor: '#E16789 !important',
+                    color: 'white !important',
+                    fontWeight: 400,
+                    '&:hover': {
+                      backgroundColor: '#d4567a !important',
+                    },
+                  },
+                  '& .MuiPickersDay-root.Mui-disabled': {
+                    color: '#A5B3BF',
+                    opacity: 1,
+                    cursor: 'not-allowed',
+                  },
+                  '& .MuiPickersCalendarHeader-root': {
+                    padding: '18px 28px 14px',
+                    borderBottom: '1px solid #e0e0e0',
+                  },
+                  '& .MuiPickersCalendarHeader-labelContainer': {
+                    fontFamily: 'Playfair Display, serif',
+                    fontWeight: 600,
+                    fontSize: '16px',
+                  },
+                  '& .MuiPickersCalendarHeader-weekDayLabelContainer': {
+                    padding: '10px 28px 4px',
+                  },
+                  '& .MuiDayCalendar-weekDayLabel': {
+                    fontSize: '14px',
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 400,
+                    color: '#222730',
+                  },
+                  '& .MuiPickersArrowSwitcher-root': {
+                    padding: '0 4px',
+                    '& button': {
+                      borderRadius: '6px',
+                      transition: 'all 0.2s ease',
+                      padding: '6px',
+                      margin: '0 2px',
+                      minWidth: '32px',
+                      '&:hover': {
+                        backgroundColor: 'rgba(225, 103, 137, 0.12)',
+                        boxShadow: '0 0 0 2px rgba(225, 103, 137, 0.08)',
+                      },
+                      '&:focus-visible': {
+                        outline: '2px solid rgba(225, 103, 137, 0.6)',
+                        outlineOffset: '2px',
+                        backgroundColor: 'rgba(225, 103, 137, 0.12)',
+                      },
+                    },
+                  },
+                }}
+              />
+            </Paper>
           </div>
 
-          <div className="date-time-group">
+          <div className="date-time-group time-group">
             <label className="date-time-label">Select a Time</label>
             <TimePicker
               value={selectedTime}
@@ -102,13 +170,22 @@ const Step1DateSelection = ({ formData, updateFormData, error, setError }) => {
               sx={{
                 width: '100%',
                 '& .MuiOutlinedInput-root': {
-                  borderRadius: '6px',
+                  borderRadius: '12px',
                   fontFamily: 'Playfair Display, serif',
-                  '&:hover fieldset': {
-                    borderColor: '#e16789',
+                  fontSize: '16px',
+                  boxShadow: '0px 2px 6px rgba(0,0,0,0.1)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    boxShadow: '0px 4px 12px rgba(0,0,0,0.15)',
+                    borderColor: '#E16789',
                   },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#e16789',
+                  '&.Mui-focused': {
+                    boxShadow: '0px 0px 0px 3px rgba(225, 103, 137, 0.1)',
+                    borderColor: '#E16789',
+                  },
+                  '& fieldset': {
+                    borderColor: '#e0e0e0',
+                    borderWidth: '1px',
                   },
                 },
               }}

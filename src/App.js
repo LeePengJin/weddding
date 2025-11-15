@@ -13,6 +13,7 @@ import PaymentManagement from './pages/PaymentManagement/PaymentManagement';
 import VendorDashboard from './pages/VendorDashboard/VendorDashboard';
 import BookingRequests from './pages/BookingRequests/BookingRequests';
 import ManageListings from './pages/ManageListings/ManageListings';
+import ManageDesignElements from './pages/ManageDesignElements/ManageDesignElements';
 import AvailabilityManagement from './pages/AvailabilityManagement/AvailabilityManagement';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import Login from './pages/Auth/Login';
@@ -45,6 +46,7 @@ const AppContent = () => {
           <Route path="/vendor/booking-requests" element={<VendorLayout><BookingRequests /></VendorLayout>} />
           <Route path="/vendor/availability" element={<VendorLayout><AvailabilityManagement /></VendorLayout>} />
           <Route path="/vendor/listings" element={<VendorLayout><ManageListings /></VendorLayout>} />
+          <Route path="/vendor/design-elements" element={<VendorLayout><ManageDesignElements /></VendorLayout>} />
           <Route path="/vendor/profile" element={<VendorLayout><VendorProfile /></VendorLayout>} />
         </Routes>
       ) : (
