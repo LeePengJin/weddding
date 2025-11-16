@@ -96,6 +96,11 @@ router.get('/:id', requireAuth, async (req, res, next) => {
         venueDesign: true,
         budget: true,
         tasks: {
+          include: {
+            subtasks: {
+              orderBy: { createdAt: 'asc' },
+            },
+          },
           orderBy: { dueDate: 'asc' },
         },
         bookings: {

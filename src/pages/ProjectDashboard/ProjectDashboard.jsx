@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -32,6 +32,7 @@ const ProjectDashboard = () => {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('projectId');
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [projectData, setProjectData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -41,6 +42,9 @@ const ProjectDashboard = () => {
   useEffect(() => {
     fetchProjectData();
   }, [projectId]);
+
+  // Refresh data when navigating back to this page (component remounts on route change)
+  // The useEffect above already handles this, but we ensure fresh data on mount
 
   const fetchProjectData = async () => {
     try {
@@ -72,7 +76,7 @@ const ProjectDashboard = () => {
           } : { total: 0, spent: 0, categories: {} },
           checklist: {
             total: project.tasks?.length || 0,
-            completed: project.tasks?.filter(t => t.completed).length || 0,
+            completed: project.tasks?.filter(t => t.isCompleted).length || 0,
             categories: {},
           },
           payments: {
@@ -152,7 +156,7 @@ const ProjectDashboard = () => {
       description: 'Your advice-filled list of to-do\'s awaits',
       progress: `${Math.round(checklistProgress)}% complete`,
       color: '#e16789',
-      link: '/checklist',
+      link: `/checklist?projectId=${projectData.id}`,
       stats: `${projectData.checklist.completed} of ${projectData.checklist.total} tasks`,
     },
     {
