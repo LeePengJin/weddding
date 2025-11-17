@@ -165,7 +165,8 @@ const ProjectDashboard = () => {
       description: 'Design a stylish space that shares every wedding detail',
       progress: 'Ready to design',
       color: '#e16789',
-      link: '/venue-designer',
+      link: `/projects/${projectData.id}/venue-designer`,
+      linkState: { projectId: projectData.id },
       stats: 'Start designing',
     },
     {
@@ -651,6 +652,7 @@ const ProjectDashboard = () => {
                         <Button
                           component={Link}
                           to={tool.link}
+                          state={tool.linkState}
                           fullWidth
                           variant="outlined"
                           sx={{

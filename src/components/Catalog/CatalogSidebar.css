@@ -1,0 +1,128 @@
+.catalog-panel {
+  width: 420px;
+  min-height: calc(100vh - 120px);
+  background: #fff;
+  border-right: 1px solid #d9d9d9;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.catalog-panel.collapsed {
+  width: 88px;
+  padding: 16px 8px;
+  align-items: center;
+}
+
+.catalog-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.catalog-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.catalog-heading h3,
+.catalog-heading h5 {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.35rem;
+  color: #0f060d;
+  margin: 0;
+}
+
+.catalog-heading p,
+.catalog-heading .MuiTypography-body2 {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #7c7b86;
+}
+
+.catalog-label {
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a1a0ab;
+  font-size: 0.72rem;
+}
+
+.catalog-toggle {
+  border: 1px solid #dcdcdf !important;
+  color: #7b7b85 !important;
+  width: 34px;
+  height: 34px;
+}
+
+.catalog-panel.collapsed .catalog-heading,
+.catalog-panel.collapsed .catalog-search-field,
+.catalog-panel.collapsed .catalog-select-control,
+.catalog-panel.collapsed .catalog-grid {
+  display: none;
+}
+
+.catalog-collapsed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: #a1a0ab;
+  font-size: 0.85rem;
+}
+
+.catalog-collapsed svg {
+  font-size: 1rem;
+}
+
+.catalog-search-field .MuiOutlinedInput-root,
+.catalog-select-control .MuiOutlinedInput-root {
+  border-radius: 6px;
+}
+
+.catalog-search-field .MuiOutlinedInput-input {
+  padding: 8px 10px 8px 0;
+}
+
+.catalog-select-control .MuiSelect-select {
+  padding: 6px 10px;
+  font-size: 0.9rem;
+}
+
+.catalog-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 6px;
+  align-content: flex-start;
+}
+
+.catalog-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: #6b7280;
+  padding: 2rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.catalog-empty i {
+  font-size: 1.6rem;
+}
+
+@media (max-width: 1024px) {
+  .catalog-panel {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #d9d9d9;
+    min-height: auto;
+  }
+
+  .catalog-panel.collapsed {
+    width: 100%;
+  }
+}

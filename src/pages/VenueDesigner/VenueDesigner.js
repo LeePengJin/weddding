@@ -1,335 +1,424 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import './VenueDesigner.styles.css';
 import DesignSummary from './DesignSummary';
+import {
+  getVenueDesign,
+  addDesignElement,
+  updateDesignElement,
+  deleteDesignElement,
+  saveVenueDesign,
+  getVenueCatalog,
+  getVenueAvailability,
+} from '../../lib/api';
+import BudgetTracker from '../../components/BudgetTracker/BudgetTracker';
+import CatalogSidebar from '../../components/Catalog/CatalogSidebar';
+
+const CATEGORIES = [
+  'All Categories',
+  'Venue',
+  'Caterer',
+  'Florist',
+  'Photographer',
+  'Videographer',
+  'DJ_Music',
+  'Other',
+];
+
+const formatImageUrl = (url) => {
+  if (!url) return '/images/default-product.jpg';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  if (url.startsWith('/uploads')) return `http://localhost:4000${url}`;
+  return url;
+};
 
 const VenueDesigner = () => {
+  const location = useLocation();
+  const { projectId: routeProjectId } = useParams();
+  const searchParams = new URLSearchParams(location.search);
+  const projectIdFromQuery = searchParams.get('projectId');
+  const projectIdFromState = location.state?.projectId;
+  const projectId = routeProjectId || projectIdFromQuery || projectIdFromState || null;
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
-  const [totalBudget] = useState(15000);
-  const [currentExpenses, setCurrentExpenses] = useState(3200);
-  const [placedItems, setPlacedItems] = useState([]);
+  const [totalBudget, setTotalBudget] = useState(15000);
+  const [placements, setPlacements] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedItemInfo, setSelectedItemInfo] = useState(null);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [catalogItems, setCatalogItems] = useState([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [designLayout, setDesignLayout] = useState({});
+  const [availabilityMap, setAvailabilityMap] = useState({});
+  const [savingState, setSavingState] = useState({ loading: false, lastSaved: null });
 
-  // Mock vendor items catalog
-  const [vendorItems] = useState([
-    {
-      id: 1,
-      name: "Round Dining Table",
-      category: "Tables",
-      vendor: "Elegant Furniture Co.",
-      price: 450,
-      image: "/images/default-product.jpg",
-      description: "8-seater round table perfect for wedding receptions"
-    },
-    {
-      id: 2,
-      name: "Chiavari Chairs (Set of 8)",
-      category: "Chairs",
-      vendor: "Classic Seating",
-      price: 320,
-      image: "/images/default-product.jpg",
-      description: "Gold chiavari chairs, elegant and comfortable"
-    },
-    {
-      id: 3,
-      name: "Fairy Light Backdrop",
-      category: "Decorations",
-      vendor: "Dreamy Decorations",
-      price: 280,
-      image: "/images/default-product.jpg",
-      description: "Beautiful fairy light backdrop for ceremony"
-    },
-    {
-      id: 4,
-      name: "Floral Centerpiece",
-      category: "Flowers",
-      vendor: "Blooming Gardens",
-      price: 150,
-      image: "/images/default-product.jpg",
-      description: "Elegant rose and eucalyptus centerpiece"
-    },
-    {
-      id: 5,
-      name: "White Linens (Per Table)",
-      category: "Linens",
-      vendor: "Luxury Linens",
-      price: 35,
-      image: "/images/default-product.jpg",
-      description: "Premium white table linens"
-    },
-    {
-      id: 6,
-      name: "Photo Booth Setup",
-      category: "Entertainment",
-      vendor: "Fun Moments",
-      price: 650,
-      image: "/images/default-product.jpg",
-      description: "Complete photo booth with props and backdrop"
+  const plannedSpend = useMemo(() => {
+    const bundleTotals = new Map();
+    placements.forEach((placement) => {
+      const bundleId = placement?.metadata?.bundleId;
+      const unitPrice = placement?.metadata?.unitPrice;
+      if (bundleId && unitPrice && !bundleTotals.has(bundleId)) {
+        bundleTotals.set(bundleId, parseFloat(unitPrice));
+      }
+    });
+    return Array.from(bundleTotals.values()).reduce((sum, price) => sum + price, 0);
+  }, [placements]);
+
+  const remainingBudget = Math.max(totalBudget - plannedSpend, 0);
+  const budgetProgress = totalBudget > 0 ? (plannedSpend / totalBudget) * 100 : 0;
+
+  const loadDesign = useCallback(async () => {
+    if (!projectId) {
+      setIsLoading(false);
+      return;
     }
-  ]);
 
-  const categories = ['All Categories', 'Tables', 'Chairs', 'Decorations', 'Flowers', 'Linens', 'Entertainment'];
+    setIsLoading(true);
+    try {
+      const data = await getVenueDesign(projectId);
+      setPlacements(data.design?.placedElements || []);
+      setDesignLayout(data.design?.layoutData || {});
+      setSidebarCollapsed(data.design?.layoutData?.sidebar?.collapsed ?? false);
+      setSavingState((prev) => ({
+        ...prev,
+        lastSaved: data.design?.layoutData?.lastSavedAt || null,
+      }));
 
-  const filteredItems = vendorItems.filter(item => {
-    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         item.vendor.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'All Categories' || item.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
+      const backendBudget = data.project?.budget?.totalBudget;
+      if (backendBudget) {
+        setTotalBudget(Number(backendBudget));
+      }
+      setErrorMessage('');
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to load venue design');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [projectId]);
 
-  const handleAddItem = (item) => {
-    setCurrentExpenses(prev => prev + item.price);
-    setPlacedItems(prev => [...prev, { ...item, placedId: Date.now() }]);
+  const loadCatalog = useCallback(async () => {
+    if (!projectId) return;
+    setCatalogLoading(true);
+    try {
+      const response = await getVenueCatalog(projectId, {
+        search: searchTerm || undefined,
+        category: selectedCategory !== 'All Categories' ? selectedCategory : undefined,
+        includeUnavailable: true,
+      });
+      setCatalogItems(response.listings || []);
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to load catalog');
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [projectId, searchTerm, selectedCategory]);
+
+  const refreshAvailability = useCallback(async () => {
+    if (!projectId || placements.length === 0) return;
+    const listingIds = Array.from(
+      new Set(
+        placements
+          .map((placement) => placement?.metadata?.serviceListingId)
+          .filter(Boolean)
+      )
+    );
+    if (listingIds.length === 0) return;
+    try {
+      const result = await getVenueAvailability(projectId, listingIds);
+      const map = {};
+      (result.results || []).forEach((entry) => {
+        map[entry.serviceListingId] = entry;
+      });
+      setAvailabilityMap(map);
+    } catch (err) {
+      console.error('[VenueDesigner] Availability check failed', err);
+    }
+  }, [projectId, placements]);
+
+  const persistLayout = useCallback(
+    async (nextLayout) => {
+      if (!projectId) return;
+      setDesignLayout(nextLayout);
+      setSavingState((prev) => ({ ...prev, loading: true }));
+      try {
+        await saveVenueDesign(projectId, { layoutData: nextLayout });
+        setSavingState({
+          loading: false,
+          lastSaved: new Date().toISOString(),
+        });
+      } catch (err) {
+        setErrorMessage(err.message || 'Failed to save design layout');
+        setSavingState((prev) => ({ ...prev, loading: false }));
+      }
+    },
+    [projectId]
+  );
+
+  const handleAddItem = async (item) => {
+    if (!projectId) return;
+    try {
+      const response = await addDesignElement(projectId, {
+        serviceListingId: item.id,
+      });
+      setPlacements((prev) => [...prev, ...(response.placements || [])]);
+      setErrorMessage('');
+    } catch (err) {
+      setErrorMessage(err.message || 'Unable to add item to design');
+    }
   };
 
-  const remainingBudget = totalBudget - currentExpenses;
-  const budgetProgress = (currentExpenses / totalBudget) * 100;
+  const handleRemovePlacement = async (placementId, scope = 'bundle') => {
+    if (!projectId) return;
+    try {
+      const response = await deleteDesignElement(projectId, placementId, scope);
+      const removedIds = response.removedPlacementIds || [];
+      setPlacements((prev) => prev.filter((placement) => !removedIds.includes(placement.id)));
+      setErrorMessage('');
+    } catch (err) {
+      setErrorMessage(err.message || 'Unable to remove item');
+    }
+  };
+
+  const handleToggleLock = async (placement) => {
+    if (!projectId) return;
+    try {
+      const updated = await updateDesignElement(projectId, placement.id, {
+        isLocked: !placement.isLocked,
+      });
+      setPlacements((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+    } catch (err) {
+      setErrorMessage(err.message || 'Unable to update lock state');
+    }
+  };
+
+  const handleSidebarToggle = () => {
+    const nextCollapsed = !sidebarCollapsed;
+    setSidebarCollapsed(nextCollapsed);
+    const nextLayout = {
+      ...designLayout,
+      sidebar: { collapsed: nextCollapsed },
+    };
+    persistLayout(nextLayout);
+  };
+
+  const handleManualSave = () => {
+    persistLayout(designLayout || {});
+  };
+
+  useEffect(() => {
+    loadDesign();
+  }, [loadDesign]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      loadCatalog();
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [loadCatalog]);
+
+  useEffect(() => {
+    refreshAvailability();
+    const interval = setInterval(refreshAvailability, 60000);
+    return () => clearInterval(interval);
+  }, [refreshAvailability]);
+
+  if (!projectId) {
+    return (
+      <div className="venue-designer">
+        <div className="empty-state">
+          <h3>Please select a wedding project first</h3>
+          <p>Open the designer from a project card or use the route <code>/projects/PROJECT_ID/venue-designer</code>.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="venue-designer">
-      {/* Custom Navigation Bar */}
-      <div className="designer-navbar">
-        <div className="navbar-left">
-          <Link to="/project-dashboard" className="back-link">
-            <i className="fas fa-arrow-left"></i>
-            3D Venue Designer
-          </Link>
-        </div>
-
-        <div className="navbar-center">
-          <div className="budget-tracker">
-            <div className="budget-item">
-              <span className="budget-label">Total Budget</span>
-              <span className="budget-value">RM {totalBudget.toLocaleString()}</span>
-            </div>
-            <div className="budget-item">
-              <span className="budget-label">Spent</span>
-              <span className="budget-value spent">RM {currentExpenses.toLocaleString()}</span>
-            </div>
-            <div className="budget-item">
-              <span className="budget-label">Remaining</span>
-              <span className={`budget-value ${remainingBudget < 1000 ? 'warning' : 'remaining'}`}>
-                RM {remainingBudget.toLocaleString()}
-              </span>
-            </div>
-            <div className="budget-progress">
-              <div className="budget-bar">
-                <div 
-                  className="budget-fill" 
-                  style={{ width: `${Math.min(budgetProgress, 100)}%` }}
-                ></div>
-              </div>
-              <span className="budget-percentage">{budgetProgress.toFixed(1)}%</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="navbar-right">
-          <button className="save-design-btn">
-            <i className="fas fa-save"></i>
-            Save Design
-          </button>
-          <button className="summary-btn">
-            <i className="fas fa-list-alt"></i>
-            Summary
-          </button>
-          <button 
-            className="checkout-btn"
-            onClick={() => setShowCheckout(true)}
-          >
-            <i className="fas fa-shopping-cart"></i>
-            Proceed to Checkout
+      {errorMessage && (
+        <div className="designer-alert">
+          <p>{errorMessage}</p>
+          <button onClick={() => setErrorMessage('')}>
+            <i className="fas fa-times"></i>
           </button>
         </div>
-      </div>
+      )}
 
-      <div className="designer-content">
-        {/* Left Sidebar - Item Catalog */}
-        <div className={`catalog-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
-          <div className="sidebar-header">
-            <div className="sidebar-title">
-              <h3>Item Catalog</h3>
-              {!sidebarCollapsed && <p>Drag items to your venue space</p>}
+      <div className="venue-layout">
+        <CatalogSidebar
+          collapsed={sidebarCollapsed}
+          onToggle={handleSidebarToggle}
+          searchTerm={searchTerm}
+          onSearch={setSearchTerm}
+          selectedCategory={selectedCategory}
+          onCategoryChange={setSelectedCategory}
+          categories={CATEGORIES}
+          items={catalogItems}
+          loading={catalogLoading}
+          onAdd={handleAddItem}
+          onShowDetails={setSelectedItemInfo}
+        />
+
+        <div className="canvas-column">
+          <div className="canvas-toolbar">
+            <Link to="/project-dashboard" className="back-link">
+              <i className="fas fa-arrow-left"></i>
+              Back to dashboard
+            </Link>
+            <BudgetTracker
+              total={totalBudget}
+              planned={plannedSpend}
+              remaining={remainingBudget}
+              progress={budgetProgress}
+              savingState={savingState}
+            />
+            <div className="toolbar-actions">
+              <button className="secondary-btn" onClick={handleManualSave}>
+                <i className="fas fa-save"></i>
+                {savingState.loading ? 'Saving…' : 'Save design'}
+              </button>
+              <button className="secondary-btn" onClick={() => setShowCheckout(true)}>
+                <i className="fas fa-list-alt"></i>
+                Summary
+              </button>
+              <button className="primary-btn" onClick={() => setShowCheckout(true)}>
+                <i className="fas fa-shopping-cart"></i>
+                Proceed to checkout
+              </button>
             </div>
-            <button 
-              className="collapse-btn"
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            >
-              <i className={`fas fa-chevron-${sidebarCollapsed ? 'right' : 'left'}`}></i>
-            </button>
           </div>
 
-          {/* Search and Filter */}
-          {!sidebarCollapsed && (
-            <div className="catalog-controls">
-              <div className="search-box">
-                <i className="fas fa-search"></i>
-                <input
-                  type="text"
-                  placeholder="Search items..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-
-              <div className="category-filter">
-                <select 
-                  value={selectedCategory} 
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                >
-                  {categories.map(category => (
-                    <option key={category} value={category}>{category}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* Items Grid */}
-          {!sidebarCollapsed && (
-            <div className="items-grid">
-              {filteredItems.map(item => (
-                <div key={item.id} className="catalog-item" draggable="true">
-                  <div className="item-image">
-                    <img src={item.image} alt={item.name} />
-                    <div className="item-overlay">
-                      <button 
-                        className="add-item-btn"
-                        onClick={() => handleAddItem(item)}
-                        disabled={remainingBudget < item.price}
-                      >
-                        <i className="fas fa-plus"></i>
-                      </button>
-                      <button 
-                        className="info-item-btn"
-                        onClick={() => setSelectedItemInfo(item)}
-                      >
-                        <i className="fas fa-info"></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="item-info">
-                    <h4>{item.name}</h4>
-                    <p className="item-vendor">{item.vendor}</p>
-                    <p className="item-price">RM {item.price}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {filteredItems.length === 0 && (
-            <div className="no-items">
-              <i className="fas fa-search"></i>
-              <p>No items found</p>
-            </div>
-          )}
-        </div>
-
-        {/* Main 3D Venue Space */}
-        <div className="venue-space">
-          <div className="space-header">
-            <h3>Wedding Venue Design</h3>
-          </div>
-
-          <div className="design-canvas">
+          <div className="canvas-stage">
             <div className="canvas-placeholder">
               <div className="venue-outline">
                 <div className="venue-floor">
-                  {placedItems.map(item => (
-                    <div key={item.placedId} className="placed-item">
-                      <span>{item.name}</span>
+                  {isLoading && (
+                    <div className="canvas-hint">
+                      <i className="fas fa-spinner fa-spin"></i>
+                      <p>Loading your design…</p>
                     </div>
-                  ))}
+                  )}
+
+                  {!isLoading &&
+                    placements.map((placement) => {
+                      const isUnavailable =
+                        availabilityMap[placement.metadata?.serviceListingId]?.available === false;
+                      return (
+                        <div
+                          key={placement.id}
+                          className={`placed-item ${placement.isLocked ? 'locked' : ''} ${
+                            isUnavailable ? 'placement-unavailable' : ''
+                          }`}
+                        >
+                          <div className="placed-item-top">
+                            <span>{placement.designElement?.name || 'Design Element'}</span>
+                            {isUnavailable && <span className="placement-warning">Unavailable</span>}
+                          </div>
+                          <div className="placed-item-actions">
+                            <button onClick={() => handleToggleLock(placement)}>
+                              <i className={`fas fa-lock${placement.isLocked ? '' : '-open'}`}></i>
+                            </button>
+                            <button onClick={() => handleRemovePlacement(placement.id)}>
+                              <i className="fas fa-trash"></i>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
-              <div className="canvas-hint">
-                <i className="fas fa-mouse-pointer"></i>
-                <p>Drag items from the catalog to place them in your venue</p>
-                <p className="hint-secondary">Items placed: {placedItems.length}</p>
-              </div>
+              {!isLoading && placements.length === 0 && (
+                <div className="canvas-hint">
+                  <i className="fas fa-mouse-pointer"></i>
+                  <p>Drag items from the catalog to place them in your venue</p>
+                  <p className="hint-secondary">Items placed: {placements.length}</p>
+                </div>
+              )}
+            </div>
+            <div className="scene-meta">
+              <span>Wedding Venue Design</span>
+              <span className="scene-meta-muted">
+                {savingState.lastSaved ? `Last saved ${new Date(savingState.lastSaved).toLocaleTimeString()}` : ''}
+              </span>
             </div>
           </div>
-
         </div>
+      </div>
 
-        {/* Item Details Modal */}
-        {selectedItemInfo && (
-          <div className="item-details-modal">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h3>Item Details</h3>
-                <button 
-                  className="close-modal-btn"
-                  onClick={() => setSelectedItemInfo(null)}
-                >
-                  <i className="fas fa-times"></i>
-                </button>
-              </div>
-              
-              <div className="modal-body">
-                <div className="item-details-grid">
-                  <div className="item-image-large">
-                    <img src={selectedItemInfo.image} alt={selectedItemInfo.name} />
+      {selectedItemInfo && (
+        <div className="item-details-modal">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h3>Item Details</h3>
+              <button className="close-modal-btn" onClick={() => setSelectedItemInfo(null)}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="item-details-grid">
+                <div className="item-image-large">
+                  <img src={formatImageUrl(selectedItemInfo.images?.[0])} alt={selectedItemInfo.name} />
+                </div>
+
+                <div className="item-details-info">
+                  <h4>{selectedItemInfo.name}</h4>
+                  <p className="item-description">{selectedItemInfo.description}</p>
+                  <div className="item-price-large">
+                    RM {Number(selectedItemInfo.price).toLocaleString()}
                   </div>
-                  
-                  <div className="item-details-info">
-                    <h4>{selectedItemInfo.name}</h4>
-                    <p className="item-description">{selectedItemInfo.description}</p>
-                    <div className="item-price-large">RM {selectedItemInfo.price}</div>
-                    
-                    <div className="vendor-info">
-                      <h5>Vendor Information</h5>
-                      <p><strong>Vendor:</strong> {selectedItemInfo.vendor}</p>
-                      <p><strong>Category:</strong> {selectedItemInfo.category}</p>
-                    </div>
-                    
-                    <div className="item-actions">
-                      <button 
-                        className="add-to-design-btn"
-                        onClick={() => {
-                          handleAddItem(selectedItemInfo);
-                          setSelectedItemInfo(null);
-                        }}
-                        disabled={remainingBudget < selectedItemInfo.price}
-                      >
-                        <i className="fas fa-plus"></i>
-                        Add to Design
-                      </button>
-                      <button 
-                        className="message-vendor-btn"
-                        onClick={() => {
-                          // Navigate to messages - in real app would open chat with specific vendor
-                          window.location.href = '/messages';
-                        }}
-                      >
-                        <i className="fas fa-comment"></i>
-                        Message Vendor
-                      </button>
-                    </div>
+
+                  <div className="vendor-info">
+                    <h5>Vendor Information</h5>
+                    <p>
+                      <strong>Vendor:</strong> {selectedItemInfo.vendor?.name || 'Vendor'}
+                    </p>
+                    <p>
+                      <strong>Category:</strong> {selectedItemInfo.category?.replace('_', ' ') || 'Uncategorised'}
+                    </p>
+                  </div>
+
+                  <div className="item-actions">
+                    <button
+                      className="add-to-design-btn"
+                      onClick={() => {
+                        handleAddItem(selectedItemInfo);
+                        setSelectedItemInfo(null);
+                      }}
+                    >
+                      <i className="fas fa-plus"></i>
+                      Add to Design
+                    </button>
+                    <button
+                      className="message-vendor-btn"
+                      onClick={() => {
+                        window.location.href = '/messages';
+                      }}
+                    >
+                      <i className="fas fa-comment"></i>
+                      Message Vendor
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Checkout Summary Modal */}
-        {showCheckout && (
-          <DesignSummary
-            onClose={() => setShowCheckout(false)}
-            onSubmit={() => {
-              setShowCheckout(false);
-              // In a real app, we would save the design and redirect to the dashboard
-            }}
-          />
-        )}
-      </div>
+      {showCheckout && (
+        <DesignSummary
+          onClose={() => setShowCheckout(false)}
+          onSubmit={() => {
+            setShowCheckout(false);
+          }}
+        />
+      )}
     </div>
   );
 };
 
-export default VenueDesigner; 
+export default VenueDesigner;

@@ -1,0 +1,86 @@
+.budget-panel {
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  min-height: 64px;
+}
+
+.budget-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.budget-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8d8d97;
+}
+
+.budget-figure {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0f060d;
+}
+
+.budget-figure.spent {
+  color: #e16789;
+}
+
+.budget-figure.remaining {
+  color: #0a8a57;
+}
+
+.budget-figure.warning {
+  color: #b3261e;
+}
+
+.budget-meter {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.budget-bar {
+  width: 120px;
+  height: 8px;
+  background: #e5e5ea;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.budget-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #e16789 0%, #c64071 100%);
+  transition: width 0.3s ease;
+}
+
+.budget-percentage {
+  font-size: 0.85rem;
+  color: #666770;
+  min-width: 40px;
+}
+
+@media (max-width: 768px) {
+  .budget-panel {
+    flex-wrap: wrap;
+    padding: 1rem;
+  }
+
+  .budget-meter {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .budget-bar {
+    flex: 1;
+  }
+}
+
+

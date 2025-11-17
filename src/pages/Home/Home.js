@@ -24,8 +24,8 @@ import {
 import TiltedCard from '../../components/TiltedCard/TiltedCard';
 import './Home.styles.css';
 
-const HERO_IMAGE = 'https://www.figma.com/api/mcp/asset/c2f0c88c-14cb-4ef4-b162-434170a585f3';
-const TESTIMONIAL_BG = 'https://www.figma.com/api/mcp/asset/4ded24f0-d5cd-4c2f-ad3a-fa4e629a8abb';
+const HERO_IMAGE = '/images/home-hero-img.jpg';
+const TESTIMONIAL_BG = '/images/testimonial-bg.jpg';
 
 const FEATURE_ICONS = [
   CreateProjectIcon,

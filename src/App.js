@@ -36,7 +36,18 @@ const AppContent = () => {
   const location = useLocation();
   const isVendorRoute = location.pathname.startsWith('/vendor') && !['/vendor/register', '/vendor/submitted'].includes(location.pathname);
   const isAdminRoute = location.pathname.startsWith('/admin');
-  const hideNavbar = location.pathname === '/venue-designer' || location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/vendor/register' || location.pathname === '/vendor/submitted' || location.pathname === '/forgot-password' || location.pathname === '/otp' || location.pathname === '/reset-password' || isAdminRoute;
+  const isVenueDesignerRoute =
+    location.pathname === '/venue-designer' || location.pathname.includes('/venue-designer');
+  const hideNavbar =
+    isVenueDesignerRoute ||
+    location.pathname === '/login' ||
+    location.pathname === '/register' ||
+    location.pathname === '/vendor/register' ||
+    location.pathname === '/vendor/submitted' ||
+    location.pathname === '/forgot-password' ||
+    location.pathname === '/otp' ||
+    location.pathname === '/reset-password' ||
+    isAdminRoute;
 
   return (
     <div className="App">
@@ -73,6 +84,7 @@ const AppContent = () => {
               <Route path="/checklist" element={<RequireAuth><ChecklistPage /></RequireAuth>} />
               <Route path="/messages" element={<RequireAuth><Messages /></RequireAuth>} />
               <Route path="/venue-designer" element={<RequireAuth><VenueDesigner /></RequireAuth>} />
+              <Route path="/projects/:projectId/venue-designer" element={<RequireAuth><VenueDesigner /></RequireAuth>} />
               <Route path="/payments" element={<RequireAuth><PaymentManagement /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
             </Routes>
