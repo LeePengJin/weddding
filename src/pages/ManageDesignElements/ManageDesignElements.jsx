@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Box,
   Button,
@@ -17,6 +17,8 @@ import {
   Stack,
   Chip,
   Pagination,
+  FormControlLabel,
+  Switch,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -46,6 +48,8 @@ const ManageDesignElements = () => {
   });
   const [model3DFile, setModel3DFile] = useState(null);
   const [model3DPreview, setModel3DPreview] = useState(null);
+  const [livePreviewUrl, setLivePreviewUrl] = useState(null);
+  const previewBlobUrlRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deletingElementId, setDeletingElementId] = useState(null);
@@ -53,6 +57,8 @@ const ManageDesignElements = () => {
   const [itemsPerPage] = useState(12);
   const [fullScreenViewerOpen, setFullScreenViewerOpen] = useState(false);
   const [viewingElement, setViewingElement] = useState(null);
+  const [dimensions, setDimensions] = useState({ width: '', height: '', depth: '' });
+  const [isStackable, setIsStackable] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('name'); // 'name', 'elementType', 'dateAdded'
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
@@ -93,6 +99,22 @@ const ManageDesignElements = () => {
       });
       setModel3DFile(null);
       setModel3DPreview(element.modelFile ? 'existing' : null);
+      if (previewBlobUrlRef.current) {
+        URL.revokeObjectURL(previewBlobUrlRef.current);
+        previewBlobUrlRef.current = null;
+      }
+      setLivePreviewUrl(element.modelFile ? getModelUrl(element.modelFile) : null);
+      const nextDimensions = {
+        width: element.dimensions?.width ?? '',
+        height: element.dimensions?.height ?? '',
+        depth: element.dimensions?.depth ?? '',
+      };
+      setDimensions({
+        width: nextDimensions.width === '' ? '' : String(nextDimensions.width),
+        height: nextDimensions.height === '' ? '' : String(nextDimensions.height),
+        depth: nextDimensions.depth === '' ? '' : String(nextDimensions.depth),
+      });
+      setIsStackable(Boolean(element.isStackable));
     } else {
       setEditingElement(null);
       setFormData({
@@ -101,6 +123,13 @@ const ManageDesignElements = () => {
       });
       setModel3DFile(null);
       setModel3DPreview(null);
+      if (previewBlobUrlRef.current) {
+        URL.revokeObjectURL(previewBlobUrlRef.current);
+        previewBlobUrlRef.current = null;
+      }
+      setLivePreviewUrl(null);
+      setDimensions({ width: '', height: '', depth: '' });
+      setIsStackable(false);
     }
     setError('');
     setSuccess('');
@@ -116,8 +145,15 @@ const ManageDesignElements = () => {
     });
     setModel3DFile(null);
     setModel3DPreview(null);
+    if (previewBlobUrlRef.current) {
+      URL.revokeObjectURL(previewBlobUrlRef.current);
+      previewBlobUrlRef.current = null;
+    }
+    setLivePreviewUrl(null);
     setError('');
     setSuccess('');
+    setDimensions({ width: '', height: '', depth: '' });
+    setIsStackable(false);
   };
 
   const handleInputChange = (field, value) => {
@@ -148,6 +184,13 @@ const ManageDesignElements = () => {
 
       setModel3DFile(file);
       setModel3DPreview(file.name);
+      if (previewBlobUrlRef.current) {
+        URL.revokeObjectURL(previewBlobUrlRef.current);
+        previewBlobUrlRef.current = null;
+      }
+      const blobUrl = URL.createObjectURL(file);
+      previewBlobUrlRef.current = blobUrl;
+      setLivePreviewUrl(blobUrl);
       setError('');
     }
   };
@@ -159,6 +202,39 @@ const ManageDesignElements = () => {
     if (fileInput) {
       fileInput.value = '';
     }
+    if (previewBlobUrlRef.current) {
+      URL.revokeObjectURL(previewBlobUrlRef.current);
+      previewBlobUrlRef.current = null;
+    }
+    if (editingElement && editingElement.modelFile) {
+      setLivePreviewUrl(getModelUrl(editingElement.modelFile));
+    } else {
+      setLivePreviewUrl(null);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (previewBlobUrlRef.current) {
+        URL.revokeObjectURL(previewBlobUrlRef.current);
+        previewBlobUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  const buildDimensionsPayload = () => {
+    const entries = ['width', 'height', 'depth'].reduce((acc, key) => {
+      const raw = dimensions[key];
+      if (raw === '' || raw === null || raw === undefined) {
+        return acc;
+      }
+      const value = Number(raw);
+      if (Number.isFinite(value) && value >= 0) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+    return Object.keys(entries).length > 0 ? entries : null;
   };
 
   const handleSave = async () => {
@@ -179,9 +255,12 @@ const ManageDesignElements = () => {
     try {
       if (editingElement) {
         // Update existing element
+        const dimensionsPayload = buildDimensionsPayload();
         const updateData = {
           name: formData.name.trim(),
           elementType: formData.elementType.trim() || null,
+          isStackable,
+          dimensions: dimensionsPayload,
         };
 
         await apiFetch(`/design-elements/${editingElement.id}`, {
@@ -193,6 +272,11 @@ const ManageDesignElements = () => {
         if (model3DFile) {
           const formData3D = new FormData();
           formData3D.append('model3D', model3DFile);
+          formData3D.append('isStackable', String(isStackable));
+          const dimensionsPayload = buildDimensionsPayload();
+          if (dimensionsPayload) {
+            formData3D.append('dimensions', JSON.stringify(dimensionsPayload));
+          }
 
           await apiFetch(`/design-elements/${editingElement.id}/model3d`, {
             method: 'POST',
@@ -208,6 +292,11 @@ const ManageDesignElements = () => {
         formData3D.append('name', formData.name.trim());
         if (formData.elementType.trim()) {
           formData3D.append('elementType', formData.elementType.trim());
+        }
+        formData3D.append('isStackable', String(isStackable));
+        const dimensionsPayload = buildDimensionsPayload();
+        if (dimensionsPayload) {
+          formData3D.append('dimensions', JSON.stringify(dimensionsPayload));
         }
 
         await apiFetch('/design-elements', {
@@ -773,7 +862,7 @@ const ManageDesignElements = () => {
                 </Box>
               )}
 
-              {editingElement && editingElement.modelFile && !model3DPreview && (
+              {livePreviewUrl && (
                 <Box
                   sx={{
                     p: 2,
@@ -783,15 +872,81 @@ const ManageDesignElements = () => {
                   }}
                 >
                   <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-                    Current 3D Model:
+                    Live Preview
                   </Typography>
                   <Model3DViewer
-                    modelUrl={getModelUrl(editingElement.modelFile)}
+                    modelUrl={livePreviewUrl}
                     width="100%"
                     height="300px"
+                    targetDimensions={dimensions}
                   />
                 </Box>
               )}
+
+              <Box
+                sx={{
+                  mt: 1,
+                  p: 2,
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 2,
+                  backgroundColor: '#fafafa',
+                }}
+              >
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                  Physical Properties
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Enter real-world dimensions (in meters) so the system can auto-scale this model accurately.
+                </Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+                  <TextField
+                    label="Width (X)"
+                    type="number"
+                    size="small"
+                    value={dimensions.width}
+                    onChange={(e) => setDimensions((prev) => ({ ...prev, width: e.target.value }))}
+                    InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                    inputProps={{ step: '0.01', min: '0' }}
+                  />
+                  <TextField
+                    label="Height (Y)"
+                    type="number"
+                    size="small"
+                    value={dimensions.height}
+                    onChange={(e) => setDimensions((prev) => ({ ...prev, height: e.target.value }))}
+                    InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                    inputProps={{ step: '0.01', min: '0' }}
+                  />
+                  <TextField
+                    label="Depth (Z)"
+                    type="number"
+                    size="small"
+                    value={dimensions.depth}
+                    onChange={(e) => setDimensions((prev) => ({ ...prev, depth: e.target.value }))}
+                    InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                    inputProps={{ step: '0.01', min: '0' }}
+                  />
+                </Stack>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={isStackable}
+                      onChange={(e) => setIsStackable(e.target.checked)}
+                      color="primary"
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        Stackable item
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Allow this model to be placed on top of tables or other surfaces (e.g., centerpieces, tableware).
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </Box>
             </Box>
           </Stack>
         </DialogContent>
@@ -870,6 +1025,7 @@ const ManageDesignElements = () => {
               modelUrl={getModelUrl(viewingElement.modelFile)}
               width="100%"
               height="100%"
+              targetDimensions={viewingElement.dimensions}
             />
           )}
         </DialogContent>

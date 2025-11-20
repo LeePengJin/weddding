@@ -41,8 +41,23 @@ const createModel3DUpload = () => {
 };
 
 // Validation schema
-const designElementSchema = z.object({
+const dimensionsSchema = z
+  .object({
+    width: z.number().positive('Width must be greater than 0').optional(),
+    height: z.number().positive('Height must be greater than 0').optional(),
+    depth: z.number().positive('Depth must be greater than 0').optional(),
+  })
+  .partial();
+
+const designElementPatchSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100, 'Name must be at most 100 characters').optional(),
+  elementType: z.string().max(50, 'Element type must be at most 50 characters').optional().nullable(),
+  isStackable: z.boolean().optional(),
+  dimensions: dimensionsSchema.nullable().optional(),
+});
+
+const designElementCreateSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(100, 'Name must be at most 100 characters'),
   elementType: z.string().max(50, 'Element type must be at most 50 characters').optional().nullable(),
 });
 
@@ -84,10 +99,20 @@ router.post('/', requireAuth, async (req, res, next) => {
       }
 
       try {
-        const validatedData = designElementSchema.parse({
+        const validatedData = designElementCreateSchema.parse({
           name: req.body.name,
           elementType: req.body.elementType,
         });
+
+        const isStackable = req.body.isStackable === 'true';
+        let dimensions = null;
+        if (req.body.dimensions) {
+          try {
+            dimensions = JSON.parse(req.body.dimensions);
+          } catch (e) {
+            console.warn('Invalid dimensions JSON:', e);
+          }
+        }
 
         const modelPath = `/uploads/models3d/${req.file.filename}`;
 
@@ -97,6 +122,8 @@ router.post('/', requireAuth, async (req, res, next) => {
             name: validatedData.name || req.file.originalname.replace('.glb', ''),
             elementType: validatedData.elementType || null,
             modelFile: modelPath,
+            isStackable: isStackable,
+            dimensions: dimensions || undefined,
           },
         });
 
@@ -163,11 +190,25 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Design element not found' });
     }
 
-    const validatedData = designElementSchema.parse(req.body);
+    const validatedData = designElementPatchSchema.parse(req.body);
+
+    const updateData = {};
+    if (validatedData.name !== undefined) {
+      updateData.name = validatedData.name;
+    }
+    if (validatedData.elementType !== undefined) {
+      updateData.elementType = validatedData.elementType;
+    }
+    if (validatedData.isStackable !== undefined) {
+      updateData.isStackable = validatedData.isStackable;
+    }
+    if (validatedData.dimensions !== undefined) {
+      updateData.dimensions = validatedData.dimensions || null;
+    }
 
     const designElement = await prisma.designElement.update({
       where: { id: req.params.id },
-      data: validatedData,
+      data: updateData,
     });
 
     res.json(designElement);
@@ -221,9 +262,23 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
           }
         }
 
+        const isStackable = req.body.isStackable === 'true';
+        let dimensions = null;
+        if (req.body.dimensions) {
+          try {
+            dimensions = JSON.parse(req.body.dimensions);
+          } catch (e) {
+            console.warn('Invalid dimensions JSON:', e);
+          }
+        }
+
         const designElement = await prisma.designElement.update({
           where: { id: req.params.id },
-          data: { modelFile: modelPath },
+          data: { 
+            modelFile: modelPath,
+            isStackable: isStackable,
+            dimensions: dimensions || undefined,
+          },
         });
 
         res.json(designElement);

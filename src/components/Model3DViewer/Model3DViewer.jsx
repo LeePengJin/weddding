@@ -5,9 +5,24 @@ import { Box, Typography } from '@mui/material';
 import * as THREE from 'three';
 
 // Model loader component
-function Model({ url, onError }) {
+function parseDimensions(dimensions) {
+  if (!dimensions) return null;
+  const parsed = {};
+  ['width', 'height', 'depth'].forEach((axis) => {
+    const value = dimensions[axis];
+    if (value === '' || value === null || value === undefined) return;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      parsed[axis] = numeric;
+    }
+  });
+  return Object.keys(parsed).length ? parsed : null;
+}
+
+function Model({ url, onError, targetDimensions }) {
   const { scene, error } = useGLTF(url);
   const modelRef = useRef();
+  const parsedTargetDimensions = useMemo(() => parseDimensions(targetDimensions), [targetDimensions]);
   const clonedScene = useMemo(() => {
     if (!scene) return null;
     const copy = scene.clone(true);
@@ -27,16 +42,61 @@ function Model({ url, onError }) {
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = maxDim > 0 ? 2 / maxDim : 1; // Scale to fit in a 2-unit space
 
-        clonedScene.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
-        clonedScene.scale.set(scale, scale, scale);
+        let scaleX = 1;
+        let scaleY = 1;
+        let scaleZ = 1;
+
+        if (parsedTargetDimensions) {
+          const ratioX =
+            parsedTargetDimensions.width && size.x > 0
+              ? parsedTargetDimensions.width / size.x
+              : null;
+          const ratioY =
+            parsedTargetDimensions.height && size.y > 0
+              ? parsedTargetDimensions.height / size.y
+              : null;
+          const ratioZ =
+            parsedTargetDimensions.depth && size.z > 0
+              ? parsedTargetDimensions.depth / size.z
+              : null;
+
+          const ratios = [ratioX, ratioY, ratioZ].filter((value) => Number.isFinite(value));
+
+          if (ratios.length === 1) {
+            const uniformScale = ratios[0] || 1;
+            scaleX = scaleY = scaleZ = uniformScale;
+          } else if (ratios.length > 1) {
+            scaleX = ratioX || ratios[0];
+            scaleY = ratioY || ratios[0];
+            scaleZ = ratioZ || ratios[0];
+          } else if (maxDim > 0) {
+            const fitScale = 2 / maxDim;
+            scaleX = scaleY = scaleZ = fitScale;
+          }
+        } else if (maxDim > 0) {
+          const fitScale = 2 / maxDim;
+          scaleX = scaleY = scaleZ = fitScale;
+        }
+
+        // Prevent zero/NaN
+        const safeScale = (value) => (Number.isFinite(value) && value > 0 ? value : 1);
+        scaleX = safeScale(scaleX);
+        scaleY = safeScale(scaleY);
+        scaleZ = safeScale(scaleZ);
+
+        clonedScene.position.set(
+          -center.x * scaleX,
+          -center.y * scaleY,
+          -center.z * scaleZ
+        );
+        clonedScene.scale.set(scaleX, scaleY, scaleZ);
       } catch (err) {
         console.error('Error processing 3D model:', err);
         if (onError) onError(err.message);
       }
     }
-  }, [clonedScene, onError]);
+  }, [clonedScene, onError, parsedTargetDimensions]);
 
   useEffect(() => {
     if (error) {
@@ -58,6 +118,7 @@ const Model3DViewer = ({
   height = '400px',
   borderless = false,
   autoRotate = false,
+  targetDimensions,
 }) => {
   const [loadError, setLoadError] = useState(null);
 
@@ -143,7 +204,7 @@ const Model3DViewer = ({
             <directionalLight position={[6, 8, 6]} intensity={1.1} />
             <directionalLight position={[-4, -6, -4]} intensity={0.6} />
             <directionalLight position={[0, 5, -6]} intensity={0.5} />
-            <Model url={fullUrl} onError={setLoadError} />
+            <Model url={fullUrl} onError={setLoadError} targetDimensions={targetDimensions} />
             <OrbitControls
               enablePan
               enableZoom

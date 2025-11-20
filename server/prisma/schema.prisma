@@ -315,6 +315,11 @@ model DesignElement {
   name       String?
   elementType String?
   modelFile  String
+  
+  // Physical properties for 3D scaling and behavior
+  dimensions Json?            // { width: number, height: number, depth: number } in meters
+  isStackable Boolean         @default(false)
+
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
   services   ServiceListing[]  // Single-model listings (via designElementId)

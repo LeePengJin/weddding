@@ -15,8 +15,23 @@ const normalizeDegrees = (deg) => {
   return Number(value.toFixed(2));
 };
 
-const GltfInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0 }) => {
+const parseDimensions = (dimensions) => {
+  if (!dimensions) return null;
+  const parsed = {};
+  ['width', 'height', 'depth'].forEach((axis) => {
+    const raw = dimensions[axis];
+    if (raw === '' || raw === null || raw === undefined) return;
+    const value = Number(raw);
+    if (Number.isFinite(value) && value > 0) {
+      parsed[axis] = value;
+    }
+  });
+  return Object.keys(parsed).length ? parsed : null;
+};
+
+const GltfInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0, targetDimensions = null }) => {
   const { scene } = useGLTF(url);
+  const parsedTargetDimensions = useMemo(() => parseDimensions(targetDimensions), [targetDimensions]);
 
   const cloned = useMemo(() => {
     if (!scene) return null;
@@ -35,13 +50,49 @@ const GltfInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0 }) => {
 
     const size = bbox.getSize(new THREE.Vector3());
     const maxDim = Math.max(size.x, size.y, size.z);
-    let normalization = 1;
-    if (maxDim > 5) {
-      normalization = 5 / maxDim;
-    } else if (maxDim < 0.5) {
-      normalization = 0.5 / maxDim;
+
+    let scaleX = 1;
+    let scaleY = 1;
+    let scaleZ = 1;
+
+    if (parsedTargetDimensions) {
+      const ratioX =
+        parsedTargetDimensions.width && size.x > 0 ? parsedTargetDimensions.width / size.x : null;
+      const ratioY =
+        parsedTargetDimensions.height && size.y > 0 ? parsedTargetDimensions.height / size.y : null;
+      const ratioZ =
+        parsedTargetDimensions.depth && size.z > 0 ? parsedTargetDimensions.depth / size.z : null;
+
+      const ratios = [ratioX, ratioY, ratioZ].filter((value) => Number.isFinite(value));
+
+      if (ratios.length === 1) {
+        const uniformScale = ratios[0] || 1;
+        scaleX = scaleY = scaleZ = uniformScale;
+      } else if (ratios.length > 1) {
+        scaleX = ratioX || ratios[0];
+        scaleY = ratioY || ratios[0];
+        scaleZ = ratioZ || ratios[0];
+      } else if (maxDim > 0) {
+        const fitScale = 2 / maxDim;
+        scaleX = scaleY = scaleZ = fitScale;
+      }
+    } else if (maxDim > 0) {
+      let normalization = 1;
+      if (maxDim > 5) {
+        normalization = 5 / maxDim;
+      } else if (maxDim < 0.5) {
+        normalization = 0.5 / maxDim;
+      }
+      scaleX = scaleY = scaleZ = normalization;
     }
-    copy.scale.setScalar(normalization * scaleMultiplier);
+
+    if (Number.isFinite(scaleMultiplier) && scaleMultiplier > 0) {
+      scaleX *= scaleMultiplier;
+      scaleY *= scaleMultiplier;
+      scaleZ *= scaleMultiplier;
+    }
+
+    copy.scale.set(scaleX, scaleY, scaleZ);
 
     const alignedBox = new THREE.Box3().setFromObject(copy);
     copy.position.y -= alignedBox.min.y;
@@ -59,7 +110,7 @@ const GltfInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0 }) => {
   return <primitive object={cloned} />;
 };
 
-const ModelInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0 }) => {
+const ModelInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0, targetDimensions = null }) => {
   const fullUrl = useMemo(() => {
     if (!url) return null;
     if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -82,15 +133,40 @@ const ModelInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0 }) => {
     );
   }
 
-  return <GltfInstance url={fullUrl} scaleMultiplier={scaleMultiplier} verticalOffset={verticalOffset} />;
+  return (
+    <GltfInstance
+      url={fullUrl}
+      scaleMultiplier={scaleMultiplier}
+      verticalOffset={verticalOffset}
+      targetDimensions={targetDimensions}
+    />
+  );
 };
 
-const COLLISION_RADIUS_DEFAULT = 1;
+const COLLISION_RADIUS_DEFAULT = 0.9;
+
+const getFootprintRadius = (placement) => {
+  const metaRadius = parseFloat(placement.metadata?.footprintRadius);
+  if (Number.isFinite(metaRadius) && metaRadius > 0) {
+    return metaRadius;
+  }
+  const dims = placement.designElement?.dimensions;
+  if (dims) {
+    const width = Number(dims.width) || 0;
+    const depth = Number(dims.depth) || 0;
+    const derived = Math.max(width, depth) / 2;
+    if (derived > 0) return derived;
+  }
+  return COLLISION_RADIUS_DEFAULT;
+};
 
 // Helper to determine if an object can be stacked on top of surfaces
 const isStackable = (p) => {
   if (p.metadata?.isStackable !== undefined) {
     return Boolean(p.metadata.isStackable);
+  }
+  if (p.designElement?.isStackable !== undefined) {
+    return Boolean(p.designElement.isStackable);
   }
   const name = p.designElement?.name?.toLowerCase() || '';
   // Assume these items are stackable
@@ -133,13 +209,7 @@ const PlacedElement = ({
   const [isLockedLocal, setIsLockedLocal] = useState(Boolean(placement.isLocked));
   const [interactionMode, setInteractionMode] = useState('translate'); // 'translate' | 'rotate'
 
-  const footprintRadius = useMemo(() => {
-    const metaRadius = parseFloat(placement.metadata?.footprintRadius);
-    if (Number.isFinite(metaRadius) && metaRadius > 0) {
-      return metaRadius;
-    }
-    return COLLISION_RADIUS_DEFAULT;
-  }, [placement.metadata]);
+  const footprintRadius = useMemo(() => getFootprintRadius(placement), [placement]);
 
   const position = useMemo(() => {
     const { x = 0, z = 0 } = placement.position || {};
@@ -286,9 +356,11 @@ const PlacedElement = ({
             const dx = nextX - (otherPos.x || 0);
             const dz = nextZ - (otherPos.z || 0);
             const distance = Math.sqrt(dx * dx + dz * dz);
-            const otherRadius = parseFloat(other.metadata?.footprintRadius) || COLLISION_RADIUS_DEFAULT;
+            const otherRadius = getFootprintRadius(other);
             
-            const isIntersecting = distance < footprintRadius + otherRadius;
+            const clearance = 0.1;
+            const threshold = Math.max(0.1, footprintRadius + otherRadius - clearance);
+            const isIntersecting = distance < threshold;
 
             if (isIntersecting) {
               // If we are stacked significantly above the other object, ignore collision
@@ -380,6 +452,7 @@ const PlacedElement = ({
             url={placement.designElement.modelFile}
             scaleMultiplier={scaleMultiplier}
             verticalOffset={verticalOffset}
+            targetDimensions={placement.designElement?.dimensions || placement.metadata?.targetDimensions}
           />
         ) : (
           <mesh castShadow receiveShadow>

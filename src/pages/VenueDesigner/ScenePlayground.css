@@ -35,6 +35,32 @@
   font-size: 0.9rem;
 }
 
+.scene-playground-dimensions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #6e5c54;
+}
+
+.dimension-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.dimension-inputs input {
+  width: 100%;
+}
+
+.stackable-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #4a3b35;
+}
+
 .scene-playground-divider {
   height: 1px;
   background: #ece7e0;

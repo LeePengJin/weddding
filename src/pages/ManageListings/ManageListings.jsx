@@ -32,6 +32,7 @@ import {
   Radio,
   FormControlLabel,
   FormControl,
+  Switch,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -101,12 +102,16 @@ const ManageListings = () => {
   const [imagePreviews, setImagePreviews] = useState([]);
   const [model3DFile, setModel3DFile] = useState(null);
   const [model3DPreview, setModel3DPreview] = useState(null);
+  const [modelDimensions, setModelDimensions] = useState({ width: '', height: '', depth: '' });
+  const [isStackable, setIsStackable] = useState(false);
   const [selectedDesignElementId, setSelectedDesignElementId] = useState(''); // For selecting existing design element (non-bundle)
   const [useExistingDesignElement, setUseExistingDesignElement] = useState(false); // Toggle: select existing vs upload new
   const [model3DFiles, setModel3DFiles] = useState([]); // For bundle services - multiple files
   const [model3DPreviews, setModel3DPreviews] = useState([]); // Preview info for multiple models
-  const [component3DFiles, setComponent3DFiles] = useState({}); // Component index -> File object
-  const [component3DPreviews, setComponent3DPreviews] = useState({}); // Component index -> Preview info
+  const [component3DFiles, setComponent3DFiles] = useState({}); // Component ID -> File object
+  const [component3DPreviews, setComponent3DPreviews] = useState({}); // Component ID -> Preview info
+  const [componentPhysicalProps, setComponentPhysicalProps] = useState({}); // Component ID -> dims + stackable
+  const [model3DFileMeta, setModel3DFileMeta] = useState([]); // Multi-upload metadata
   const [previewComponentIndex, setPreviewComponentIndex] = useState(null); // Which component's 3D model to preview
   const [previewBlobUrl, setPreviewBlobUrl] = useState(null); // Track blob URL for cleanup
   const [fieldErrors, setFieldErrors] = useState({});
@@ -129,8 +134,11 @@ const ManageListings = () => {
     
     // Create new blob URL if needed
     let newBlobUrl = null;
-    if (previewComponentIndex !== null && component3DFiles[previewComponentIndex]) {
-      const file = component3DFiles[previewComponentIndex];
+    const selectedComponent =
+      previewComponentIndex !== null ? components[previewComponentIndex] : null;
+    const previewKey = selectedComponent?.id;
+    if (previewKey && component3DFiles[previewKey]) {
+      const file = component3DFiles[previewKey];
       newBlobUrl = URL.createObjectURL(file);
       setPreviewBlobUrl(newBlobUrl);
     } else {
@@ -147,7 +155,7 @@ const ManageListings = () => {
         URL.revokeObjectURL(newBlobUrl);
       }
     };
-  }, [previewComponentIndex, component3DFiles]);
+  }, [previewComponentIndex, component3DFiles, components]);
 
   // Fetch design elements for component selection
   const fetchDesignElements = async () => {
@@ -170,6 +178,18 @@ const ManageListings = () => {
       document.title = 'Weddding';
     };
   }, []);
+
+  // Smart defaults for stackable based on category
+  useEffect(() => {
+    if (!editingListing && formData.category) {
+      const stackableCategories = ['Florist', 'Caterer'];
+      if (stackableCategories.includes(formData.category)) {
+        setIsStackable(true);
+      } else {
+        setIsStackable(false);
+      }
+    }
+  }, [formData.category, editingListing]);
 
   const fetchListings = async () => {
     try {
@@ -206,6 +226,16 @@ const ManageListings = () => {
         role: comp.role || '',
       }));
       setComponents(mappedComponents);
+      const nextComponentProps = {};
+      (listing.components || []).forEach((comp, index) => {
+        nextComponentProps[index] = {
+          width: comp.designElement?.dimensions?.width ?? '',
+          height: comp.designElement?.dimensions?.height ?? '',
+          depth: comp.designElement?.dimensions?.depth ?? '',
+          isStackable: Boolean(comp.designElement?.isStackable),
+        };
+      });
+      setComponentPhysicalProps(nextComponentProps);
       setImages([]);
       setImagePreviews(listing.images || []);
       setModel3DFile(null);
@@ -214,12 +244,27 @@ const ManageListings = () => {
       if (listing.designElementId) {
         setSelectedDesignElementId(listing.designElementId);
         setUseExistingDesignElement(true);
+        // Populate dimensions and stackable from existing design element
+        if (listing.designElement) {
+          const dims = listing.designElement.dimensions || {};
+          setModelDimensions({
+            width: dims.width || '',
+            height: dims.height || '',
+            depth: dims.depth || '',
+          });
+          setIsStackable(!!listing.designElement.isStackable);
+        }
       } else {
         setSelectedDesignElementId('');
         setUseExistingDesignElement(false);
+        setModelDimensions({ width: '', height: '', depth: '' });
+        setIsStackable(false);
       }
       setModel3DFiles([]);
       setModel3DPreviews([]);
+      setModel3DFileMeta([]);
+      setComponent3DFiles({});
+      setComponent3DPreviews({});
     } else {
       setEditingListing(null);
       setFormData({
@@ -242,6 +287,10 @@ const ManageListings = () => {
       setUseExistingDesignElement(false);
       setModel3DFiles([]);
       setModel3DPreviews([]);
+      setModel3DFileMeta([]);
+      setComponent3DFiles({});
+      setComponent3DPreviews({});
+      setComponentPhysicalProps({});
     }
     setPreviewComponentIndex(null);
     if (previewBlobUrl) {
@@ -274,6 +323,14 @@ const ManageListings = () => {
     setImagePreviews([]);
     setModel3DFile(null);
     setModel3DPreview(null);
+    setModelDimensions({ width: '', height: '', depth: '' });
+    setIsStackable(false);
+    setModel3DFiles([]);
+    setModel3DPreviews([]);
+    setModel3DFileMeta([]);
+    setComponent3DFiles({});
+    setComponent3DPreviews({});
+    setComponentPhysicalProps({});
     setFieldErrors({});
     setError('');
     setSuccess('');
@@ -403,7 +460,8 @@ const ManageListings = () => {
     // 2. A 3D model file uploaded (which will create a design element)
     const invalidComponents = components.filter((comp, idx) => {
       const hasDesignElement = !!comp.designElementId;
-      const has3DFile = !!component3DFiles[idx];
+      const componentKey = comp.id || `component-${idx}`;
+      const has3DFile = !!component3DFiles[componentKey];
       const hasValidQuantity = comp.quantityPerUnit && comp.quantityPerUnit > 0;
       return (!hasDesignElement && !has3DFile) || !hasValidQuantity;
     });
@@ -475,6 +533,11 @@ const ManageListings = () => {
           // Upload new 3D model
           const formData3D = new FormData();
           formData3D.append('model3D', model3DFile);
+          formData3D.append('isStackable', String(isStackable));
+          const listingDimensions = buildDimensionsPayloadFromState(modelDimensions);
+          if (listingDimensions) {
+            formData3D.append('dimensions', JSON.stringify(listingDimensions));
+          }
 
           const uploadResponse = await apiFetch(`/service-listings/${editingListing.id}/model3d`, {
             method: 'POST',
@@ -491,8 +554,14 @@ const ManageListings = () => {
         } else if (model3DFiles.length > 0) {
           // Multiple models for bundle services (legacy - not recommended)
           const formData3D = new FormData();
-          model3DFiles.forEach((file) => {
+          model3DFiles.forEach((file, idx) => {
+            const meta = model3DFileMeta[idx] || createDefaultPhysicalProps();
+            const dims = buildDimensionsPayloadFromState(meta);
             formData3D.append('model3DFiles', file);
+            formData3D.append(`isStackable_${file.name}`, String(Boolean(meta.isStackable)));
+            if (dims) {
+              formData3D.append(`dimensions_${file.name}`, JSON.stringify(dims));
+            }
           });
 
           const response = await apiFetch(`/service-listings/${editingListing.id}/model3d/bundle`, {
@@ -507,17 +576,24 @@ const ManageListings = () => {
 
         // Upload 3D models for individual components and update components array
         let updatedComponentsList = [...components];
-        for (const [indexStr, file] of Object.entries(component3DFiles)) {
-          const index = parseInt(indexStr);
-          const component = updatedComponentsList[index];
-          
-          if (!component || !component.designElementId) {
+        for (const [componentKey, file] of Object.entries(component3DFiles)) {
+          const componentIndex = updatedComponentsList.findIndex((comp) => comp.id === componentKey);
+          const component = componentIndex >= 0 ? updatedComponentsList[componentIndex] : null;
+          if (!component) continue;
+          const physicalProps = componentPhysicalProps[componentKey] || createDefaultPhysicalProps();
+          const componentDimensions = buildDimensionsPayloadFromState(physicalProps);
+
+          if (!component.designElementId) {
             // Create new design element
             const formData3D = new FormData();
             formData3D.append('model3D', file);
-            formData3D.append('name', component.role || `Component ${index + 1}`);
+            formData3D.append('name', component.role || `Component ${componentIndex + 1}`);
             if (formData.category) {
               formData3D.append('elementType', formData.category);
+            }
+            formData3D.append('isStackable', String(Boolean(physicalProps.isStackable)));
+            if (componentDimensions) {
+              formData3D.append('dimensions', JSON.stringify(componentDimensions));
             }
 
             const newElement = await apiFetch('/design-elements', {
@@ -526,14 +602,18 @@ const ManageListings = () => {
             });
 
             // Update component with new design element ID
-            updatedComponentsList[index] = {
-              ...updatedComponentsList[index],
+            updatedComponentsList[componentIndex] = {
+              ...updatedComponentsList[componentIndex],
               designElementId: newElement.id,
             };
           } else {
             // Update existing design element
             const formData3D = new FormData();
             formData3D.append('model3D', file);
+            formData3D.append('isStackable', String(Boolean(physicalProps.isStackable)));
+            if (componentDimensions) {
+              formData3D.append('dimensions', JSON.stringify(componentDimensions));
+            }
 
             await apiFetch(`/design-elements/${component.designElementId}/model3d`, {
               method: 'POST',
@@ -632,6 +712,11 @@ const ManageListings = () => {
             // Upload new 3D model
             const formData3D = new FormData();
             formData3D.append('model3D', model3DFile);
+            formData3D.append('isStackable', String(isStackable));
+            const listingDimensions = buildDimensionsPayloadFromState(modelDimensions);
+            if (listingDimensions) {
+              formData3D.append('dimensions', JSON.stringify(listingDimensions));
+            }
 
             await apiFetch(`/service-listings/${newListing.id}/model3d`, {
               method: 'POST',
@@ -641,8 +726,14 @@ const ManageListings = () => {
         } else if (model3DFiles.length > 0) {
           // Multiple models for bundle services (legacy - not recommended)
           const formData3D = new FormData();
-          model3DFiles.forEach((file) => {
+          model3DFiles.forEach((file, idx) => {
+            const meta = model3DFileMeta[idx] || createDefaultPhysicalProps();
+            const dims = buildDimensionsPayloadFromState(meta);
             formData3D.append('model3DFiles', file);
+            formData3D.append(`isStackable_${file.name}`, String(Boolean(meta.isStackable)));
+            if (dims) {
+              formData3D.append(`dimensions_${file.name}`, JSON.stringify(dims));
+            }
           });
 
           const response = await apiFetch(`/service-listings/${newListing.id}/model3d/bundle`, {
@@ -657,17 +748,24 @@ const ManageListings = () => {
 
         // Upload 3D models for individual components and update components array
         let updatedComponentsList = [...components];
-        for (const [indexStr, file] of Object.entries(component3DFiles)) {
-          const index = parseInt(indexStr);
-          const component = updatedComponentsList[index];
-          
-          if (!component || !component.designElementId) {
+        for (const [componentKey, file] of Object.entries(component3DFiles)) {
+          const componentIndex = updatedComponentsList.findIndex((comp) => comp.id === componentKey);
+          const component = componentIndex >= 0 ? updatedComponentsList[componentIndex] : null;
+          if (!component) continue;
+          const physicalProps = componentPhysicalProps[componentKey] || createDefaultPhysicalProps();
+          const componentDimensions = buildDimensionsPayloadFromState(physicalProps);
+
+          if (!component.designElementId) {
             // Create new design element
             const formData3D = new FormData();
             formData3D.append('model3D', file);
-            formData3D.append('name', component.role || `Component ${index + 1}`);
+            formData3D.append('name', component.role || `Component ${componentIndex + 1}`);
             if (formData.category) {
               formData3D.append('elementType', formData.category);
+            }
+            formData3D.append('isStackable', String(Boolean(physicalProps.isStackable)));
+            if (componentDimensions) {
+              formData3D.append('dimensions', JSON.stringify(componentDimensions));
             }
 
             const newElement = await apiFetch('/design-elements', {
@@ -676,14 +774,18 @@ const ManageListings = () => {
             });
 
             // Update component with new design element ID
-            updatedComponentsList[index] = {
-              ...updatedComponentsList[index],
+            updatedComponentsList[componentIndex] = {
+              ...updatedComponentsList[componentIndex],
               designElementId: newElement.id,
             };
           } else {
             // Update existing design element
             const formData3D = new FormData();
             formData3D.append('model3D', file);
+            formData3D.append('isStackable', String(Boolean(physicalProps.isStackable)));
+            if (componentDimensions) {
+              formData3D.append('dimensions', JSON.stringify(componentDimensions));
+            }
 
             await apiFetch(`/design-elements/${component.designElementId}/model3d`, {
               method: 'POST',
@@ -881,6 +983,7 @@ const ManageListings = () => {
         size: file.size,
         id: `preview-${Date.now()}-${Math.random()}`,
       })));
+      setModel3DFileMeta(validFiles.map(() => createDefaultPhysicalProps()));
       if (invalidFiles.length === 0) {
         setError('');
       }
@@ -897,6 +1000,7 @@ const ManageListings = () => {
     const newPreviews = model3DPreviews.filter((_, i) => i !== index);
     setModel3DFiles(newFiles);
     setModel3DPreviews(newPreviews);
+    setModel3DFileMeta((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleRemove3DModel = () => {
@@ -910,20 +1014,88 @@ const ManageListings = () => {
   };
 
   // Component management handlers
-  const handleAddComponent = () => {
-    setComponents([
-      ...components,
-      {
-        id: `temp-${Date.now()}`,
-        designElementId: '',
-        quantityPerUnit: 1,
-        role: '',
+  const createDefaultPhysicalProps = () => ({
+    width: '',
+    height: '',
+    depth: '',
+    isStackable: false,
+  });
+
+  const buildDimensionsPayloadFromState = (stateObj = {}) => {
+    const payload = {};
+    ['width', 'height', 'depth'].forEach((axis) => {
+      const raw = stateObj[axis];
+      if (raw === '' || raw === null || raw === undefined) return;
+      const value = Number(raw);
+      if (Number.isFinite(value) && value > 0) {
+        payload[axis] = value;
+      }
+    });
+    return Object.keys(payload).length > 0 ? payload : null;
+  };
+
+  const updateComponentPhysicalProps = (componentKey, patch) => {
+    setComponentPhysicalProps((prev) => ({
+      ...prev,
+      [componentKey]: {
+        ...(prev[componentKey] || createDefaultPhysicalProps()),
+        ...patch,
       },
-    ]);
+    }));
+  };
+
+  const updateModel3DFileMeta = (index, patch) => {
+    setModel3DFileMeta((prev) => {
+      const next = [...prev];
+      const existing = next[index] || createDefaultPhysicalProps();
+      next[index] = { ...existing, ...patch };
+      return next;
+    });
+  };
+
+  const handleAddComponent = () => {
+    const newComponent = {
+      id: `temp-${Date.now()}`,
+      designElementId: '',
+      quantityPerUnit: 1,
+      role: '',
+    };
+    const nextComponents = [...components, newComponent];
+    setComponents(nextComponents);
+    setComponentPhysicalProps((prev) => ({
+      ...prev,
+      [newComponent.id]: prev[newComponent.id] || createDefaultPhysicalProps(),
+    }));
   };
 
   const handleRemoveComponent = (index) => {
-    setComponents(components.filter((_, i) => i !== index));
+    const nextComponents = components.filter((_, i) => i !== index);
+    setComponents(nextComponents);
+    setComponentPhysicalProps((prev) => {
+      const next = {};
+      nextComponents.forEach((comp) => {
+        next[comp.id] = prev[comp.id] || createDefaultPhysicalProps();
+      });
+      return next;
+    });
+    setComponent3DFiles((prev) => {
+      const next = {};
+      nextComponents.forEach((comp) => {
+        if (prev[comp.id]) {
+          next[comp.id] = prev[comp.id];
+        }
+      });
+      return next;
+    });
+    setComponent3DPreviews((prev) => {
+      const next = {};
+      nextComponents.forEach((comp) => {
+        if (prev[comp.id]) {
+          next[comp.id] = prev[comp.id];
+        }
+      });
+      return next;
+    });
   };
 
   const handleComponentChange = (index, field, value) => {
@@ -933,12 +1105,12 @@ const ManageListings = () => {
   };
 
   // Handle 3D model upload for a specific component
-  const handleComponent3DModelChange = (index, e) => {
+  const handleComponent3DModelChange = (componentKey, e) => {
     const file = e.target.files[0];
     if (file) {
       const fileName = file.name.toLowerCase();
       if (!fileName.endsWith('.glb')) {
-        setError(`Component ${index + 1}: Please select a .glb file (GLTF Binary format)`);
+        setError('Please select a .glb file (GLTF Binary format)');
         if (e.target) {
           e.target.value = '';
         }
@@ -947,31 +1119,32 @@ const ManageListings = () => {
 
       const maxSize = 150 * 1024 * 1024;
         if (file.size > maxSize) {
-          setError(`Component ${index + 1}: File size must be less than 150MB`);
+        setError('3D model file size must be less than 150MB');
         if (e.target) {
           e.target.value = '';
         }
         return;
       }
 
-      setComponent3DFiles((prev) => ({ ...prev, [index]: file }));
+      setComponent3DFiles((prev) => ({ ...prev, [componentKey]: file }));
       setComponent3DPreviews((prev) => ({
         ...prev,
-        [index]: { name: file.name, size: file.size },
+        [componentKey]: { name: file.name, size: file.size },
       }));
+      updateComponentPhysicalProps(componentKey, {});
       setError('');
     }
   };
 
-  const handleRemoveComponent3DModel = (index) => {
+  const handleRemoveComponent3DModel = (componentKey) => {
     setComponent3DFiles((prev) => {
       const updated = { ...prev };
-      delete updated[index];
+      delete updated[componentKey];
       return updated;
     });
     setComponent3DPreviews((prev) => {
       const updated = { ...prev };
-      delete updated[index];
+      delete updated[componentKey];
       return updated;
     });
   };
@@ -1489,7 +1662,7 @@ const ManageListings = () => {
                           <em>Select component to preview</em>
                         </MenuItem>
                         {components.map((component, index) => {
-                          const hasModel = component.designElementId || component3DFiles[index];
+                          const hasModel = component.designElementId || component3DFiles[component.id];
                           if (!hasModel) return null;
                           
                           const element = designElements.find(el => el.id === component.designElementId);
@@ -1508,7 +1681,8 @@ const ManageListings = () => {
                       if (!component) return null;
                       
                       // Check if there's a newly uploaded file
-                      if (component3DFiles[previewComponentIndex] && previewBlobUrl) {
+                      const componentKey = component.id || `component-${previewComponentIndex}`;
+                      if (component3DFiles[componentKey] && previewBlobUrl) {
                         return (
                           <Model3DViewer
                             modelUrl={previewBlobUrl}
@@ -1715,9 +1889,16 @@ const ManageListings = () => {
 
               {components.length > 0 && (
                 <Stack spacing={2}>
-                  {components.map((component, index) => (
-                    <Box
-                      key={component.id || index}
+                  {components.map((component, index) => {
+                    const componentKey = component.id || `component-${index}`;
+                    const physicalProps = componentPhysicalProps[componentKey] || createDefaultPhysicalProps();
+                    const componentPreview = component3DPreviews[componentKey];
+                    const hasPendingUpload = Boolean(component3DFiles[componentKey]);
+                    const shouldShowPhysicalConfig = hasPendingUpload || !component.designElementId;
+
+                    return (
+                      <Box
+                      key={componentKey}
                       sx={{
                         p: 2,
                         border: '1px solid #e0e0e0',
@@ -1768,11 +1949,11 @@ const ManageListings = () => {
                           <input
                             type="file"
                             accept=".glb"
-                            onChange={(e) => handleComponent3DModelChange(index, e)}
+                            onChange={(e) => handleComponent3DModelChange(componentKey, e)}
                             style={{ display: 'none' }}
-                            id={`component-3d-upload-${index}`}
+                            id={`component-3d-upload-${componentKey}`}
                           />
-                          <label htmlFor={`component-3d-upload-${index}`}>
+                          <label htmlFor={`component-3d-upload-${componentKey}`}>
                             <Button
                               variant="outlined"
                               component="span"
@@ -1790,7 +1971,7 @@ const ManageListings = () => {
                             </Button>
                           </label>
                           
-                          {component3DPreviews[index] && (
+                          {componentPreview && (
                             <Box
                               sx={{
                                 display: 'flex',
@@ -1804,11 +1985,11 @@ const ManageListings = () => {
                             >
                               <ThreeDIcon sx={{ color: '#666', fontSize: '1rem' }} />
                               <Typography variant="caption" sx={{ flex: 1, color: '#666' }}>
-                                {component3DPreviews[index].name} ({(component3DPreviews[index].size / 1024 / 1024).toFixed(2)} MB)
+                                {componentPreview.name} ({(componentPreview.size / 1024 / 1024).toFixed(2)} MB)
                               </Typography>
                               <IconButton
                                 size="small"
-                                onClick={() => handleRemoveComponent3DModel(index)}
+                                onClick={() => handleRemoveComponent3DModel(componentKey)}
                                 sx={{ color: '#d32f2f', padding: '4px' }}
                               >
                                 <CloseIcon fontSize="small" />
@@ -1816,10 +1997,69 @@ const ManageListings = () => {
                             </Box>
                           )}
                           
-                          {component3DFiles[index] && (
+                          {hasPendingUpload && (
                             <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
                               ✓ 3D model will be uploaded and linked to this component
                             </Typography>
+                          )}
+
+                          {shouldShowPhysicalConfig && (
+                            <Box
+                              sx={{
+                                mt: 1.5,
+                                p: 1.5,
+                                borderRadius: 1,
+                                border: '1px dashed #d3d3d3',
+                                backgroundColor: '#fff',
+                              }}
+                            >
+                              <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
+                                Physical Properties (required for scaling)
+                              </Typography>
+                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 1.5 }}>
+                                <TextField
+                                  label="Width (X)"
+                                  type="number"
+                                  size="small"
+                                  value={physicalProps.width}
+                                  onChange={(e) => updateComponentPhysicalProps(componentKey, { width: e.target.value })}
+                                  InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                                  inputProps={{ step: '0.01', min: '0' }}
+                                />
+                                <TextField
+                                  label="Height (Y)"
+                                  type="number"
+                                  size="small"
+                                  value={physicalProps.height}
+                                  onChange={(e) => updateComponentPhysicalProps(componentKey, { height: e.target.value })}
+                                  InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                                  inputProps={{ step: '0.01', min: '0' }}
+                                />
+                                <TextField
+                                  label="Depth (Z)"
+                                  type="number"
+                                  size="small"
+                                  value={physicalProps.depth}
+                                  onChange={(e) => updateComponentPhysicalProps(componentKey, { depth: e.target.value })}
+                                  InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                                  inputProps={{ step: '0.01', min: '0' }}
+                                />
+                              </Stack>
+                              <FormControlLabel
+                                control={
+                                  <Switch
+                                    size="small"
+                                    checked={Boolean(physicalProps.isStackable)}
+                                    onChange={(e) => updateComponentPhysicalProps(componentKey, { isStackable: e.target.checked })}
+                                  />
+                                }
+                                label={
+                                  <Typography variant="caption" color="text.secondary">
+                                    Stackable (can be placed on tables/surfaces)
+                                  </Typography>
+                                }
+                              />
+                            </Box>
                           )}
                         </Box>
                         <Box display="flex" gap={2}>
@@ -1844,7 +2084,8 @@ const ManageListings = () => {
                         </Box>
                       </Stack>
                     </Box>
-                  ))}
+                  );
+                })}
                 </Stack>
               )}
 
@@ -2054,6 +2295,75 @@ const ManageListings = () => {
                       )}
                     </>
                   )}
+
+                  {/* Dimensions and Settings */}
+                  {((!useExistingDesignElement && model3DPreview) || (useExistingDesignElement && selectedDesignElementId)) && (
+                    <Box sx={{ mt: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f8f9fa' }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+                        3D Model Settings
+                      </Typography>
+
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                        Real-world dimensions (in meters) for accurate scaling:
+                      </Typography>
+                      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+                        <TextField
+                          label="Width (X)"
+                          type="number"
+                          size="small"
+                          value={modelDimensions.width}
+                          onChange={(e) => setModelDimensions((prev) => ({ ...prev, width: e.target.value }))}
+                          InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                          disabled={useExistingDesignElement}
+                          inputProps={{ step: '0.01', min: '0' }}
+                          sx={{ backgroundColor: '#fff' }}
+                        />
+                        <TextField
+                          label="Height (Y)"
+                          type="number"
+                          size="small"
+                          value={modelDimensions.height}
+                          onChange={(e) => setModelDimensions((prev) => ({ ...prev, height: e.target.value }))}
+                          InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                          disabled={useExistingDesignElement}
+                          inputProps={{ step: '0.01', min: '0' }}
+                          sx={{ backgroundColor: '#fff' }}
+                        />
+                        <TextField
+                          label="Depth (Z)"
+                          type="number"
+                          size="small"
+                          value={modelDimensions.depth}
+                          onChange={(e) => setModelDimensions((prev) => ({ ...prev, depth: e.target.value }))}
+                          InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                          disabled={useExistingDesignElement}
+                          inputProps={{ step: '0.01', min: '0' }}
+                          sx={{ backgroundColor: '#fff' }}
+                        />
+                      </Stack>
+
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={isStackable}
+                            onChange={(e) => setIsStackable(e.target.checked)}
+                            color="primary"
+                            disabled={useExistingDesignElement}
+                          />
+                        }
+                        label={
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              Stackable Item
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Can be placed on top of tables or other surfaces (e.g., Centerpieces, Tableware)
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    </Box>
+                  )}
                 </>
               ) : (
                 // Multiple 3D models for bundle services
@@ -2090,32 +2400,74 @@ const ManageListings = () => {
                   </label>
 
                   {model3DPreviews.length > 0 && (
-                    <Stack spacing={1} sx={{ mb: 2 }}>
-                      {model3DPreviews.map((preview, index) => (
-                        <Box
-                          key={preview.id}
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 1,
-                            p: 1.5,
-                            backgroundColor: '#f5f5f5',
-                            borderRadius: 1,
-                          }}
-                        >
-                          <ThreeDIcon sx={{ color: '#666' }} />
-                          <Typography variant="body2" sx={{ flex: 1, color: '#666' }}>
-                            {preview.name} ({(preview.size / 1024 / 1024).toFixed(2)} MB)
-                          </Typography>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleRemove3DModelFile(index)}
-                            sx={{ color: '#d32f2f' }}
+                    <Stack spacing={1.5} sx={{ mb: 2 }}>
+                      {model3DPreviews.map((preview, index) => {
+                        const fileMeta = model3DFileMeta[index] || createDefaultPhysicalProps();
+                        return (
+                          <Box
+                            key={preview.id}
+                            sx={{
+                              p: 1.5,
+                              backgroundColor: '#f5f5f5',
+                              borderRadius: 1,
+                              border: '1px solid #e0e0e0',
+                            }}
                           >
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
-                        </Box>
-                      ))}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <ThreeDIcon sx={{ color: '#666' }} />
+                              <Typography variant="body2" sx={{ flex: 1, color: '#666' }}>
+                                {preview.name} ({(preview.size / 1024 / 1024).toFixed(2)} MB)
+                              </Typography>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleRemove3DModelFile(index)}
+                                sx={{ color: '#d32f2f' }}
+                              >
+                                <CloseIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                              <TextField
+                                label="Width (X)"
+                                type="number"
+                                size="small"
+                                value={fileMeta.width}
+                                onChange={(e) => updateModel3DFileMeta(index, { width: e.target.value })}
+                                InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                                inputProps={{ step: '0.01', min: '0' }}
+                              />
+                              <TextField
+                                label="Height (Y)"
+                                type="number"
+                                size="small"
+                                value={fileMeta.height}
+                                onChange={(e) => updateModel3DFileMeta(index, { height: e.target.value })}
+                                InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                                inputProps={{ step: '0.01', min: '0' }}
+                              />
+                              <TextField
+                                label="Depth (Z)"
+                                type="number"
+                                size="small"
+                                value={fileMeta.depth}
+                                onChange={(e) => updateModel3DFileMeta(index, { depth: e.target.value })}
+                                InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                                inputProps={{ step: '0.01', min: '0' }}
+                              />
+                              <FormControlLabel
+                                control={
+                                  <Switch
+                                    size="small"
+                                    checked={Boolean(fileMeta.isStackable)}
+                                    onChange={(e) => updateModel3DFileMeta(index, { isStackable: e.target.checked })}
+                                  />
+                                }
+                                label="Stackable"
+                              />
+                            </Stack>
+                          </Box>
+                        );
+                      })}
                     </Stack>
                   )}
 

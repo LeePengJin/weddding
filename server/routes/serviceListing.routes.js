@@ -805,6 +805,17 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
       }
 
       try {
+        // Extract additional fields
+        const isStackable = req.body.isStackable === 'true';
+        let dimensions = null;
+        if (req.body.dimensions) {
+          try {
+            dimensions = JSON.parse(req.body.dimensions);
+          } catch (e) {
+            console.warn('Invalid dimensions JSON:', e);
+          }
+        }
+
         // Create or update DesignElement
         const modelPath = `/uploads/models3d/${req.file.filename}`;
         
@@ -824,7 +835,11 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
           // Update existing design element
           designElement = await prisma.designElement.update({
             where: { id: existingListing.designElementId },
-            data: { modelFile: modelPath },
+            data: { 
+              modelFile: modelPath,
+              isStackable: isStackable,
+              dimensions: dimensions || undefined,
+            },
           });
         } else {
           // Create new design element
@@ -834,6 +849,8 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
               name: existingListing.name,
               elementType: existingListing.category,
               modelFile: modelPath,
+              isStackable: isStackable,
+              dimensions: dimensions || undefined,
             },
           });
         }
@@ -928,6 +945,17 @@ router.post('/:id/model3d/bundle', requireAuth, async (req, res, next) => {
           const modelPath = `/uploads/models3d/${file.filename}`;
           const elementName = req.body[`elementName_${file.originalname}`] || file.originalname.replace('.glb', '');
           const elementType = req.body[`elementType_${file.originalname}`] || existingListing.category;
+          const isStackable = req.body[`isStackable_${file.originalname}`] === 'true';
+          
+          let dimensions = null;
+          const dimsRaw = req.body[`dimensions_${file.originalname}`];
+          if (dimsRaw) {
+            try {
+              dimensions = JSON.parse(dimsRaw);
+            } catch (e) {
+              console.warn('Invalid dimensions JSON:', e);
+            }
+          }
 
           const designElement = await prisma.designElement.create({
             data: {
@@ -935,6 +963,8 @@ router.post('/:id/model3d/bundle', requireAuth, async (req, res, next) => {
               name: elementName,
               elementType: elementType,
               modelFile: modelPath,
+              isStackable: isStackable,
+              dimensions: dimensions || undefined,
             },
           });
 

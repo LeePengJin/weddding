@@ -11,24 +11,35 @@ const DEFAULT_LAYOUT = {
 const DEMO_VENUES = [
   {
     label: 'Grand Ballroom',
-    url: 'http://localhost:4000/uploads/models3d/45795a03-092b-46d2-a786-67a938e1845e.glb',
+    url: 'http://localhost:4000/uploads/models3d/usr_01KAGENSM8QB0P9ZP518YTP1YH_1763648057229_2450.glb',
   },
   {
     label: 'Garden Pavilion',
-    url: 'http://localhost:4000/uploads/models3d/usr_01K9F1HZ5AH7TDBSNRA853W1SB_1762971888120_1910.glb',
+    url: 'http://localhost:4000/uploads/models3d/usr_01KAGENSM8QB0P9ZP518YTP1YH_1763648057147_6645.glb',
   },
 ];
 
 const DEMO_ITEMS = [
   {
     name: 'Premium Plastic Chair',
-    modelFile: 'http://localhost:4000/uploads/models3d/45795a03-092b-46d2-a786-67a938e1845e.glb',
-    metadata: { footprintRadius: 0.8 },
+    modelFile: 'http://localhost:4000/uploads/models3d/usr_01KAGENSM8QB0P9ZP518YTP1YH_1763648057229_2450.glb',
+    metadata: { footprintRadius: 0.5 },
+    dimensions: { width: 0.45, height: 0.9, depth: 0.45 },
+    isStackable: false,
+  },
+  {
+    name: 'Cocktail Table',
+    modelFile: 'http://localhost:4000/uploads/models3d/usr_01KAGENSM8QB0P9ZP518YTP1YH_1763648057147_6645.glb',
+    metadata: { footprintRadius: 0.7 },
+    dimensions: { width: 0.75, height: 1.1, depth: 0.75 },
+    isStackable: false,
   },
   {
     name: 'Banquet Table',
-    modelFile: 'http://localhost:4000/uploads/models3d/usr_01K9F1HZ5AH7TDBSNRA853W1SB_1762971888120_1910.glb',
-    metadata: { footprintRadius: 1.5 },
+    modelFile: 'http://localhost:4000/uploads/models3d/b78b8368-be53-4044-aa72-fcf598323c11.glb',
+    metadata: { footprintRadius: 1.2 },
+    dimensions: { width: 1.8, height: 0.75, depth: 1.8 },
+    isStackable: false,
   },
 ];
 
@@ -44,16 +55,38 @@ const ScenePlayground = () => {
         id: `demo_item_${index}`,
         name: item.name,
         modelFile: item.modelFile,
+        isStackable: item.isStackable ?? false,
+        dimensions: item.dimensions || null,
       },
     }))
   );
   const [designLayout, setDesignLayout] = useState(DEFAULT_LAYOUT);
-  const [venueModelUrl, setVenueModelUrl] = useState(DEMO_VENUES[0].url);
+  const [venueModelUrl, setVenueModelUrl] = useState('');
   const [newItemName, setNewItemName] = useState('New Item');
   const [newItemModel, setNewItemModel] = useState('');
+  const [newItemDimensions, setNewItemDimensions] = useState({ width: '', height: '', depth: '' });
+  const [newItemStackable, setNewItemStackable] = useState(true);
+
+  const buildDimensionsPayload = useCallback((dims) => {
+    const out = {};
+    ['width', 'height', 'depth'].forEach((axis) => {
+      const raw = dims?.[axis];
+      if (raw === '' || raw === null || raw === undefined) return;
+      const value = Number(raw);
+      if (Number.isFinite(value) && value > 0) {
+        out[axis] = value;
+      }
+    });
+    return Object.keys(out).length ? out : null;
+  }, []);
 
   const handleAddItem = () => {
     const id = `ple_demo_${Date.now()}`;
+    const dimensions = buildDimensionsPayload(newItemDimensions);
+    const computedRadius =
+      dimensions && (dimensions.width || dimensions.depth)
+        ? Math.max(dimensions.width || 0, dimensions.depth || 0) / 2
+        : undefined;
     setPlacements((prev) => [
       ...prev,
       {
@@ -61,11 +94,16 @@ const ScenePlayground = () => {
         position: { x: Math.random() * 4 - 2, y: 0, z: Math.random() * 4 - 2 },
         rotation: 0,
         isLocked: false,
-        metadata: { isStackable: true },
+        metadata: {
+          isStackable: newItemStackable,
+          ...(computedRadius ? { footprintRadius: computedRadius } : {}),
+        },
         designElement: {
           id: `demo_design_${Date.now()}`,
           name: newItemName || 'New Item',
           modelFile: newItemModel || null,
+          isStackable: newItemStackable,
+          dimensions,
         },
       },
     ]);
@@ -76,7 +114,7 @@ const ScenePlayground = () => {
     setVenueModelUrl('');
   };
   const handleUseDemo = () => {
-    setVenueModelUrl(DEMO_VENUES[0].url);
+    setVenueModelUrl('');
     setPlacements(
       DEMO_ITEMS.map((item, index) => ({
         id: `ple_demo_reset_${index}`,
@@ -88,6 +126,8 @@ const ScenePlayground = () => {
           id: `demo_item_reset_${index}`,
           name: item.name,
           modelFile: item.modelFile,
+          isStackable: item.isStackable ?? false,
+          dimensions: item.dimensions || null,
         },
       }))
     );
@@ -189,6 +229,50 @@ const ScenePlayground = () => {
             placeholder="/uploads/models/item.glb"
           />
         </label>
+
+        <div className="scene-playground-dimensions">
+          <span>Dimensions (meters)</span>
+          <div className="dimension-inputs">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Width"
+              value={newItemDimensions.width}
+              onChange={(e) =>
+                setNewItemDimensions((prev) => ({ ...prev, width: e.target.value }))
+              }
+            />
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Height"
+              value={newItemDimensions.height}
+              onChange={(e) =>
+                setNewItemDimensions((prev) => ({ ...prev, height: e.target.value }))
+              }
+            />
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Depth"
+              value={newItemDimensions.depth}
+              onChange={(e) =>
+                setNewItemDimensions((prev) => ({ ...prev, depth: e.target.value }))
+              }
+            />
+          </div>
+          <label className="stackable-toggle">
+            <input
+              type="checkbox"
+              checked={newItemStackable}
+              onChange={(e) => setNewItemStackable(e.target.checked)}
+            />
+            <span>Stackable item</span>
+          </label>
+        </div>
 
         <button type="button" onClick={handleAddItem} className="primary-btn">
           Add Item

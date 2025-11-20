@@ -109,6 +109,8 @@ const PLACEMENT_INCLUDE = {
       name: true,
       modelFile: true,
       vendorId: true,
+      isStackable: true,
+      dimensions: true,
       vendor: {
         select: {
           userId: true,
@@ -179,6 +181,8 @@ function serializePlacement(placement, meta, serviceMap) {
           name: placement.designElement.name,
           modelFile: placement.designElement.modelFile,
           vendorId: placement.designElement.vendorId,
+          isStackable: placement.designElement.isStackable,
+          dimensions: placement.designElement.dimensions,
           vendor: placement.designElement.vendor
             ? {
                 id: placement.designElement.vendor.userId,

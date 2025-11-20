@@ -54,7 +54,7 @@ _Last updated: November 18, 2025_
 - [x] Create `PlacedElement.jsx` for 3D model instances with controls
 - [x] Implement GLTF/GLB model loading for venue and placed items
 - [x] Add ray-casting for object selection in 3D space (pointer-based selection)
-- [ ] Implement collision detection to prevent overlapping placements
+- [x] Implement collision detection to prevent overlapping placements
 - [x] Add drag-and-drop functionality for placing items in 3D (TransformControls translate)
 - [ ] Implement move/rotate/scale controls for placed elements _(move + rotate done; scale pending)_
 - [x] Add camera controls (OrbitControls) for scene navigation
@@ -62,6 +62,7 @@ _Last updated: November 18, 2025_
 - [x] Add lighting setup for proper 3D model visibility
 - [x] Load venue base model from `venueServiceListingId`
 - [ ] Optimize rendering performance (frustum culling, LOD selection)
+- [ ] Support parent-child attachments for stacked elements so children follow the surface when it moves
 
 ### Technical Notes
 - Use `useGLTF` hook from `@react-three/drei` for model loading
