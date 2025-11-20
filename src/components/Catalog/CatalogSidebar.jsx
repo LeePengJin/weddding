@@ -15,6 +15,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
 import ServiceListingCard from './ServiceListingCard';
+import CatalogDetailPanel from './CatalogDetailPanel';
 import './CatalogSidebar.css';
 
 const CatalogSidebar = ({
@@ -29,6 +30,10 @@ const CatalogSidebar = ({
   loading,
   onAdd,
   onShowDetails,
+  selectedItem,
+  onCloseDetails,
+  onShowItem3D,
+  onMessageVendor,
 }) => {
   return (
     <Paper elevation={0} square className={`catalog-panel ${collapsed ? 'collapsed' : ''}`}>
@@ -54,6 +59,14 @@ const CatalogSidebar = ({
           <LayersOutlinedIcon fontSize="small" />
           <span>Catalog</span>
         </div>
+      ) : selectedItem ? (
+        <CatalogDetailPanel
+          item={selectedItem}
+          onBack={onCloseDetails}
+          onAdd={onAdd}
+          onMessageVendor={onMessageVendor}
+          onShow3D={onShowItem3D}
+        />
       ) : (
         <>
           <TextField

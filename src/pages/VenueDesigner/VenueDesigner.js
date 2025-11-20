@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import './VenueDesigner.styles.css';
-import DesignSummary from './DesignSummary';
+import DesignSummary from './DesignSummary.jsx';
+import CheckoutModal from './CheckoutModal.jsx';
 import {
   getVenueDesign,
   addDesignElement,
@@ -13,6 +14,9 @@ import {
 } from '../../lib/api';
 import BudgetTracker from '../../components/BudgetTracker/BudgetTracker';
 import CatalogSidebar from '../../components/Catalog/CatalogSidebar';
+import Listing3DDialog from '../../components/Catalog/Listing3DDialog';
+import Scene3D from './Scene3D';
+import { VenueDesignerProvider } from './VenueDesignerContext';
 
 const CATEGORIES = [
   'All Categories',
@@ -25,12 +29,17 @@ const CATEGORIES = [
   'Other',
 ];
 
-const formatImageUrl = (url) => {
-  if (!url) return '/images/default-product.jpg';
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  if (url.startsWith('/uploads')) return `http://localhost:4000${url}`;
-  return url;
+const DEFAULT_GRID_SETTINGS = {
+  size: 1,
+  visible: true,
+  snapToGrid: true,
 };
+
+const normalizeLayout = (layout = {}) => ({
+  ...layout,
+  grid: { ...DEFAULT_GRID_SETTINGS, ...(layout?.grid || {}) },
+  sidebar: { collapsed: false, ...(layout?.sidebar || {}) },
+});
 
 const VenueDesigner = () => {
   const location = useLocation();
@@ -51,9 +60,15 @@ const VenueDesigner = () => {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-  const [designLayout, setDesignLayout] = useState({});
+  const [designLayout, setDesignLayout] = useState(() => normalizeLayout({}));
   const [availabilityMap, setAvailabilityMap] = useState({});
   const [savingState, setSavingState] = useState({ loading: false, lastSaved: null });
+  const [threeDPreview, setThreeDPreview] = useState(null);
+  const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+  const [weddingDate, setWeddingDate] = useState(null);
+  const [venueInfo, setVenueInfo] = useState(null);
+  const layoutAutosaveTimerRef = useRef(null);
+  const skipNextLayoutSaveRef = useRef(true);
 
   const plannedSpend = useMemo(() => {
     const bundleTotals = new Map();
@@ -80,8 +95,11 @@ const VenueDesigner = () => {
     try {
       const data = await getVenueDesign(projectId);
       setPlacements(data.design?.placedElements || []);
-      setDesignLayout(data.design?.layoutData || {});
-      setSidebarCollapsed(data.design?.layoutData?.sidebar?.collapsed ?? false);
+      skipNextLayoutSaveRef.current = true;
+      const layoutFromServer = normalizeLayout(data.design?.layoutData || {});
+      setDesignLayout(layoutFromServer);
+      setSidebarCollapsed(layoutFromServer.sidebar.collapsed ?? false);
+      setVenueInfo(data.venue || null);
       setSavingState((prev) => ({
         ...prev,
         lastSaved: data.design?.layoutData?.lastSavedAt || null,
@@ -90,6 +108,9 @@ const VenueDesigner = () => {
       const backendBudget = data.project?.budget?.totalBudget;
       if (backendBudget) {
         setTotalBudget(Number(backendBudget));
+      }
+      if (data.project?.weddingDate) {
+        setWeddingDate(data.project.weddingDate);
       }
       setErrorMessage('');
     } catch (err) {
@@ -138,13 +159,12 @@ const VenueDesigner = () => {
     }
   }, [projectId, placements]);
 
-  const persistLayout = useCallback(
-    async (nextLayout) => {
+  const saveLayoutData = useCallback(
+    async (layoutData = {}) => {
       if (!projectId) return;
-      setDesignLayout(nextLayout);
       setSavingState((prev) => ({ ...prev, loading: true }));
       try {
-        await saveVenueDesign(projectId, { layoutData: nextLayout });
+        await saveVenueDesign(projectId, { layoutData });
         setSavingState({
           loading: false,
           lastSaved: new Date().toISOString(),
@@ -157,7 +177,7 @@ const VenueDesigner = () => {
     [projectId]
   );
 
-  const handleAddItem = async (item) => {
+  const handleAddItem = useCallback(async (item) => {
     if (!projectId) return;
     try {
       const response = await addDesignElement(projectId, {
@@ -168,9 +188,9 @@ const VenueDesigner = () => {
     } catch (err) {
       setErrorMessage(err.message || 'Unable to add item to design');
     }
-  };
+  }, [projectId]);
 
-  const handleRemovePlacement = async (placementId, scope = 'bundle') => {
+  const handleRemovePlacement = useCallback(async (placementId, scope = 'bundle') => {
     if (!projectId) return;
     try {
       const response = await deleteDesignElement(projectId, placementId, scope);
@@ -180,9 +200,9 @@ const VenueDesigner = () => {
     } catch (err) {
       setErrorMessage(err.message || 'Unable to remove item');
     }
-  };
+  }, [projectId]);
 
-  const handleToggleLock = async (placement) => {
+  const handleToggleLock = useCallback(async (placement) => {
     if (!projectId) return;
     try {
       const updated = await updateDesignElement(projectId, placement.id, {
@@ -192,21 +212,84 @@ const VenueDesigner = () => {
     } catch (err) {
       setErrorMessage(err.message || 'Unable to update lock state');
     }
-  };
+  }, [projectId]);
+
+  const handleUpdatePlacement = useCallback(
+    async (placementId, payload) => {
+      if (!projectId) return null;
+      try {
+        const updated = await updateDesignElement(projectId, placementId, payload);
+        setPlacements((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+        return updated;
+      } catch (err) {
+        setErrorMessage(err.message || 'Unable to update element');
+        throw err;
+      }
+    },
+    [projectId]
+  );
 
   const handleSidebarToggle = () => {
     const nextCollapsed = !sidebarCollapsed;
     setSidebarCollapsed(nextCollapsed);
-    const nextLayout = {
-      ...designLayout,
-      sidebar: { collapsed: nextCollapsed },
-    };
-    persistLayout(nextLayout);
+    setDesignLayout((prev) =>
+      normalizeLayout({
+        ...(prev || {}),
+        sidebar: { ...(prev?.sidebar || {}), collapsed: nextCollapsed },
+      })
+    );
   };
 
   const handleManualSave = () => {
-    persistLayout(designLayout || {});
+    if (layoutAutosaveTimerRef.current) {
+      clearTimeout(layoutAutosaveTimerRef.current);
+      layoutAutosaveTimerRef.current = null;
+    }
+    saveLayoutData(normalizeLayout(designLayout || {}));
   };
+
+  const handleShow3D = (item, modelSrc) => {
+    setThreeDPreview({ item, modelSrc });
+  };
+
+  const contextValue = useMemo(
+    () => ({
+      projectId,
+      placements,
+      isLoading,
+      availabilityMap,
+      venueInfo,
+      refreshAvailability,
+      onToggleLock: handleToggleLock,
+      onRemovePlacement: handleRemovePlacement,
+      onUpdatePlacement: handleUpdatePlacement,
+      savingState,
+      designLayout,
+      setDesignLayout,
+      sceneOptions: {},
+    }),
+    [
+      projectId,
+      placements,
+      isLoading,
+      availabilityMap,
+      venueInfo,
+      refreshAvailability,
+      handleToggleLock,
+      handleRemovePlacement,
+      handleUpdatePlacement,
+      savingState,
+      designLayout,
+    ]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (layoutAutosaveTimerRef.current) {
+        clearTimeout(layoutAutosaveTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     loadDesign();
@@ -225,6 +308,27 @@ const VenueDesigner = () => {
     return () => clearInterval(interval);
   }, [refreshAvailability]);
 
+  useEffect(() => {
+    if (!projectId) return;
+    if (skipNextLayoutSaveRef.current) {
+      skipNextLayoutSaveRef.current = false;
+      return;
+    }
+    if (!designLayout) return;
+    if (layoutAutosaveTimerRef.current) {
+      clearTimeout(layoutAutosaveTimerRef.current);
+    }
+    layoutAutosaveTimerRef.current = setTimeout(() => {
+      saveLayoutData(designLayout);
+    }, 800);
+
+    return () => {
+      if (layoutAutosaveTimerRef.current) {
+        clearTimeout(layoutAutosaveTimerRef.current);
+      }
+    };
+  }, [designLayout, projectId, saveLayoutData]);
+
   if (!projectId) {
     return (
       <div className="venue-designer">
@@ -237,7 +341,8 @@ const VenueDesigner = () => {
   }
 
   return (
-    <div className="venue-designer">
+    <VenueDesignerProvider value={contextValue}>
+      <div className="venue-designer">
       {errorMessage && (
         <div className="designer-alert">
           <p>{errorMessage}</p>
@@ -260,6 +365,12 @@ const VenueDesigner = () => {
           loading={catalogLoading}
           onAdd={handleAddItem}
           onShowDetails={setSelectedItemInfo}
+          selectedItem={selectedItemInfo}
+          onCloseDetails={() => setSelectedItemInfo(null)}
+          onShowItem3D={handleShow3D}
+          onMessageVendor={() => {
+            window.location.href = '/messages';
+          }}
         />
 
         <div className="canvas-column">
@@ -273,7 +384,6 @@ const VenueDesigner = () => {
               planned={plannedSpend}
               remaining={remainingBudget}
               progress={budgetProgress}
-              savingState={savingState}
             />
             <div className="toolbar-actions">
               <button className="secondary-btn" onClick={handleManualSave}>
@@ -291,133 +401,121 @@ const VenueDesigner = () => {
             </div>
           </div>
 
-          <div className="canvas-stage">
-            <div className="canvas-placeholder">
-              <div className="venue-outline">
-                <div className="venue-floor">
-                  {isLoading && (
-                    <div className="canvas-hint">
-                      <i className="fas fa-spinner fa-spin"></i>
-                      <p>Loading your design…</p>
-                    </div>
-                  )}
-
-                  {!isLoading &&
-                    placements.map((placement) => {
-                      const isUnavailable =
-                        availabilityMap[placement.metadata?.serviceListingId]?.available === false;
-                      return (
-                        <div
-                          key={placement.id}
-                          className={`placed-item ${placement.isLocked ? 'locked' : ''} ${
-                            isUnavailable ? 'placement-unavailable' : ''
-                          }`}
-                        >
-                          <div className="placed-item-top">
-                            <span>{placement.designElement?.name || 'Design Element'}</span>
-                            {isUnavailable && <span className="placement-warning">Unavailable</span>}
-                          </div>
-                          <div className="placed-item-actions">
-                            <button onClick={() => handleToggleLock(placement)}>
-                              <i className={`fas fa-lock${placement.isLocked ? '' : '-open'}`}></i>
-                            </button>
-                            <button onClick={() => handleRemovePlacement(placement.id)}>
-                              <i className="fas fa-trash"></i>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-              {!isLoading && placements.length === 0 && (
-                <div className="canvas-hint">
-                  <i className="fas fa-mouse-pointer"></i>
-                  <p>Drag items from the catalog to place them in your venue</p>
-                  <p className="hint-secondary">Items placed: {placements.length}</p>
-                </div>
-              )}
-            </div>
-            <div className="scene-meta">
-              <span>Wedding Venue Design</span>
-              <span className="scene-meta-muted">
-                {savingState.lastSaved ? `Last saved ${new Date(savingState.lastSaved).toLocaleTimeString()}` : ''}
-              </span>
-            </div>
-          </div>
+          <Scene3D />
         </div>
       </div>
 
-      {selectedItemInfo && (
-        <div className="item-details-modal">
-          <div className="modal-content">
-            <div className="modal-header">
-              <h3>Item Details</h3>
-              <button className="close-modal-btn" onClick={() => setSelectedItemInfo(null)}>
-                <i className="fas fa-times"></i>
-              </button>
-            </div>
+      <DesignSummary
+        open={showCheckout}
+        onClose={() => setShowCheckout(false)}
+        onProceedToCheckout={() => {
+          setShowCheckout(false);
+          setShowCheckoutModal(true);
+        }}
+      />
 
-            <div className="modal-body">
-              <div className="item-details-grid">
-                <div className="item-image-large">
-                  <img src={formatImageUrl(selectedItemInfo.images?.[0])} alt={selectedItemInfo.name} />
-                </div>
+      <CheckoutModal
+        open={showCheckoutModal}
+        onClose={() => setShowCheckoutModal(false)}
+        groupedByVendor={(() => {
+          // Calculate groupedByVendor from placements (same logic as DesignSummary)
+          const itemGroups = new Map();
+          const bundleInstanceTracker = new Map();
 
-                <div className="item-details-info">
-                  <h4>{selectedItemInfo.name}</h4>
-                  <p className="item-description">{selectedItemInfo.description}</p>
-                  <div className="item-price-large">
-                    RM {Number(selectedItemInfo.price).toLocaleString()}
-                  </div>
+          placements.forEach((placement) => {
+            const bundleId = placement.metadata?.bundleId;
+            const serviceListingId = placement.metadata?.serviceListingId;
+            const designElementName = placement.designElement?.name || 'Design Element';
+            const groupKey = bundleId
+              ? `bundle_${serviceListingId}`
+              : `item_${placement.designElement?.id || designElementName}`;
 
-                  <div className="vendor-info">
-                    <h5>Vendor Information</h5>
-                    <p>
-                      <strong>Vendor:</strong> {selectedItemInfo.vendor?.name || 'Vendor'}
-                    </p>
-                    <p>
-                      <strong>Category:</strong> {selectedItemInfo.category?.replace('_', ' ') || 'Uncategorised'}
-                    </p>
-                  </div>
+            if (!itemGroups.has(groupKey)) {
+              const isBundle = Boolean(bundleId);
+              const itemName = isBundle
+                ? (placement.serviceListing?.name || 'Bundle Item')
+                : designElementName;
 
-                  <div className="item-actions">
-                    <button
-                      className="add-to-design-btn"
-                      onClick={() => {
-                        handleAddItem(selectedItemInfo);
-                        setSelectedItemInfo(null);
-                      }}
-                    >
-                      <i className="fas fa-plus"></i>
-                      Add to Design
-                    </button>
-                    <button
-                      className="message-vendor-btn"
-                      onClick={() => {
-                        window.location.href = '/messages';
-                      }}
-                    >
-                      <i className="fas fa-comment"></i>
-                      Message Vendor
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+              itemGroups.set(groupKey, {
+                key: groupKey,
+                isBundle,
+                name: itemName,
+                quantity: 0,
+                price: 0,
+                placementIds: [],
+                bundleIds: new Set(),
+                serviceListingId: serviceListingId || null,
+                designElementId: placement.designElement?.id || null,
+                vendorId: placement.designElement?.vendorId,
+                vendorName: placement.designElement?.vendor?.name || placement.designElement?.vendor?.user?.name || 'Unknown Vendor',
+              });
+            }
 
-      {showCheckout && (
-        <DesignSummary
-          onClose={() => setShowCheckout(false)}
-          onSubmit={() => {
-            setShowCheckout(false);
-          }}
+            const group = itemGroups.get(groupKey);
+            group.placementIds.push(placement.id);
+
+            if (bundleId) {
+              group.bundleIds.add(bundleId);
+              if (!bundleInstanceTracker.has(bundleId)) {
+                bundleInstanceTracker.set(bundleId, true);
+                group.quantity += 1;
+                const price = placement.metadata?.unitPrice
+                  ? parseFloat(placement.metadata.unitPrice)
+                  : placement.serviceListing?.price
+                  ? parseFloat(placement.serviceListing.price)
+                  : 0;
+                group.price += price;
+              }
+            } else {
+              group.quantity += 1;
+              const price = placement.metadata?.unitPrice
+                ? parseFloat(placement.metadata.unitPrice)
+                : placement.serviceListing?.price
+                ? parseFloat(placement.serviceListing.price)
+                : 0;
+              group.price += price;
+            }
+          });
+
+          const vendorGroups = {};
+          Array.from(itemGroups.values()).forEach((item) => {
+            const vendorKey = item.vendorId || item.vendorName;
+            if (!vendorGroups[vendorKey]) {
+              vendorGroups[vendorKey] = {
+                vendorId: item.vendorId,
+                vendorName: item.vendorName,
+                items: [],
+                total: 0,
+              };
+            }
+            const displayName = item.quantity > 1 ? `${item.name} x ${item.quantity}` : item.name;
+            vendorGroups[vendorKey].items.push({
+              ...item,
+              displayName,
+            });
+            vendorGroups[vendorKey].total += item.price;
+          });
+
+          return Object.values(vendorGroups);
+        })()}
+        projectId={projectId}
+        weddingDate={weddingDate}
+        onSuccess={() => {
+          // Refresh design to reflect changes
+          loadDesign();
+        }}
+      />
+
+      {threeDPreview && (
+        <Listing3DDialog
+          open={Boolean(threeDPreview)}
+          item={threeDPreview.item}
+          modelSrc={threeDPreview.modelSrc}
+          onClose={() => setThreeDPreview(null)}
         />
       )}
-    </div>
+      </div>
+    </VenueDesignerProvider>
   );
 };
 

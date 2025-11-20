@@ -2,18 +2,8 @@ import React from 'react';
 import { Card, CardContent, IconButton, Box, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { formatImageUrl } from '../../utils/image';
 import './ServiceListingCard.css';
-
-const formatImageUrl = (url) => {
-  if (!url) return '/images/default-product.jpg';
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url;
-  }
-  if (url.startsWith('/uploads')) {
-    return `http://localhost:4000${url}`;
-  }
-  return url;
-};
 
 const ServiceListingCard = ({ item, onAdd, onShowDetails }) => {
   if (!item) return null;

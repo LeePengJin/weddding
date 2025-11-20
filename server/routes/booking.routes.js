@@ -358,5 +358,146 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
   }
 });
 
+// POST /bookings - Create booking requests (for couples)
+const createBookingSchema = z.object({
+  projectId: z.string().optional().nullable(),
+  vendorId: z.string(),
+  reservedDate: z.string().datetime(),
+  selectedServices: z.array(
+    z.object({
+      serviceListingId: z.string(),
+      quantity: z.number().int().positive().default(1),
+      totalPrice: z.number().positive(),
+    })
+  ),
+});
+
+router.post('/', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'couple') {
+      return res.status(403).json({ error: 'Couple access required' });
+    }
+
+    const data = createBookingSchema.parse(req.body);
+
+    // Get couple ID
+    const couple = await prisma.couple.findUnique({
+      where: { userId: req.user.sub },
+    });
+
+    if (!couple) {
+      return res.status(404).json({ error: 'Couple profile not found' });
+    }
+
+    // Verify vendor exists
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: data.vendorId },
+    });
+
+    if (!vendor) {
+      return res.status(404).json({ error: 'Vendor not found' });
+    }
+
+    // Verify project belongs to couple if provided
+    if (data.projectId) {
+      const project = await prisma.weddingProject.findFirst({
+        where: {
+          id: data.projectId,
+          coupleId: req.user.sub,
+        },
+      });
+
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found' });
+      }
+    }
+
+    // Verify all service listings exist and belong to the vendor
+    const serviceListingIds = data.selectedServices.map((s) => s.serviceListingId);
+    const serviceListings = await prisma.serviceListing.findMany({
+      where: {
+        id: { in: serviceListingIds },
+        vendorId: data.vendorId,
+        isActive: true,
+      },
+    });
+
+    if (serviceListings.length !== serviceListingIds.length) {
+      return res.status(400).json({ error: 'One or more service listings not found or inactive' });
+    }
+
+    // Create booking
+    const booking = await prisma.booking.create({
+      data: {
+        coupleId: req.user.sub,
+        projectId: data.projectId || null,
+        vendorId: data.vendorId,
+        reservedDate: new Date(data.reservedDate),
+        status: 'pending_vendor_confirmation',
+        selectedServices: {
+          create: data.selectedServices.map((service) => ({
+            serviceListingId: service.serviceListingId,
+            quantity: service.quantity,
+            totalPrice: service.totalPrice,
+          })),
+        },
+      },
+      include: {
+        vendor: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+        project: {
+          select: {
+            id: true,
+            projectName: true,
+            weddingDate: true,
+          },
+        },
+        selectedServices: {
+          include: {
+            serviceListing: {
+              select: {
+                id: true,
+                name: true,
+                category: true,
+                price: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Convert Decimal to string for JSON response
+    const bookingWithStringPrices = {
+      ...booking,
+      selectedServices: booking.selectedServices.map((service) => ({
+        ...service,
+        totalPrice: service.totalPrice.toString(),
+        serviceListing: {
+          ...service.serviceListing,
+          price: service.serviceListing.price.toString(),
+        },
+      })),
+    };
+
+    res.status(201).json(bookingWithStringPrices);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
+      return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
+    }
+    next(err);
+  }
+});
+
 module.exports = router;
 

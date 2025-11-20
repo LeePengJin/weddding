@@ -1,0 +1,129 @@
+.scene-playground {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  background: #f5f3f0;
+  color: #261b16;
+}
+
+.scene-playground-controls {
+  width: 320px;
+  padding: 32px 28px;
+  border-right: 1px solid #e4ded6;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.scene-playground-controls h2 {
+  font-family: 'Playfair Display', serif;
+  margin-bottom: 12px;
+}
+
+.scene-playground-controls label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+  gap: 6px;
+}
+
+.scene-playground-controls input {
+  border: 1px solid #d6d0c9;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
+
+.scene-playground-divider {
+  height: 1px;
+  background: #ece7e0;
+  margin: 8px 0;
+}
+
+.scene-playground-controls button {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.scene-playground-controls .primary-btn {
+  background: #0f060d;
+  color: #fff;
+}
+
+.scene-playground-controls .secondary-btn {
+  background: #f1ede9;
+  color: #5a4a43;
+}
+
+.scene-playground-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #6e5c54;
+}
+
+.scene-playground-demo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.scene-playground-demo-buttons button {
+  border: 1px solid #d6d0c9;
+  background: #fff;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.scene-playground-demo-buttons button.active {
+  background: #0f060d;
+  color: #fff;
+  border-color: #0f060d;
+}
+
+.scene-playground-meta {
+  margin-top: auto;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #6e5c54;
+}
+
+.scene-playground-stage {
+  flex: 1;
+  height: 100vh;
+}
+
+.scene-playground-stage .scene3d-wrapper {
+  height: 100vh;
+}
+
+@media (max-width: 1024px) {
+  .scene-playground {
+    flex-direction: column;
+  }
+
+  .scene-playground-controls {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #e4ded6;
+  }
+
+  .scene-playground-stage {
+    padding: 16px;
+  }
+
+  .scene-playground-stage .scene3d-wrapper {
+    height: calc(100vh - 320px);
+  }
+}
+
+

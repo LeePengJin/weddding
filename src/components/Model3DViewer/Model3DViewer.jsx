@@ -1,34 +1,42 @@
-import React, { Suspense, useRef, useEffect, useState } from 'react';
+import React, { Suspense, useRef, useEffect, useState, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera, Environment, useGLTF } from '@react-three/drei';
-import { Box, Typography, CircularProgress } from '@mui/material';
+import { OrbitControls, PerspectiveCamera, useGLTF } from '@react-three/drei';
+import { Box, Typography } from '@mui/material';
 import * as THREE from 'three';
 
 // Model loader component
 function Model({ url, onError }) {
   const { scene, error } = useGLTF(url);
   const modelRef = useRef();
+  const clonedScene = useMemo(() => {
+    if (!scene) return null;
+    const copy = scene.clone(true);
+    copy.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.material = child.material.clone();
+      }
+    });
+    return copy;
+  }, [scene]);
 
   // Calculate bounding box to center and scale the model
   useEffect(() => {
-    if (scene) {
+    if (clonedScene) {
       try {
-        const box = new THREE.Box3().setFromObject(scene);
+        const box = new THREE.Box3().setFromObject(clonedScene);
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
         const scale = maxDim > 0 ? 2 / maxDim : 1; // Scale to fit in a 2-unit space
 
-        scene.position.x = -center.x * scale;
-        scene.position.y = -center.y * scale;
-        scene.position.z = -center.z * scale;
-        scene.scale.set(scale, scale, scale);
+        clonedScene.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+        clonedScene.scale.set(scale, scale, scale);
       } catch (err) {
         console.error('Error processing 3D model:', err);
         if (onError) onError(err.message);
       }
     }
-  }, [scene, onError]);
+  }, [clonedScene, onError]);
 
   useEffect(() => {
     if (error) {
@@ -37,14 +45,20 @@ function Model({ url, onError }) {
     }
   }, [error, onError]);
 
-  if (error) {
+  if (error || !clonedScene) {
     return null;
   }
 
-  return <primitive object={scene} ref={modelRef} />;
+  return <primitive object={clonedScene} ref={modelRef} />;
 }
 
-const Model3DViewer = ({ modelUrl, width = '100%', height = '400px' }) => {
+const Model3DViewer = ({
+  modelUrl,
+  width = '100%',
+  height = '400px',
+  borderless = false,
+  autoRotate = false,
+}) => {
   const [loadError, setLoadError] = useState(null);
 
   // Convert relative URL to full backend URL
@@ -71,8 +85,8 @@ const Model3DViewer = ({ modelUrl, width = '100%', height = '400px' }) => {
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: '#f5f5f5',
-          borderRadius: 2,
-          border: '1px solid #e0e0e0',
+          borderRadius: borderless ? 0 : 2,
+          border: borderless ? 'none' : '1px solid #e0e0e0',
         }}
       >
         <Typography variant="body2" color="text.secondary">
@@ -87,8 +101,8 @@ const Model3DViewer = ({ modelUrl, width = '100%', height = '400px' }) => {
       sx={{
         width,
         height,
-        borderRadius: 2,
-        border: '1px solid #e0e0e0',
+        borderRadius: borderless ? 0 : 2,
+        border: borderless ? 'none' : '1px solid #e0e0e0',
         overflow: 'hidden',
         backgroundColor: '#f5f5f5',
         position: 'relative',
@@ -125,36 +139,40 @@ const Model3DViewer = ({ modelUrl, width = '100%', height = '400px' }) => {
             }
           >
             <PerspectiveCamera makeDefault position={[0, 0, 2.5]} fov={50} />
-            <ambientLight intensity={0.5} />
-            <directionalLight position={[10, 10, 5]} intensity={1} />
-            <directionalLight position={[-10, -10, -5]} intensity={0.5} />
-            <Environment preset="city" />
+            <ambientLight intensity={0.9} />
+            <directionalLight position={[6, 8, 6]} intensity={1.1} />
+            <directionalLight position={[-4, -6, -4]} intensity={0.6} />
+            <directionalLight position={[0, 5, -6]} intensity={0.5} />
             <Model url={fullUrl} onError={setLoadError} />
             <OrbitControls
-              enablePan={true}
-              enableZoom={true}
-              enableRotate={true}
+              enablePan
+              enableZoom
+              enableRotate
+              autoRotate={autoRotate}
+              autoRotateSpeed={0.6}
               minDistance={1}
               maxDistance={8}
             />
           </Suspense>
         </Canvas>
       )}
-      <Box
-        sx={{
-          position: 'absolute',
-          bottom: 8,
-          left: 8,
-          backgroundColor: 'rgba(0, 0, 0, 0.6)',
-          color: 'white',
-          px: 1.5,
-          py: 0.5,
-          borderRadius: 1,
-          fontSize: '0.75rem',
-        }}
-      >
-        Drag to rotate • Scroll to zoom
-      </Box>
+      {!borderless && (
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 8,
+            left: 8,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            color: 'white',
+            px: 1.5,
+            py: 0.5,
+            borderRadius: 1,
+            fontSize: '0.75rem',
+          }}
+        >
+          Drag to rotate • Scroll to zoom
+        </Box>
+      )}
     </Box>
   );
 };

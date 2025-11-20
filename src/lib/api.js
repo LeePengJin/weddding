@@ -88,4 +88,12 @@ export function getVenueAvailability(projectId, serviceListingIds = []) {
   return apiFetch(`/venue-designs/${projectId}/availability?${params.toString()}`);
 }
 
+// Booking APIs
+export function createBooking(payload) {
+  return apiFetch('/bookings', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 

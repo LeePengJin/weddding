@@ -9,6 +9,7 @@ import BudgetManagement from './pages/BudgetManagement/BudgetManagement';
 import ChecklistPage from './pages/ChecklistPage/ChecklistPage';
 import Messages from './pages/Messages/Messages';
 import VenueDesigner from './pages/VenueDesigner/VenueDesigner';
+import ScenePlayground from './pages/VenueDesigner/ScenePlayground';
 import PaymentManagement from './pages/PaymentManagement/PaymentManagement';
 import VendorDashboard from './pages/VendorDashboard/VendorDashboard';
 import BookingRequests from './pages/BookingRequests/BookingRequests';
@@ -85,6 +86,7 @@ const AppContent = () => {
               <Route path="/messages" element={<RequireAuth><Messages /></RequireAuth>} />
               <Route path="/venue-designer" element={<RequireAuth><VenueDesigner /></RequireAuth>} />
               <Route path="/projects/:projectId/venue-designer" element={<RequireAuth><VenueDesigner /></RequireAuth>} />
+              <Route path="/venue-designer/playground" element={<RequireAuth><ScenePlayground /></RequireAuth>} />
               <Route path="/payments" element={<RequireAuth><PaymentManagement /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
             </Routes>

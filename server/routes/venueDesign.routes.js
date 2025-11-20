@@ -1121,10 +1121,10 @@ router.get('/:projectId/catalog', requireAuth, async (req, res, next) => {
       ];
     }
 
+    // Only filter by has3DModel if explicitly requested
+    // This allows showing all listings in the catalog, not just those with 3D models
     if (query.has3DModel !== undefined) {
       where.has3DModel = query.has3DModel;
-    } else {
-      where.has3DModel = true;
     }
 
     const page = query.page ?? 1;
