@@ -16,6 +16,7 @@ const venueRoutes = require('./routes/venue.routes');
 const designElementRoutes = require('./routes/designElement.routes');
 const taskRoutes = require('./routes/task.routes');
 const budgetRoutes = require('./routes/budget.routes');
+const conversationRoutes = require('./routes/conversation.routes');
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use('/venues', venueRoutes);
 app.use('/design-elements', designElementRoutes);
 app.use('/tasks', taskRoutes);
 app.use('/budgets', budgetRoutes);
+app.use('/conversations', conversationRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

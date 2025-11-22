@@ -1,11 +1,30 @@
-/* Messages Container */
+/* Messages Container - Override main padding */
 .messages-container {
   display: grid;
   grid-template-columns: 350px 1fr;
   gap: 0;
-  height: calc(100vh - 64px);
-  margin-top: 64px;
   background: white;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* Couple view - add top offset for navbar */
+.messages-container:not(.vendor-view) {
+  top: 64px;
+  height: calc(100vh - 64px);
+  padding-top: 0; /* Ensure no extra padding */
+}
+
+/* Vendor view - no navbar, so full height */
+.messages-container.vendor-view {
+  top: 0;
+  height: 100vh;
 }
 
 /* Conversations List */
@@ -19,6 +38,30 @@
 .conversations-header {
   padding: 1.5rem;
   border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  position: sticky;
+  top: 0;
+  background: white;
+  z-index: 10;
+}
+
+.mobile-back-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: #111827;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 8px;
+  transition: background-color 0.2s ease;
+}
+
+.mobile-back-btn:hover {
+  background-color: #f3f4f6;
 }
 
 .conversations-header h2 {
@@ -26,6 +69,7 @@
   font-size: 1.5rem;
   color: #111827;
   margin: 0;
+  flex: 1;
 }
 
 .conversations {
@@ -128,6 +172,14 @@
   padding: 1rem 2rem;
   border-bottom: 1px solid #e5e7eb;
   background: white;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Add top spacing for normal users (couples) who have navbar */
+.messages-container:not(.vendor-view) .chat-header {
+  padding-top: 1.5rem;
 }
 
 .chat-participant {
@@ -290,6 +342,54 @@ a.participant-name:hover {
   margin: 0;
 }
 
+/* Unread Badge */
+.conversation-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.unread-badge {
+  background: #E16789;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  min-width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Loading and Empty States */
+.loading-container,
+.no-conversations,
+.no-messages {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  padding: 2rem;
+  text-align: center;
+}
+
+.loading-container i,
+.no-conversations i,
+.no-messages i {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  color: #d1d5db;
+}
+
+.no-conversations .hint {
+  font-size: 0.85rem;
+  color: #9ca3af;
+  margin-top: 0.5rem;
+}
+
 /* Responsive Design */
 @media (max-width: 1024px) {
   .messages-container {
@@ -300,31 +400,121 @@ a.participant-name:hover {
 @media (max-width: 768px) {
   .messages-container {
     grid-template-columns: 1fr;
+    position: fixed;
+  }
+
+  .mobile-back-btn {
+    display: block;
   }
 
   .conversations-list {
-    display: none;
-  }
-
-  .conversations-list.active {
-    display: flex;
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 10;
+    z-index: 1000;
+    background: white;
   }
 
-  .chat-window {
+  .conversations-list.mobile-hidden {
     display: none;
   }
 
-  .chat-window.active {
+  .conversations-list.mobile-visible {
+    display: flex;
+  }
+
+  .chat-window {
+    width: 100%;
+    height: 100%;
+  }
+
+  .chat-window.mobile-hidden {
+    display: none;
+  }
+
+  .chat-window.mobile-visible {
     display: flex;
   }
 
   .message {
     max-width: 85%;
+  }
+
+  .conversations-header {
+    padding: 1rem;
+  }
+
+  .conversations-header h2 {
+    font-size: 1.25rem;
+  }
+
+  .chat-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .messages-list {
+    padding: 1rem;
+  }
+
+  .message-input {
+    padding: 1rem;
+  }
+
+  .message-input input {
+    font-size: 0.9rem;
+    padding: 0.65rem 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .conversation-item {
+    padding: 1rem;
+    gap: 0.75rem;
+  }
+
+  .conversation-avatar {
+    width: 40px;
+    height: 40px;
+  }
+
+  .conversation-header h3 {
+    font-size: 0.9rem;
+  }
+
+  .last-message {
+    font-size: 0.85rem;
+  }
+
+  .message {
+    max-width: 90%;
+  }
+
+  .message-content {
+    padding: 0.65rem 0.85rem;
+    font-size: 0.9rem;
+  }
+
+  .chat-header {
+    padding: 0.75rem;
+  }
+
+  .participant-name {
+    font-size: 1rem;
+  }
+
+  .messages-list {
+    padding: 0.75rem;
+    gap: 0.75rem;
+  }
+
+  .message-input {
+    padding: 0.75rem;
+  }
+
+  .message-input button {
+    width: 36px;
+    height: 36px;
   }
 } 

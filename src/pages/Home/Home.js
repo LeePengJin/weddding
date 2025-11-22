@@ -22,6 +22,7 @@ import {
   Apps as PlatformIcon,
 } from '@mui/icons-material';
 import TiltedCard from '../../components/TiltedCard/TiltedCard';
+import { PetalCursor } from '../../components/PetalCursor/PetalCursor';
 import './Home.styles.css';
 
 const HERO_IMAGE = '/images/home-hero-img.jpg';
@@ -112,6 +113,7 @@ const Home = () => {
 
   return (
     <Box className="homepage">
+      <PetalCursor />
       {/* Hero Section */}
       <Box
         className="hero"

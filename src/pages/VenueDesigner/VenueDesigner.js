@@ -11,6 +11,7 @@ import {
   saveVenueDesign,
   getVenueCatalog,
   getVenueAvailability,
+  apiFetch,
 } from '../../lib/api';
 import BudgetTracker from '../../components/BudgetTracker/BudgetTracker';
 import CatalogSidebar from '../../components/Catalog/CatalogSidebar';
@@ -376,8 +377,27 @@ const VenueDesigner = () => {
           selectedItem={selectedItemInfo}
           onCloseDetails={() => setSelectedItemInfo(null)}
           onShowItem3D={handleShow3D}
-          onMessageVendor={() => {
-            window.location.href = '/messages';
+          onMessageVendor={async (item) => {
+            try {
+              // Check for vendor.id (from catalog) or vendor.userId (direct)
+              const vendorId = item?.vendor?.id || item?.vendor?.userId;
+              if (!vendorId) {
+                console.error('Vendor data:', item?.vendor);
+                alert('Vendor information not available');
+                return;
+              }
+              console.log('Creating conversation with vendorId:', vendorId);
+              // Create or get conversation with vendor
+              const conversation = await apiFetch('/conversations', {
+                method: 'POST',
+                body: JSON.stringify({ vendorId: vendorId }),
+              });
+              // Navigate to messages with conversation ID
+              window.location.href = `/messages?conversationId=${conversation.id}`;
+            } catch (err) {
+              console.error('Failed to create conversation:', err);
+              alert(err.message || 'Failed to start conversation');
+            }
           }}
         />
 

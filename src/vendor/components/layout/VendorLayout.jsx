@@ -6,6 +6,7 @@ import {
   EventNote as EventNoteIcon,
   EventAvailable as EventAvailableIcon,
   List as ListIcon,
+  Message as MessageIcon,
   Logout as LogoutIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../context/AuthContext';
@@ -54,6 +55,12 @@ export default function VendorLayout({ children }) {
       path: '/vendor/design-elements',
       icon: 'design-elements',
       isSvg: true,
+    },
+    {
+      label: 'Messages',
+      path: '/messages',
+      icon: MessageIcon,
+      isSvg: false,
     },
   ];
 

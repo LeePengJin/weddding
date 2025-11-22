@@ -56,7 +56,7 @@ _Last updated: November 18, 2025_
 - [x] Add ray-casting for object selection in 3D space (pointer-based selection)
 - [x] Implement collision detection to prevent overlapping placements
 - [x] Add drag-and-drop functionality for placing items in 3D (TransformControls translate)
-- [ ] Implement move/rotate/scale controls for placed elements _(move + rotate done; scale pending)_
+- [x] Implement move/rotate/scale controls for placed elements
 - [x] Add camera controls (OrbitControls) for scene navigation
 - [x] Integrate lock/unlock functionality with 3D elements
 - [x] Add lighting setup for proper 3D model visibility
@@ -70,34 +70,6 @@ _Last updated: November 18, 2025_
 - Use `Raycaster` from Three.js for object picking
 - Store 3D positions in `Coordinates` table (x, y, z)
 - Camera position stored in `VenueDesign.cameraPositionId`
-
----
-
-## Floorplan to 3D Venue Builder (Vendor Feature)
-
-### Objectives
-- Allow vendors to create venue 3D models by drawing floorplans
-- Integrate blueprint3d library for 2D floorplan editing and 3D extrusion
-- Export generated 3D scene as GLB for use as venue base model
-- Store floorplan metadata (corners, walls, textures) for future editing
-
-### Implementation Checklist
-- [ ] Clone and audit blueprint3d source code
-- [ ] Document serialization schema (see `blueprint3d-serialization-schema.md`)
-- [ ] Create React wrapper component for blueprint3d editor
-- [ ] Add vendor route/page for floorplan editor (`/vendor/venues/:id/floorplan`)
-- [ ] Implement GLB export from blueprint3d's Three.js scene
-- [ ] Integrate with venue upload API to save GLB as `designElement.modelFile`
-- [ ] Store floorplan JSON metadata for re-editing capability
-- [ ] Modernize build toolchain (replace `grunt-typescript` with current tooling)
-
-### Technical Notes
-- **Library**: blueprint3d (furnishup/blueprint3d on GitHub)
-- **Serialization**: See `docs/blueprint3d-serialization-schema.md` for complete JSON format
-- **Export**: Use `THREE.GLTFExporter` on blueprint3d's internal Three.js scene to generate GLB
-- **Coordinate System**: 2D floorplan uses X/Y (Y becomes Z in 3D); establish scale factor (e.g., 1 unit = 1 meter)
-- **Dependencies**: Currently using `npm install --legacy-peer-deps` due to `grunt-typescript@0.8.0` requiring Grunt 0.4.x
-- **Build**: Run `npx grunt` to bundle TypeScript source into `dist/blueprint3d.js`
 
 ### Pre-existing Structures (Stages, Fixed Furniture, etc.)
 
@@ -129,3 +101,15 @@ _Last updated: November 18, 2025_
 **Recommendation**: Start with Option B (two-step process) for MVP, then consider Option C if vendors need pre-existing structures in the exported model.
 
 **Future Enhancement**: If blueprint3d supports furniture placement, we can add Option A as an advanced feature.
+
+### Task comes up to my mind
+- (Couple) Complete the payment part
+- (Couple) 3D venue design: When the user submit booking requests for a particular elements in the 3D venue design, it cannot be removed from the 3D venue design. Only can be removed if the booking is rejected.
+- (Couple) Complete the Booked Suppliers part
+- (Vendor) Manage booking requests
+- (Admin) Complete the wedding package things 
+- (Admin) Complete account management
+- (Admin) Complete vendor payment
+- Reporting functionality (Admin & Vendor)
+- Couple profile view (from vendor)
+- (General) Improve footer, add more pages (FaQ, About Us)

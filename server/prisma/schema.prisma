@@ -142,11 +142,13 @@ model SystemAdmin {
 
 // Two-party conversation between Users (couple or vendor accounts)
 model Conversation {
-  id        String   @id @default(uuid())
-  coupleId  String
-  vendorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String    @id @default(uuid())
+  coupleId        String
+  vendorId        String
+  coupleLastReadAt DateTime?
+  vendorLastReadAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   couple Couple @relation(fields: [coupleId], references: [userId], onDelete: Cascade)
   vendor Vendor @relation(fields: [vendorId], references: [userId], onDelete: Cascade)

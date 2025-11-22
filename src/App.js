@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import Navbar from './components/Navbar/Navbar';
+import { Header } from './components/Header/Header';
 import Home from './pages/Home/Home';
 import Projects from './pages/Projects/Projects';
 import CreateProject from './pages/CreateProject/CreateProject';
@@ -32,13 +32,19 @@ import VendorLayout from './vendor/components/layout/VendorLayout';
 import Profile from './pages/Profile/Profile';
 import VendorProfile from './pages/VendorProfile/VendorProfile';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { WebSocketProvider } from './context/WebSocketContext';
 
 const AppContent = () => {
   const location = useLocation();
+  const { user } = useAuth();
   const isVendorRoute = location.pathname.startsWith('/vendor') && !['/vendor/register', '/vendor/submitted'].includes(location.pathname);
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isVenueDesignerRoute =
     location.pathname === '/venue-designer' || location.pathname.includes('/venue-designer');
+  const isMessagesRoute = location.pathname === '/messages';
+  const isVendorUser = user?.role === 'vendor';
+  
+  // Hide navbar for vendors on messages page, or for normal hide conditions
   const hideNavbar =
     isVenueDesignerRoute ||
     location.pathname === '/login' ||
@@ -48,7 +54,8 @@ const AppContent = () => {
     location.pathname === '/forgot-password' ||
     location.pathname === '/otp' ||
     location.pathname === '/reset-password' ||
-    isAdminRoute;
+    isAdminRoute ||
+    (isMessagesRoute && isVendorUser); // Hide navbar for vendors on messages page
 
   return (
     <div className="App">
@@ -64,8 +71,8 @@ const AppContent = () => {
         </Routes>
       ) : (
         <>
-          {!hideNavbar && <Navbar />}
-          <main>
+          {!hideNavbar && <Header />}
+          <main style={isMessagesRoute ? { paddingTop: 0 } : {}}>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
@@ -100,9 +107,11 @@ const AppContent = () => {
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <AppContent />
-      </Router>
+      <WebSocketProvider>
+        <Router>
+          <AppContent />
+        </Router>
+      </WebSocketProvider>
     </AuthProvider>
   );
 }
