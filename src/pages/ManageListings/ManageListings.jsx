@@ -54,6 +54,8 @@ import {
 } from '../../utils/validation';
 import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
 import Model3DViewer from '../../components/Model3DViewer/Model3DViewer';
+import BlueprintEditor from '../../components/BlueprintEditor/BlueprintEditor';
+import ListingWizard from '../../components/ListingWizard/ListingWizard';
 import './ManageListings.css';
 
 const VENDOR_CATEGORIES = [
@@ -106,6 +108,9 @@ const ManageListings = () => {
   const [isStackable, setIsStackable] = useState(false);
   const [selectedDesignElementId, setSelectedDesignElementId] = useState(''); // For selecting existing design element (non-bundle)
   const [useExistingDesignElement, setUseExistingDesignElement] = useState(false); // Toggle: select existing vs upload new
+  const [model3DSource, setModel3DSource] = useState('upload'); // 'existing', 'upload', or 'floorplan'
+  const [floorplanEditorOpen, setFloorplanEditorOpen] = useState(false);
+  const [floorplanData, setFloorplanData] = useState(null);
   const [model3DFiles, setModel3DFiles] = useState([]); // For bundle services - multiple files
   const [model3DPreviews, setModel3DPreviews] = useState([]); // Preview info for multiple models
   const [component3DFiles, setComponent3DFiles] = useState({}); // Component ID -> File object
@@ -260,6 +265,8 @@ const ManageListings = () => {
         setModelDimensions({ width: '', height: '', depth: '' });
         setIsStackable(false);
       }
+      setModel3DSource(listing.designElementId ? 'existing' : 'upload');
+      setFloorplanData(null);
       setModel3DFiles([]);
       setModel3DPreviews([]);
       setModel3DFileMeta([]);
@@ -285,6 +292,8 @@ const ManageListings = () => {
       setModel3DPreview(null);
       setSelectedDesignElementId('');
       setUseExistingDesignElement(false);
+      setModel3DSource('upload');
+      setFloorplanData(null);
       setModel3DFiles([]);
       setModel3DPreviews([]);
       setModel3DFileMeta([]);
@@ -302,6 +311,49 @@ const ManageListings = () => {
     setSuccess('');
     setPage(1); // Reset to first page when opening modal
     setOpenModal(true);
+  };
+
+  const handleWizardComplete = (wizardData) => {
+    // Merge wizard data into formData
+    setFormData(prev => ({
+      ...prev,
+      category: wizardData.category,
+      customCategory: wizardData.customCategory || '',
+      availabilityType: wizardData.availabilityType,
+      maxQuantity: wizardData.maxQuantity || '',
+      name: wizardData.name,
+      description: wizardData.description || '',
+      price: wizardData.price,
+      pricingPolicy: wizardData.pricingPolicy,
+    }));
+    
+    // Update other state from wizard
+    if (wizardData.model3DSource) {
+      setModel3DSource(wizardData.model3DSource);
+      setUseExistingDesignElement(wizardData.useExistingDesignElement || false);
+      setSelectedDesignElementId(wizardData.selectedDesignElementId || '');
+    }
+    
+    if (wizardData.modelDimensions) {
+      setModelDimensions(wizardData.modelDimensions);
+    }
+    
+    if (wizardData.isStackable !== undefined) {
+      setIsStackable(wizardData.isStackable);
+    }
+    
+    // For venues, ensure components are empty
+    if (wizardData.category === 'Venue') {
+      setComponents([]);
+    } else if (wizardData.components) {
+      setComponents(wizardData.components);
+    }
+    
+    // Now call handleSave with the merged data
+    // We'll trigger save after a brief delay to ensure state is updated
+    setTimeout(() => {
+      handleSave();
+    }, 100);
   };
 
   const handleCloseModal = () => {
@@ -1013,6 +1065,33 @@ const ManageListings = () => {
     }
   };
 
+  // Floorplan editor handlers
+  const handleFloorplanExport = async (exportData) => {
+    try {
+      // Convert the GLB blob to a File object
+      const glbFile = new File(
+        [exportData.glbBlob],
+        exportData.glbFileName || 'venue-model.glb',
+        { type: 'model/gltf-binary' }
+      );
+
+      // Set as the model file
+      setModel3DFile(glbFile);
+      setModel3DPreview('venue-floorplan.glb');
+      setFloorplanData(exportData.floorplan);
+      setFloorplanEditorOpen(false);
+      setSuccess('Floorplan exported successfully! The 3D model will be saved when you save the listing.');
+    } catch (err) {
+      console.error('Error handling floorplan export:', err);
+      setError(err.message || 'Failed to export floorplan');
+    }
+  };
+
+  const handleFloorplanChange = (data) => {
+    // Data is now in plancraft format: { points: [], walls: [] }
+    setFloorplanData(data);
+  };
+
   // Component management handlers
   const createDefaultPhysicalProps = () => ({
     width: '',
@@ -1576,7 +1655,7 @@ const ManageListings = () => {
           </Box>
         </DialogTitle>
 
-        <DialogContent sx={{ pt: 3 }}>
+        <DialogContent sx={{ pt: 3, maxHeight: '80vh', overflowY: 'auto' }}>
           {/* Error/Success Messages in Modal */}
           {error && (
             <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
@@ -1584,12 +1663,69 @@ const ManageListings = () => {
             </Alert>
           )}
           {success && (
-            <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
+            <Alert severity="success" sx={{ mb: 2, mt: 2 }} onClose={() => setSuccess('')}>
               {success}
             </Alert>
           )}
 
-          <Stack spacing={3} sx={{ mt: 3 }}>
+          {/* Use wizard for new listings, old form for editing */}
+          {!editingListing ? (
+            <ListingWizard
+              initialData={editingListing}
+              onComplete={handleWizardComplete}
+              onCancel={handleCloseModal}
+              designElements={designElements}
+              onFloorplanEditorOpen={() => setFloorplanEditorOpen(true)}
+              floorplanData={floorplanData}
+              // Media props
+              onImageChange={handleImageChange}
+              onImageRemove={handleRemoveImage}
+              imagePreviews={imagePreviews}
+              on3DModelChange={handle3DModelChange}
+              on3DModelRemove={handleRemove3DModel}
+              model3DFile={model3DFile}
+              model3DPreview={model3DPreview}
+              onDesignElementSelect={setSelectedDesignElementId}
+              selectedDesignElementId={selectedDesignElementId}
+              useExistingDesignElement={useExistingDesignElement}
+              model3DSource={model3DSource}
+              onModel3DSourceChange={(value) => {
+                setModel3DSource(value);
+                if (value === 'existing') {
+                  setUseExistingDesignElement(true);
+                  setModel3DFile(null);
+                  setModel3DPreview(null);
+                  setFloorplanData(null);
+                } else if (value === 'upload') {
+                  setUseExistingDesignElement(false);
+                  setSelectedDesignElementId('');
+                  setFloorplanData(null);
+                } else if (value === 'floorplan') {
+                  setUseExistingDesignElement(false);
+                  setSelectedDesignElementId('');
+                  setModel3DFile(null);
+                  setModel3DPreview(null);
+                  setFloorplanEditorOpen(true);
+                }
+              }}
+              modelDimensions={modelDimensions}
+              onModelDimensionsChange={setModelDimensions}
+              isStackable={isStackable}
+              onStackableChange={setIsStackable}
+              // Bundle components (hidden for venues)
+              components={components}
+              onAddComponent={handleAddComponent}
+              onComponentChange={handleComponentChange}
+              onRemoveComponent={handleRemoveComponent}
+              component3DFiles={component3DFiles}
+              component3DPreviews={component3DPreviews}
+              onComponent3DChange={handleComponent3DModelChange}
+              onRemoveComponent3DModel={handleRemoveComponent3DModel}
+              componentPhysicalProps={componentPhysicalProps}
+              onComponentPhysicalPropsChange={updateComponentPhysicalProps}
+            />
+          ) : (
+            <Stack spacing={3} sx={{ mt: 3 }}>
             {/* Name */}
             <TextField
               fullWidth
@@ -2181,19 +2317,30 @@ const ManageListings = () => {
                     3D Model (Optional)
                   </Typography>
                   
-                  {/* Toggle between existing and new */}
+                  {/* Toggle between existing, upload, and floorplan (for venues) */}
                   <FormControl component="fieldset" sx={{ mb: 2, width: '100%' }}>
                     <RadioGroup
                       row
-                      value={useExistingDesignElement ? 'existing' : 'upload'}
+                      value={model3DSource}
                       onChange={(e) => {
-                        const value = e.target.value === 'existing';
-                        setUseExistingDesignElement(value);
-                        if (!value) {
-                          setSelectedDesignElementId('');
-                        } else {
+                        const value = e.target.value;
+                        setModel3DSource(value);
+                        
+                        if (value === 'existing') {
+                          setUseExistingDesignElement(true);
                           setModel3DFile(null);
                           setModel3DPreview(null);
+                          setFloorplanData(null);
+                        } else if (value === 'upload') {
+                          setUseExistingDesignElement(false);
+                          setSelectedDesignElementId('');
+                          setFloorplanData(null);
+                        } else if (value === 'floorplan') {
+                          setUseExistingDesignElement(false);
+                          setSelectedDesignElementId('');
+                          setModel3DFile(null);
+                          setModel3DPreview(null);
+                          setFloorplanEditorOpen(true);
                         }
                       }}
                     >
@@ -2207,6 +2354,13 @@ const ManageListings = () => {
                         control={<Radio size="small" />}
                         label="Upload new"
                       />
+                      {formData.category === 'Venue' && (
+                        <FormControlLabel
+                          value="floorplan"
+                          control={<Radio size="small" />}
+                          label="Draw Floorplan"
+                        />
+                      )}
                     </RadioGroup>
                   </FormControl>
 
@@ -2238,7 +2392,7 @@ const ManageListings = () => {
                         </Typography>
                       )}
                     </Box>
-                  ) : (
+                  ) : model3DSource === 'upload' ? (
                     // Upload new 3D model
                     <>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
@@ -2294,10 +2448,44 @@ const ManageListings = () => {
                         </Box>
                       )}
                     </>
+                  ) : (
+                    // Draw Floorplan option
+                    <>
+                      <Box
+                        sx={{
+                          p: 2,
+                          border: '1px solid #e0e0e0',
+                          borderRadius: 1,
+                          backgroundColor: '#f8f9fa',
+                          mb: 2,
+                        }}
+                      >
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          Draw your venue floorplan to generate a 3D model automatically.
+                        </Typography>
+                        <Button
+                          variant="outlined"
+                          onClick={() => setFloorplanEditorOpen(true)}
+                          sx={{
+                            textTransform: 'none',
+                            borderColor: '#e16789',
+                            color: '#e16789',
+                            '&:hover': { borderColor: '#d1537a', backgroundColor: 'rgba(225, 103, 137, 0.04)' },
+                          }}
+                        >
+                          {floorplanData ? 'Edit Floorplan' : 'Open Floorplan Editor'}
+                        </Button>
+                        {floorplanData && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                            ✓ Floorplan ready ({floorplanData.points?.length || 0} points, {floorplanData.walls?.length || 0} walls)
+                          </Typography>
+                        )}
+                      </Box>
+                    </>
                   )}
 
                   {/* Dimensions and Settings */}
-                  {((!useExistingDesignElement && model3DPreview) || (useExistingDesignElement && selectedDesignElementId)) && (
+                  {((!useExistingDesignElement && (model3DPreview || floorplanData)) || (useExistingDesignElement && selectedDesignElementId)) && (
                     <Box sx={{ mt: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f8f9fa' }}>
                       <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
                         3D Model Settings
@@ -2498,27 +2686,65 @@ const ManageListings = () => {
               </Typography>
             </Box>
           </Stack>
+          )}
         </DialogContent>
 
-        <DialogActions sx={{ p: 3, borderTop: '1px solid #e0e0e0', gap: 2 }}>
-          <Button onClick={handleCloseModal} sx={{ textTransform: 'none' }}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            variant="contained"
-            disabled={saving}
-            sx={{
-              backgroundColor: '#e16789',
-              color: '#ffffff',
-              textTransform: 'none',
-              px: 3,
-              '&:hover': { backgroundColor: '#d1537a' },
-            }}
-          >
-            {saving ? 'Saving...' : editingListing ? 'Update' : 'Create'}
-          </Button>
-        </DialogActions>
+        {/* DialogActions only shown when editing (wizard has its own buttons) */}
+        {editingListing && (
+          <DialogActions sx={{ p: 3, borderTop: '1px solid #e0e0e0', gap: 2 }}>
+            <Button onClick={handleCloseModal} sx={{ textTransform: 'none' }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              variant="contained"
+              disabled={saving}
+              sx={{
+                backgroundColor: '#e16789',
+                color: '#ffffff',
+                textTransform: 'none',
+                px: 3,
+                '&:hover': { backgroundColor: '#d1537a' },
+              }}
+            >
+              {saving ? 'Saving...' : editingListing ? 'Update' : 'Create'}
+            </Button>
+          </DialogActions>
+        )}
+      </Dialog>
+
+      {/* Floorplan Editor Modal */}
+      <Dialog
+        open={floorplanEditorOpen}
+        onClose={() => setFloorplanEditorOpen(false)}
+        maxWidth={false}
+        fullWidth
+        PaperProps={{
+          sx: {
+            width: '95vw',
+            height: '95vh',
+            maxWidth: '95vw',
+            maxHeight: '95vh',
+            m: 0,
+            borderRadius: 2,
+          },
+        }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+            Draw Venue Floorplan
+          </Typography>
+          <IconButton onClick={() => setFloorplanEditorOpen(false)} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, overflow: 'hidden', height: 'calc(95vh - 64px)' }}>
+          <BlueprintEditor
+            onExport={handleFloorplanExport}
+            onFloorplanChange={handleFloorplanChange}
+            initialFloorplan={floorplanData}
+          />
+        </DialogContent>
       </Dialog>
 
       {/* Delete Confirmation Dialog */}

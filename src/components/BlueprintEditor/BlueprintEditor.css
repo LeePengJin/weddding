@@ -1,0 +1,60 @@
+.blueprint-editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: #f5f6fa;
+}
+
+.blueprint-editor-toolbar {
+  padding: 16px;
+  background: white;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.blueprint-editor-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.blueprint-floorplanner {
+  width: 50%;
+  min-width: 400px;
+  background: white;
+  border-right: 1px solid #e0e0e0;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+#blueprint-floorplanner-canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  touch-action: none;
+}
+
+.blueprint-three-view {
+  flex: 1;
+  position: relative;
+  background: #cbd2de;
+}
+
+/* Override blueprint3d default styles if needed */
+#blueprint-floorplanner canvas {
+  display: block;
+}
+
+#blueprint-three-view canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+

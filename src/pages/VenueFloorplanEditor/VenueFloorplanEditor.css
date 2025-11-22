@@ -1,0 +1,21 @@
+.venue-floorplan-editor-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f5f6fa;
+}
+
+.venue-floorplan-editor-header {
+  padding: 16px 24px;
+  background: white;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  align-items: center;
+}
+
+.venue-floorplan-editor-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+

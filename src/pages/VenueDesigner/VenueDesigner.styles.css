@@ -84,18 +84,18 @@
 .toolbar-actions .primary-btn {
   background: linear-gradient(135deg, #16a085, #0f8a6b);
   color: #fff;
-  box-shadow: 0 15px 32px rgba(15, 138, 107, 0.3);
+  box-shadow: none;
 }
 
 @media (max-width: 1024px) {
   .venue-layout {
-    flex-direction: column;
+  flex-direction: column;
   }
 
   .canvas-column {
     padding: 1.5rem;
     order: 1;
-  }
+}
 
   .catalog-panel {
     order: 2;

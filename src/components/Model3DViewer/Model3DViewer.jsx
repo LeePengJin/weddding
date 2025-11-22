@@ -218,21 +218,21 @@ const Model3DViewer = ({
         </Canvas>
       )}
       {!borderless && (
-        <Box
-          sx={{
-            position: 'absolute',
-            bottom: 8,
-            left: 8,
-            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-            color: 'white',
-            px: 1.5,
-            py: 0.5,
-            borderRadius: 1,
-            fontSize: '0.75rem',
-          }}
-        >
-          Drag to rotate • Scroll to zoom
-        </Box>
+      <Box
+        sx={{
+          position: 'absolute',
+          bottom: 8,
+          left: 8,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          color: 'white',
+          px: 1.5,
+          py: 0.5,
+          borderRadius: 1,
+          fontSize: '0.75rem',
+        }}
+      >
+        Drag to rotate • Scroll to zoom
+      </Box>
       )}
     </Box>
   );

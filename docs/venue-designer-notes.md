@@ -70,3 +70,62 @@ _Last updated: November 18, 2025_
 - Use `Raycaster` from Three.js for object picking
 - Store 3D positions in `Coordinates` table (x, y, z)
 - Camera position stored in `VenueDesign.cameraPositionId`
+
+---
+
+## Floorplan to 3D Venue Builder (Vendor Feature)
+
+### Objectives
+- Allow vendors to create venue 3D models by drawing floorplans
+- Integrate blueprint3d library for 2D floorplan editing and 3D extrusion
+- Export generated 3D scene as GLB for use as venue base model
+- Store floorplan metadata (corners, walls, textures) for future editing
+
+### Implementation Checklist
+- [ ] Clone and audit blueprint3d source code
+- [ ] Document serialization schema (see `blueprint3d-serialization-schema.md`)
+- [ ] Create React wrapper component for blueprint3d editor
+- [ ] Add vendor route/page for floorplan editor (`/vendor/venues/:id/floorplan`)
+- [ ] Implement GLB export from blueprint3d's Three.js scene
+- [ ] Integrate with venue upload API to save GLB as `designElement.modelFile`
+- [ ] Store floorplan JSON metadata for re-editing capability
+- [ ] Modernize build toolchain (replace `grunt-typescript` with current tooling)
+
+### Technical Notes
+- **Library**: blueprint3d (furnishup/blueprint3d on GitHub)
+- **Serialization**: See `docs/blueprint3d-serialization-schema.md` for complete JSON format
+- **Export**: Use `THREE.GLTFExporter` on blueprint3d's internal Three.js scene to generate GLB
+- **Coordinate System**: 2D floorplan uses X/Y (Y becomes Z in 3D); establish scale factor (e.g., 1 unit = 1 meter)
+- **Dependencies**: Currently using `npm install --legacy-peer-deps` due to `grunt-typescript@0.8.0` requiring Grunt 0.4.x
+- **Build**: Run `npx grunt` to bundle TypeScript source into `dist/blueprint3d.js`
+
+### Pre-existing Structures (Stages, Fixed Furniture, etc.)
+
+**Question**: How should vendors represent pre-existing structures like stages, podiums, or fixed furniture that are already in the venue?
+
+**Current Approach**: The floorplan editor only allows drawing the space (walls, corners, rooms). Pre-existing structures are not currently supported.
+
+**Proposed Solutions**:
+
+1. **Option A: Add "Furniture/Items" Mode to BlueprintEditor**
+   - Extend blueprint3d to support placing 3D items (stages, podiums, etc.) on the floorplan
+   - These items would be part of the exported GLB model
+   - Pros: Everything in one model, accurate representation
+   - Cons: More complex implementation, requires extending blueprint3d
+
+2. **Option B: Two-Step Process**
+   - Step 1: Draw the floorplan (walls/space) → Export as base GLB
+   - Step 2: In the main venue designer, place pre-existing structures as separate 3D models
+   - Pros: Reuses existing 3D model placement system, simpler
+   - Cons: Pre-existing structures not in the exported GLB, less accurate
+
+3. **Option C: Hybrid Approach**
+   - Draw floorplan in BlueprintEditor
+   - After export, allow vendor to add "fixed elements" in a separate step
+   - Fixed elements are marked as non-movable and included in the final GLB
+   - Pros: Flexible, clear separation between space and furniture
+   - Cons: More steps for vendor
+
+**Recommendation**: Start with Option B (two-step process) for MVP, then consider Option C if vendors need pre-existing structures in the exported model.
+
+**Future Enhancement**: If blueprint3d supports furniture placement, we can add Option A as an advanced feature.

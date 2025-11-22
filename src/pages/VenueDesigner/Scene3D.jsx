@@ -4,12 +4,13 @@ import { ContactShadows, Environment, OrbitControls, useGLTF } from '@react-thre
 import * as THREE from 'three';
 import PlacedElement from './PlacedElement';
 import { useVenueDesigner } from './VenueDesignerContext';
+import { useWASDControls } from './useWASDControls';
 import './Scene3D.css';
 
 const DEFAULT_GRID = {
   size: 1,
-  visible: true,
-  snapToGrid: true,
+  visible: false, // Grid hidden by default
+  snapToGrid: false, // Snap off by default - allow free movement
 };
 
 const SceneGround = ({ size = 160 }) => (
@@ -82,6 +83,12 @@ const VenueModel = ({ modelUrl }) => {
   return <primitive object={venueScene} />;
 };
 
+// WASD Controls Component
+const WASDControls = () => {
+  useWASDControls();
+  return null;
+};
+
 const Scene3D = () => {
   const {
     placements = [],
@@ -111,6 +118,8 @@ const Scene3D = () => {
 
   const effectiveGrid = useMemo(() => {
     let result = gridSettings;
+    // Force grid to be hidden and snap to be off
+    result = { ...result, visible: false, snapToGrid: false };
     if (sceneOptions.forceGridVisible === false) {
       result = { ...result, visible: false };
     }
@@ -205,27 +214,7 @@ const Scene3D = () => {
   return (
     <div className="scene3d-wrapper">
       <div className="scene3d-toolbar">
-        {sceneOptions.allowGridControls !== false && (
-          <div className="scene3d-toolbar-group">
-            <span className="scene3d-toolbar-label">Grid</span>
-            <button
-              type="button"
-              className={`scene3d-toolbar-btn ${effectiveGrid.visible ? 'active' : ''}`}
-              onClick={handleToggleGrid}
-            >
-              {effectiveGrid.visible ? 'Hide Grid' : 'Show Grid'}
-            </button>
-            {sceneOptions.allowSnapToggle !== false && (
-              <button
-                type="button"
-                className={`scene3d-toolbar-btn ${effectiveGrid.snapToGrid ? 'active' : ''}`}
-                onClick={handleToggleSnap}
-              >
-                Snap {effectiveGrid.snapToGrid ? 'On' : 'Off'}
-              </button>
-            )}
-          </div>
-        )}
+        {/* Grid and snap controls removed - grid is hidden and snap is off by default */}
         {selectedPlacement && (
           <div className="scene3d-selection">
             <strong>{selectedPlacement.designElement?.name || 'Design Element'}</strong>
@@ -289,7 +278,7 @@ const Scene3D = () => {
               onOrbitToggle={setOrbitEnabled}
               onTransformCommit={handleTransformCommit}
               allPlacements={placements}
-              removable={Boolean(sceneOptions.allowRemoval)}
+              removable={true}
               onDelete={handleDeletePlacement}
               onToggleLock={handleTogglePlacementLock}
               onShowDetails={sceneOptions.onShowDetails}
@@ -299,6 +288,8 @@ const Scene3D = () => {
         </Suspense>
 
         <Environment preset="sunset" />
+
+        <WASDControls />
 
         <OrbitControls
           makeDefault

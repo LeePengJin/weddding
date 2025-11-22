@@ -31,13 +31,14 @@ const CATEGORIES = [
 
 const DEFAULT_GRID_SETTINGS = {
   size: 1,
-  visible: true,
-  snapToGrid: true,
+  visible: false, // Grid hidden by default
+  snapToGrid: false, // Snap off by default - allow free movement
 };
 
 const normalizeLayout = (layout = {}) => ({
   ...layout,
-  grid: { ...DEFAULT_GRID_SETTINGS, ...(layout?.grid || {}) },
+  // Force grid to be hidden and snap off, ignoring any saved layout data
+  grid: { ...DEFAULT_GRID_SETTINGS, visible: false, snapToGrid: false },
   sidebar: { collapsed: false, ...(layout?.sidebar || {}) },
 });
 
@@ -161,16 +162,23 @@ const VenueDesigner = () => {
 
   const saveLayoutData = useCallback(
     async (layoutData = {}) => {
-      if (!projectId) return;
+      if (!projectId) {
+        setErrorMessage('No project selected. Please select a wedding project first.');
+        return;
+      }
       setSavingState((prev) => ({ ...prev, loading: true }));
+      setErrorMessage(''); // Clear any previous errors
       try {
-        await saveVenueDesign(projectId, { layoutData });
+        const payload = { layoutData };
+        await saveVenueDesign(projectId, payload);
         setSavingState({
           loading: false,
           lastSaved: new Date().toISOString(),
         });
       } catch (err) {
-        setErrorMessage(err.message || 'Failed to save design layout');
+        console.error('Error saving design layout:', err);
+        const errorMessage = err.message || err.error || 'Failed to save design layout. Please try again.';
+        setErrorMessage(errorMessage);
         setSavingState((prev) => ({ ...prev, loading: false }));
       }
     },
@@ -330,13 +338,13 @@ const VenueDesigner = () => {
   }, [designLayout, projectId, saveLayoutData]);
 
   if (!projectId) {
-    return (
-      <div className="venue-designer">
+  return (
+    <div className="venue-designer">
         <div className="empty-state">
           <h3>Please select a wedding project first</h3>
           <p>Open the designer from a project card or use the route <code>/projects/PROJECT_ID/venue-designer</code>.</p>
-        </div>
-      </div>
+            </div>
+          </div>
     );
   }
 
@@ -387,23 +395,23 @@ const VenueDesigner = () => {
             />
             <div className="toolbar-actions">
               <button className="secondary-btn" onClick={handleManualSave}>
-                <i className="fas fa-save"></i>
+            <i className="fas fa-save"></i>
                 {savingState.loading ? 'Saving…' : 'Save design'}
-              </button>
+          </button>
               <button className="secondary-btn" onClick={() => setShowCheckout(true)}>
-                <i className="fas fa-list-alt"></i>
-                Summary
-              </button>
+            <i className="fas fa-list-alt"></i>
+            Summary
+          </button>
               <button className="primary-btn" onClick={() => setShowCheckout(true)}>
-                <i className="fas fa-shopping-cart"></i>
+            <i className="fas fa-shopping-cart"></i>
                 Proceed to checkout
-              </button>
-            </div>
-          </div>
-
-          <Scene3D />
+          </button>
         </div>
       </div>
+
+          <Scene3D />
+            </div>
+          </div>
 
       <DesignSummary
         open={showCheckout}
@@ -412,7 +420,7 @@ const VenueDesigner = () => {
           setShowCheckout(false);
           setShowCheckoutModal(true);
         }}
-      />
+                />
 
       <CheckoutModal
         open={showCheckoutModal}
@@ -503,7 +511,7 @@ const VenueDesigner = () => {
         onSuccess={() => {
           // Refresh design to reflect changes
           loadDesign();
-        }}
+                        }}
       />
 
       {threeDPreview && (
@@ -512,11 +520,11 @@ const VenueDesigner = () => {
           item={threeDPreview.item}
           modelSrc={threeDPreview.modelSrc}
           onClose={() => setThreeDPreview(null)}
-        />
-      )}
+          />
+        )}
       </div>
     </VenueDesignerProvider>
   );
 };
 
-export default VenueDesigner;
+export default VenueDesigner; 
