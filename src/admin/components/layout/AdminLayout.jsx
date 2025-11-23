@@ -5,6 +5,10 @@ import {
   Dashboard as DashboardIcon,
   VerifiedUser as VerifiedUserIcon,
   Logout as LogoutIcon,
+  Inventory as InventoryIcon,
+  People as PeopleIcon,
+  Payment as PaymentIcon,
+  Assessment as AssessmentIcon,
 } from '@mui/icons-material';
 import { apiFetch } from '../../../lib/api';
 import { useAuth } from '../../../context/AuthContext';
@@ -35,6 +39,26 @@ export default function AdminLayout({ children }) {
       label: 'Vendor Verification',
       path: '/admin/vendors',
       icon: VerifiedUserIcon,
+    },
+    {
+      label: 'Package Management',
+      path: '/admin/packages',
+      icon: InventoryIcon,
+    },
+    {
+      label: 'Account Management',
+      path: '/admin/accounts',
+      icon: PeopleIcon,
+    },
+    {
+      label: 'Vendor Payment',
+      path: '/admin/vendor-payment',
+      icon: PaymentIcon,
+    },
+    {
+      label: 'Report',
+      path: '/admin/reports',
+      icon: AssessmentIcon,
     },
   ];
 

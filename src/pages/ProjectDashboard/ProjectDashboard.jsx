@@ -23,6 +23,7 @@ import {
   Share as ShareIcon,
   Add as AddIcon,
   TrendingUp as TrendingUpIcon,
+  Assignment as AssignmentIcon,
 } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
 import VendorDetailsPopup from '../../components/VendorDetailsPopup/VendorDetailsPopup';
@@ -175,18 +176,26 @@ const ProjectDashboard = () => {
       description: 'Handle deposits and final payments seamlessly',
       progress: `RM${projectData.payments.totalPaid.toLocaleString()} paid`,
       color: '#e16789',
-      link: '/payments',
+      link: '/payment-center',
       stats: `RM${projectData.payments.totalOutstanding.toLocaleString()} outstanding`,
     },
     {
       icon: PeopleIcon,
       title: 'Booked Suppliers',
-      description: 'Add your booked suppliers',
+      description: 'View your confirmed vendors',
       progress: `${projectData.vendors.length} vendors`,
       color: '#e16789',
-      link: null,
-      onClick: () => setShowVendorDetails(true),
+      link: '/booked-suppliers',
       stats: `${projectData.vendors.filter(v => v.status === 'confirmed').length} confirmed`,
+    },
+    {
+      icon: AssignmentIcon,
+      title: 'My Bookings',
+      description: 'Track all your booking requests and their status',
+      progress: `${projectData.vendors.length} bookings`,
+      color: '#e16789',
+      link: '/my-bookings',
+      stats: 'View all bookings',
     },
   ];
 

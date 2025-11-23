@@ -5,6 +5,7 @@ const { z } = require('zod');
 const { PrismaClient } = require('@prisma/client');
 const { requireAdmin } = require('../middleware/auth');
 const { approveVendor, rejectVendor } = require('../services/vendor.service');
+const { sendEmail } = require('../utils/mailer');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -103,6 +104,420 @@ router.post('/vendors/:userId/reject', requireAdmin, async (req, res, next) => {
     if (err.message === 'Vendor not found' || err.message === 'Vendor is not pending verification') {
       return res.status(400).json({ error: err.message });
     }
+    next(err);
+  }
+});
+
+// Get accounts (couples or vendors)
+router.get('/accounts', requireAdmin, async (req, res, next) => {
+  try {
+    const { role, status } = req.query;
+    const where = {};
+    
+    if (role === 'couple') {
+      where.role = 'couple';
+    } else if (role === 'vendor') {
+      where.role = 'vendor';
+    }
+    
+    if (status) {
+      where.status = status;
+    }
+
+    const users = await prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        status: true,
+        blockReason: true,
+        blockedAt: true,
+        contactNumber: true,
+        createdAt: true,
+        couple: {
+          select: {
+            createdAt: true,
+          },
+        },
+        vendor: {
+          select: {
+            category: true,
+            location: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(users);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get account details
+router.get('/accounts/:userId', requireAdmin, async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        status: true,
+        blockReason: true,
+        blockedAt: true,
+        contactNumber: true,
+        createdAt: true,
+        updatedAt: true,
+        couple: {
+          select: {
+            createdAt: true,
+          },
+        },
+        vendor: {
+          select: {
+            category: true,
+            location: true,
+            description: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    res.json(user);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Block account
+router.post('/accounts/:userId/block', requireAdmin, async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const schema = z.object({
+      reason: z.string().min(1, 'Reason is required').max(1000, 'Reason must be less than 1000 characters'),
+    });
+    const { reason } = schema.parse(req.body || {});
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    if (user.status === 'blocked') {
+      return res.status(400).json({ error: 'Account is already blocked' });
+    }
+
+    // Update user status to blocked
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        status: 'blocked',
+        blockReason: reason,
+        blockedAt: new Date(),
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+        blockReason: true,
+        blockedAt: true,
+      },
+    });
+
+    // Send email notification
+    const emailSubject = 'Account Blocked - Weddding Platform';
+    const emailBody = `Dear ${user.name || 'User'},
+
+Your account on the Weddding platform has been blocked by an administrator.
+
+Reason: ${reason}
+
+If you believe this is an error, please contact our support team for assistance.
+
+Best regards,
+Weddding Platform Team`;
+
+    await sendEmail(user.email, emailSubject, emailBody);
+
+    res.json({ ok: true, user: updatedUser });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input', issues: err.issues });
+    }
+    next(err);
+  }
+});
+
+// Unblock account
+router.post('/accounts/:userId/unblock', requireAdmin, async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    if (user.status !== 'blocked') {
+      return res.status(400).json({ error: 'Account is not blocked' });
+    }
+
+    // Update user status to active and clear block reason
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        status: 'active',
+        blockReason: null,
+        blockedAt: null,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+        blockReason: true,
+        blockedAt: true,
+      },
+    });
+
+    // Send email notification
+    const emailSubject = 'Account Unblocked - Weddding Platform';
+    const emailBody = `Dear ${user.name || 'User'},
+
+Your account on the Weddding platform has been unblocked. You can now log in to your account again.
+
+If you have any questions, please contact our support team.
+
+Best regards,
+Weddding Platform Team`;
+
+    await sendEmail(user.email, emailSubject, emailBody);
+
+    res.json({ ok: true, user: updatedUser });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get all vendor payments (for admin to manage)
+router.get('/vendor-payments', requireAdmin, async (req, res, next) => {
+  try {
+    const { status } = req.query; // 'pending' (not released) or 'released'
+    
+    const where = {};
+    if (status === 'pending') {
+      where.releasedToVendor = false;
+    } else if (status === 'released') {
+      where.releasedToVendor = true;
+    }
+
+    const payments = await prisma.payment.findMany({
+      where,
+      include: {
+        booking: {
+          include: {
+            vendor: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+            couple: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+            selectedServices: {
+              include: {
+                serviceListing: {
+                  select: {
+                    id: true,
+                    name: true,
+                    category: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { paymentDate: 'desc' },
+    });
+
+    // Transform the data for frontend
+    const transformedPayments = payments.map((payment) => ({
+      id: payment.id,
+      bookingId: payment.bookingId,
+      paymentType: payment.paymentType,
+      amount: payment.amount.toString(),
+      paymentMethod: payment.paymentMethod,
+      paymentDate: payment.paymentDate,
+      receipt: payment.receipt,
+      releasedToVendor: payment.releasedToVendor,
+      releasedAt: payment.releasedAt,
+      releasedBy: payment.releasedBy,
+      vendor: {
+        id: payment.booking.vendor.userId,
+        name: payment.booking.vendor.user.name,
+        email: payment.booking.vendor.user.email,
+        category: payment.booking.vendor.category,
+      },
+      couple: {
+        id: payment.booking.couple.userId,
+        name: payment.booking.couple.user.name,
+        email: payment.booking.couple.user.email,
+      },
+      booking: {
+        id: payment.booking.id,
+        reservedDate: payment.booking.reservedDate,
+        status: payment.booking.status,
+        selectedServices: payment.booking.selectedServices.map((ss) => ({
+          id: ss.id,
+          serviceName: ss.serviceListing.name,
+          category: ss.serviceListing.category,
+          quantity: ss.quantity,
+          totalPrice: ss.totalPrice.toString(),
+        })),
+      },
+    }));
+
+    res.json(transformedPayments);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Release payment to vendor
+router.post('/vendor-payments/:paymentId/release', requireAdmin, async (req, res, next) => {
+  try {
+    const { paymentId } = req.params;
+    const adminId = req.admin.id;
+
+    const payment = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        booking: {
+          include: {
+            vendor: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!payment) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+
+    if (payment.releasedToVendor) {
+      return res.status(400).json({ error: 'Payment has already been released to vendor' });
+    }
+
+    // Update payment to released
+    const updatedPayment = await prisma.payment.update({
+      where: { id: paymentId },
+      data: {
+        releasedToVendor: true,
+        releasedAt: new Date(),
+        releasedBy: adminId,
+      },
+      include: {
+        booking: {
+          include: {
+            vendor: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Send email notification to vendor
+    const emailSubject = 'Payment Released - Weddding Platform';
+    const emailBody = `Dear ${payment.booking.vendor.user.name || 'Vendor'},
+
+A payment of RM ${payment.amount.toString()} has been released to your account.
+
+Payment Details:
+- Payment ID: ${payment.id}
+- Payment Type: ${payment.paymentType === 'deposit' ? 'Deposit' : 'Final Payment'}
+- Amount: RM ${payment.amount.toString()}
+- Payment Date: ${new Date(payment.paymentDate).toLocaleDateString()}
+- Released Date: ${new Date().toLocaleDateString()}
+
+Thank you for your service.
+
+Best regards,
+Weddding Platform Team`;
+
+    await sendEmail(payment.booking.vendor.user.email, emailSubject, emailBody);
+
+    res.json({ ok: true, payment: updatedPayment });
+  } catch (err) {
     next(err);
   }
 });

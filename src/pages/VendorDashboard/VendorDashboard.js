@@ -1,6 +1,7 @@
-import React from 'react';
-import { Box, Typography, Button } from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { Box, Typography, Button, Chip, Paper } from '@mui/material';
 import { Link } from 'react-router-dom';
+import { apiFetch } from '../../lib/api';
 import './VendorDashboard.styles.css';
 
 // Asset URLs from Figma
@@ -9,6 +10,46 @@ const imgFrame5 = 'https://www.figma.com/api/mcp/asset/12223afe-ab7b-498b-977c-a
 const imgFrame6 = 'https://www.figma.com/api/mcp/asset/82678cec-5f26-4886-8686-a66b3d87d17c';
 
 const VendorDashboard = () => {
+  const [payments, setPayments] = useState([]);
+  const [loadingPayments, setLoadingPayments] = useState(true);
+
+  useEffect(() => {
+    fetchPayments();
+  }, []);
+
+  const fetchPayments = async () => {
+    try {
+      setLoadingPayments(true);
+      const data = await apiFetch('/bookings/vendor/payments');
+      setPayments(data || []);
+    } catch (err) {
+      console.error('Failed to fetch payments:', err);
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
+
+  const formatCurrency = (amount) => {
+    return parseFloat(amount || 0).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const pendingPayments = payments.filter((p) => !p.releasedToVendor);
+  const releasedPayments = payments.filter((p) => p.releasedToVendor);
+  const totalPending = pendingPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+  const totalReleased = releasedPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+
   const stats = [
     {
       label: 'New Bookings',
@@ -52,11 +93,13 @@ const VendorDashboard = () => {
       description: '5 stars for DJ Services',
       time: '18h ago',
     },
-    {
-      title: 'Payment received',
-      description: 'RM 1,200 from Wedding #1024',
-      time: 'yesterday',
-    },
+    ...(payments.slice(0, 1).map((payment) => ({
+      title: payment.releasedToVendor ? 'Payment released' : 'Payment pending',
+      description: `RM ${formatCurrency(payment.amount)} from ${payment.couple?.name || 'Couple'}`,
+      time: payment.releasedAt 
+        ? formatDate(payment.releasedAt) 
+        : formatDate(payment.paymentDate),
+    }))),
   ];
 
   const topListings = [
@@ -141,6 +184,51 @@ const VendorDashboard = () => {
                   </Box>
                 </Box>
               ))}
+            </Box>
+          </Box>
+
+          {/* Payment Status */}
+          <Box className="vendor-actions-card" sx={{ mb: 2 }}>
+            <Typography className="vendor-section-title">Payment Status</Typography>
+            <Box sx={{ mt: 2 }}>
+              <Box sx={{ mb: 2, p: 2, bgcolor: '#fff3cd', borderRadius: 1, border: '1px solid #ffc107' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#856404' }}>
+                    Pending Release
+                  </Typography>
+                  <Chip 
+                    label={pendingPayments.length} 
+                    size="small" 
+                    color="warning"
+                    sx={{ fontWeight: 600 }}
+                  />
+                </Box>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#856404' }}>
+                  RM {formatCurrency(totalPending)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Awaiting admin release
+                </Typography>
+              </Box>
+              <Box sx={{ p: 2, bgcolor: '#d1e7dd', borderRadius: 1, border: '1px solid #198754' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#0f5132' }}>
+                    Released
+                  </Typography>
+                  <Chip 
+                    label={releasedPayments.length} 
+                    size="small" 
+                    color="success"
+                    sx={{ fontWeight: 600 }}
+                  />
+                </Box>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#0f5132' }}>
+                  RM {formatCurrency(totalReleased)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Payments released to you
+                </Typography>
+              </Box>
             </Box>
           </Box>
 

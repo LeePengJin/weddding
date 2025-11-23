@@ -23,8 +23,19 @@ import {
   FormControl,
   InputLabel,
   TextField,
+  IconButton,
+  Card,
+  CardContent,
+  Grid,
+  Snackbar,
+  Tabs,
+  Tab,
+  TableSortLabel,
+  TablePagination,
 } from '@mui/material';
+import { Close } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
+import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
 import './BookingRequests.styles.css';
 
 const BookingRequests = () => {
@@ -36,6 +47,15 @@ const BookingRequests = () => {
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [confirmationDialog, setConfirmationDialog] = useState({
+    open: false,
+    type: null, // 'accept' or 'reject'
+    booking: null,
+  });
+  const [sortBy, setSortBy] = useState('bookingDate');
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   useEffect(() => {
     fetchBookings();
@@ -91,14 +111,35 @@ const BookingRequests = () => {
   };
 
   const handleAccept = (booking) => {
-    // When accepting, transition to pending_deposit_payment
-    handleStatusUpdate(booking.id, 'pending_deposit_payment');
+    setConfirmationDialog({
+      open: true,
+      type: 'accept',
+      booking: booking,
+    });
   };
 
   const handleReject = (booking) => {
-    if (window.confirm(`Are you sure you want to reject this booking request from ${booking.couple.user.name}?`)) {
-      handleStatusUpdate(booking.id, 'rejected');
+    setConfirmationDialog({
+      open: true,
+      type: 'reject',
+      booking: booking,
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmationDialog.booking) return;
+
+    if (confirmationDialog.type === 'accept') {
+      handleStatusUpdate(confirmationDialog.booking.id, 'pending_deposit_payment');
+    } else if (confirmationDialog.type === 'reject') {
+      handleStatusUpdate(confirmationDialog.booking.id, 'rejected');
     }
+
+    setConfirmationDialog({ open: false, type: null, booking: null });
+  };
+
+  const handleCloseConfirmation = () => {
+    setConfirmationDialog({ open: false, type: null, booking: null });
   };
 
   const getStatusColor = (status) => {
@@ -153,6 +194,73 @@ const BookingRequests = () => {
     }, 0);
   };
 
+  // Sort bookings
+  const sortedBookings = [...bookings].sort((a, b) => {
+    let aValue, bValue;
+    
+    switch (sortBy) {
+      case 'couple':
+        aValue = a.couple.user.name || '';
+        bValue = b.couple.user.name || '';
+        break;
+      case 'reservedDate':
+        aValue = new Date(a.reservedDate).getTime();
+        bValue = new Date(b.reservedDate).getTime();
+        break;
+      case 'totalAmount':
+        aValue = calculateTotal(a);
+        bValue = calculateTotal(b);
+        break;
+      case 'status':
+        aValue = a.status;
+        bValue = b.status;
+        break;
+      case 'bookingDate':
+      default:
+        aValue = new Date(a.bookingDate).getTime();
+        bValue = new Date(b.bookingDate).getTime();
+        break;
+    }
+
+    if (typeof aValue === 'string') {
+      return sortOrder === 'asc' 
+        ? aValue.localeCompare(bValue)
+        : bValue.localeCompare(aValue);
+    } else {
+      return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+    }
+  });
+
+  // Paginate bookings
+  const paginatedBookings = sortedBookings.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
+
+  const handleSort = (column) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortOrder('asc');
+    }
+    setPage(0); // Reset to first page when sorting changes
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleTabChange = (event, newValue) => {
+    setStatusFilter(newValue);
+    setPage(0); // Reset to first page when filter changes
+  };
+
   if (loading && bookings.length === 0) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -163,40 +271,45 @@ const BookingRequests = () => {
 
   return (
     <Box className="booking-requests">
-      <Box className="page-header">
-        <Typography variant="h4" component="h1">
+      <Box className="page-header" sx={{ mb: 3 }}>
+        <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
           Booking Requests
         </Typography>
-        <FormControl sx={{ minWidth: 200 }}>
-          <InputLabel>Filter by Status</InputLabel>
-          <Select
+        <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+          <Tabs
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            label="Filter by Status"
+            onChange={handleTabChange}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              '& .MuiTab-root': {
+                textTransform: 'none',
+                fontWeight: 500,
+                minHeight: 48,
+                color: 'text.secondary',
+                '&.Mui-selected': {
+                  color: 'primary.main',
+                  fontWeight: 600,
+                },
+              },
+              '& .MuiTabs-indicator': {
+                height: 3,
+                borderRadius: '3px 3px 0 0',
+              },
+            }}
           >
-            <MenuItem value="all">All Bookings</MenuItem>
-            <MenuItem value="pending_vendor_confirmation">Pending Confirmation</MenuItem>
-            <MenuItem value="pending_deposit_payment">Pending Deposit</MenuItem>
-            <MenuItem value="confirmed">Confirmed</MenuItem>
-            <MenuItem value="pending_final_payment">Pending Final Payment</MenuItem>
-            <MenuItem value="completed">Completed</MenuItem>
-            <MenuItem value="cancelled">Cancelled</MenuItem>
-            <MenuItem value="rejected">Rejected</MenuItem>
-          </Select>
-        </FormControl>
+            <Tab label="All Bookings" value="all" />
+            <Tab label="Pending Confirmation" value="pending_vendor_confirmation" />
+            <Tab label="Pending Deposit" value="pending_deposit_payment" />
+            <Tab label="Confirmed" value="confirmed" />
+            <Tab label="Pending Final Payment" value="pending_final_payment" />
+            <Tab label="Completed" value="completed" />
+            <Tab label="Cancelled" value="cancelled" />
+            <Tab label="Rejected" value="rejected" />
+          </Tabs>
+        </Paper>
       </Box>
 
-      {error && (
-        <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-
-      {success && (
-        <Alert severity="success" onClose={() => setSuccess(null)} sx={{ mb: 2 }}>
-          {success}
-        </Alert>
-      )}
 
       {bookings.length === 0 ? (
         <Paper elevation={2} sx={{ p: 4, textAlign: 'center', mt: 2 }}>
@@ -205,150 +318,144 @@ const BookingRequests = () => {
           </Typography>
         </Paper>
       ) : (
-        <Box className="requests-list" sx={{ mt: 2 }}>
-          {bookings.map((booking) => (
-            <Paper key={booking.id} elevation={2} sx={{ p: 3, mb: 2 }}>
-              <Box className="request-header" sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                <Box>
-                  <Typography variant="h6" component="h3">
-                    {booking.couple.user.name || 'Unknown Couple'}
-                  </Typography>
-                  {booking.project && (
-                    <Typography variant="body2" color="text.secondary">
-                      Project: {booking.project.projectName}
-                    </Typography>
-                  )}
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                  <Chip
-                    label={getStatusLabel(booking.status)}
-                    color={getStatusColor(booking.status)}
-                    size="small"
-                  />
-                  <Typography variant="caption" color="text.secondary">
-                    Booking ID: {booking.id.substring(0, 8)}...
-                  </Typography>
-                </Box>
-              </Box>
-
-              <Box sx={{ display: 'flex', gap: 4, mb: 2, flexWrap: 'wrap' }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
+        <TableContainer component={Paper} sx={{ mt: 2 }}>
+          <Table>
+            <TableHead>
+              <TableRow sx={{ bgcolor: 'background.default' }}>
+                <TableCell sx={{ fontWeight: 600 }}>
+                  <TableSortLabel
+                    active={sortBy === 'couple'}
+                    direction={sortBy === 'couple' ? sortOrder : 'asc'}
+                    onClick={() => handleSort('couple')}
+                  >
+                    Couple / Project
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>
+                  <TableSortLabel
+                    active={sortBy === 'reservedDate'}
+                    direction={sortBy === 'reservedDate' ? sortOrder : 'asc'}
+                    onClick={() => handleSort('reservedDate')}
+                  >
                     Reserved Date
-                  </Typography>
-                  <Typography variant="body2" fontWeight="medium">
-                    {formatDate(booking.reservedDate)}
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Booking Date
-                  </Typography>
-                  <Typography variant="body2" fontWeight="medium">
-                    {formatDate(booking.bookingDate)}
-                  </Typography>
-                </Box>
-                {booking.depositDueDate && (
-                  <Box>
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Services</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 600 }}>
+                  <TableSortLabel
+                    active={sortBy === 'totalAmount'}
+                    direction={sortBy === 'totalAmount' ? sortOrder : 'asc'}
+                    onClick={() => handleSort('totalAmount')}
+                  >
+                    Total Amount
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>
+                  <TableSortLabel
+                    active={sortBy === 'status'}
+                    direction={sortBy === 'status' ? sortOrder : 'asc'}
+                    onClick={() => handleSort('status')}
+                  >
+                    Status
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600 }}>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paginatedBookings.map((booking) => (
+                <TableRow key={booking.id} hover>
+                  <TableCell>
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        {booking.couple.user.name || 'Unknown Couple'}
+                      </Typography>
+                      {booking.project && (
+                        <Typography variant="caption" color="text.secondary">
+                          {booking.project.projectName}
+                        </Typography>
+                      )}
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontFamily: 'monospace', mt: 0.5 }}>
+                        ID: {booking.id.substring(0, 8)}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {formatDate(booking.reservedDate)}
+                    </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Deposit Due
+                      Booked: {formatDate(booking.bookingDate)}
                     </Typography>
-                    <Typography variant="body2" fontWeight="medium">
-                      {formatDate(booking.depositDueDate)}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {booking.selectedServices.length} service{booking.selectedServices.length !== 1 ? 's' : ''}
                     </Typography>
-                  </Box>
-                )}
-                {booking.finalDueDate && (
-                  <Box>
                     <Typography variant="caption" color="text.secondary">
-                      Final Payment Due
+                      {booking.selectedServices.slice(0, 2).map(s => s.serviceListing.name).join(', ')}
+                      {booking.selectedServices.length > 2 && '...'}
                     </Typography>
-                    <Typography variant="body2" fontWeight="medium">
-                      {formatDate(booking.finalDueDate)}
+                  </TableCell>
+                  <TableCell align="right">
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      RM {calculateTotal(booking).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Typography>
-                  </Box>
-                )}
-              </Box>
-
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Services ({booking.selectedServices.length})
-                </Typography>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Service</TableCell>
-                        <TableCell align="right">Quantity</TableCell>
-                        <TableCell align="right">Unit Price</TableCell>
-                        <TableCell align="right">Total</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {booking.selectedServices.map((service, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{service.serviceListing.name}</TableCell>
-                          <TableCell align="right">{service.quantity}</TableCell>
-                          <TableCell align="right">
-                            RM {parseFloat(service.serviceListing.price).toLocaleString()}
-                          </TableCell>
-                          <TableCell align="right">
-                            RM {parseFloat(service.totalPrice).toLocaleString()}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                    <TableFooter>
-                      <TableRow>
-                        <TableCell colSpan={3} align="right" sx={{ fontWeight: 'bold' }}>
-                          Total Amount
-                        </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 'bold' }}>
-                          RM {calculateTotal(booking).toLocaleString()}
-                        </TableCell>
-                      </TableRow>
-                    </TableFooter>
-                  </Table>
-                </TableContainer>
-              </Box>
-
-              {booking.status === 'pending_vendor_confirmation' && (
-                <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
-                  <Button
-                    variant="contained"
-                    color="success"
-                    onClick={() => handleAccept(booking)}
-                    disabled={updatingStatus}
-                  >
-                    Accept Request
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    onClick={() => handleReject(booking)}
-                    disabled={updatingStatus}
-                  >
-                    Reject Request
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    onClick={() => handleViewDetails(booking)}
-                  >
-                    View Details
-                  </Button>
-                </Box>
-              )}
-
-              {booking.status !== 'pending_vendor_confirmation' && (
-                <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
-                  <Button variant="outlined" onClick={() => handleViewDetails(booking)}>
-                    View Details
-                  </Button>
-                </Box>
-              )}
-            </Paper>
-          ))}
-        </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={getStatusLabel(booking.status)}
+                      color={getStatusColor(booking.status)}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell align="center">
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      {booking.status === 'pending_vendor_confirmation' && (
+                        <>
+                          <Button
+                            variant="contained"
+                            color="success"
+                            size="small"
+                            onClick={() => handleAccept(booking)}
+                            disabled={updatingStatus}
+                          >
+                            Accept
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            color="error"
+                            size="small"
+                            onClick={() => handleReject(booking)}
+                            disabled={updatingStatus}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      )}
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => handleViewDetails(booking)}
+                      >
+                        Details
+                      </Button>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <TablePagination
+            component="div"
+            count={sortedBookings.length}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[5, 10, 25, 50]}
+          />
+        </TableContainer>
       )}
 
       {/* Booking Detail Dialog */}
@@ -360,8 +467,22 @@ const BookingRequests = () => {
       >
         {selectedBooking && (
           <>
-            <DialogTitle>
-              Booking Details - {selectedBooking.couple.user.name}
+            <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6" component="div">
+                Booking Details - {selectedBooking.couple.user.name}
+              </Typography>
+              <IconButton
+                aria-label="close"
+                onClick={() => setShowDetailDialog(false)}
+                sx={{
+                  position: 'absolute',
+                  right: 8,
+                  top: 8,
+                  color: (theme) => theme.palette.grey[500],
+                }}
+              >
+                <Close />
+              </IconButton>
             </DialogTitle>
             <DialogContent>
               <Box sx={{ pt: 2 }}>
@@ -536,6 +657,51 @@ const BookingRequests = () => {
           </>
         )}
       </Dialog>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        open={confirmationDialog.open}
+        onClose={handleCloseConfirmation}
+        onConfirm={handleConfirmAction}
+        title={
+          confirmationDialog.type === 'accept'
+            ? 'Accept Booking Request?'
+            : 'Reject Booking Request?'
+        }
+        description={
+          confirmationDialog.booking
+            ? confirmationDialog.type === 'accept'
+              ? `Are you sure you want to accept the booking request from ${confirmationDialog.booking.couple.user.name}? This will move the booking to pending deposit payment status.`
+              : `Are you sure you want to reject the booking request from ${confirmationDialog.booking.couple.user.name}? This action cannot be undone.`
+            : ''
+        }
+        confirmText={confirmationDialog.type === 'accept' ? 'Accept' : 'Reject'}
+        cancelText="Cancel"
+      />
+
+      {/* Success Notification */}
+      <Snackbar
+        open={!!success}
+        autoHideDuration={4000}
+        onClose={() => setSuccess(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert onClose={() => setSuccess(null)} severity="success" sx={{ width: '100%' }}>
+          {success}
+        </Alert>
+      </Snackbar>
+
+      {/* Error Notification */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert onClose={() => setError(null)} severity="error" sx={{ width: '100%' }}>
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

@@ -103,13 +103,13 @@ _Last updated: November 18, 2025_
 **Future Enhancement**: If blueprint3d supports furniture placement, we can add Option A as an advanced feature.
 
 ### Task comes up to my mind
-- (Couple) Complete the payment part
-- (Couple) 3D venue design: When the user submit booking requests for a particular elements in the 3D venue design, it cannot be removed from the 3D venue design. Only can be removed if the booking is rejected.
-- (Couple) Complete the Booked Suppliers part
-- (Vendor) Manage booking requests
-- (Admin) Complete the wedding package things 
-- (Admin) Complete account management
-- (Admin) Complete vendor payment
-- Reporting functionality (Admin & Vendor)
-- Couple profile view (from vendor)
-- (General) Improve footer, add more pages (FaQ, About Us)
+- [x] (Couple) Complete the payment part
+- [ ] (Couple) 3D venue design: When the user submit booking requests for a particular elements in the 3D venue design, it cannot be removed from the 3D venue design. Only can be removed if the booking is rejected.
+- [x] (Couple) Complete the Booked Suppliers part
+- [x] (Vendor) Manage booking requests
+- [ ] (Admin) Complete the wedding package things 
+- [ ] (Admin) Complete account management
+- [ ] (Admin) Complete vendor payment
+- [ ] Reporting functionality (Admin & Vendor)
+- [ ] Couple profile view (from vendor)
+- [ ] (General) Improve footer, add more pages (FaQ, About Us)

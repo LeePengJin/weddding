@@ -21,21 +21,28 @@ const bookingStatusSchema = z.object({
   finalDueDate: z.string().datetime().optional().nullable(),
 });
 
-// GET /bookings - Get all bookings for the authenticated vendor
+// GET /bookings - Get all bookings for the authenticated user (vendor or couple)
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    if (req.user.role !== 'vendor') {
-      return res.status(403).json({ error: 'Vendor access required' });
+    const { status, startDate, endDate, projectId } = req.query;
+
+    const where = {};
+
+    // Filter by role
+    if (req.user.role === 'vendor') {
+      where.vendorId = req.user.sub;
+    } else if (req.user.role === 'couple') {
+      where.coupleId = req.user.sub;
+    } else {
+      return res.status(403).json({ error: 'Vendor or couple access required' });
     }
-
-    const { status, startDate, endDate } = req.query;
-
-    const where = {
-      vendorId: req.user.sub,
-    };
 
     if (status) {
       where.status = status;
+    }
+
+    if (projectId) {
+      where.projectId = projectId;
     }
 
     if (startDate || endDate) {
@@ -52,6 +59,18 @@ router.get('/', requireAuth, async (req, res, next) => {
       where,
       include: {
         couple: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                contactNumber: true,
+              },
+            },
+          },
+        },
+        vendor: {
           include: {
             user: {
               select: {
@@ -116,17 +135,35 @@ router.get('/', requireAuth, async (req, res, next) => {
 // GET /bookings/:id - Get a specific booking
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {
-    if (req.user.role !== 'vendor') {
-      return res.status(403).json({ error: 'Vendor access required' });
+    const where = {
+      id: req.params.id,
+    };
+
+    // Filter by role
+    if (req.user.role === 'vendor') {
+      where.vendorId = req.user.sub;
+    } else if (req.user.role === 'couple') {
+      where.coupleId = req.user.sub;
+    } else {
+      return res.status(403).json({ error: 'Vendor or couple access required' });
     }
 
     const booking = await prisma.booking.findFirst({
-      where: {
-        id: req.params.id,
-        vendorId: req.user.sub,
-      },
+      where,
       include: {
         couple: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                contactNumber: true,
+              },
+            },
+          },
+        },
+        vendor: {
           include: {
             user: {
               select: {
@@ -495,6 +532,179 @@ router.post('/', requireAuth, async (req, res, next) => {
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
     }
+    next(err);
+  }
+});
+
+// POST /bookings/:id/payments - Create a payment for a booking (for couples)
+const createPaymentSchema = z.object({
+  paymentType: z.enum(['deposit', 'final']),
+  amount: z.number().positive(),
+  paymentMethod: z.enum(['credit_card', 'bank_transfer', 'touch_n_go']),
+  receipt: z.string().url().optional().nullable(),
+});
+
+router.post('/:id/payments', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'couple') {
+      return res.status(403).json({ error: 'Couple access required' });
+    }
+
+    // Check if booking exists and belongs to couple
+    const booking = await prisma.booking.findFirst({
+      where: {
+        id: req.params.id,
+        coupleId: req.user.sub,
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    const data = createPaymentSchema.parse(req.body);
+
+    // Validate payment type matches booking status
+    if (data.paymentType === 'deposit' && booking.status !== 'pending_deposit_payment') {
+      return res.status(400).json({ error: 'Deposit payment not allowed for this booking status' });
+    }
+
+    if (data.paymentType === 'final' && booking.status !== 'pending_final_payment') {
+      return res.status(400).json({ error: 'Final payment not allowed for this booking status' });
+    }
+
+    // Check if payment already exists for this type
+    const existingPayment = await prisma.payment.findFirst({
+      where: {
+        bookingId: booking.id,
+        paymentType: data.paymentType,
+      },
+    });
+
+    if (existingPayment) {
+      return res.status(400).json({ error: `${data.paymentType} payment already exists for this booking` });
+    }
+
+    // Create payment
+    const payment = await prisma.payment.create({
+      data: {
+        bookingId: booking.id,
+        paymentType: data.paymentType,
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        receipt: data.receipt || null,
+      },
+    });
+
+    // Update booking status based on payment type
+    let newStatus = booking.status;
+    if (data.paymentType === 'deposit') {
+      newStatus = 'confirmed';
+    } else if (data.paymentType === 'final') {
+      newStatus = 'completed';
+    }
+
+    // Update booking status
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { status: newStatus },
+    });
+
+    // Convert Decimal to string for JSON response
+    const paymentWithStringAmount = {
+      ...payment,
+      amount: payment.amount.toString(),
+    };
+
+    res.status(201).json(paymentWithStringAmount);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
+      return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
+    }
+    next(err);
+  }
+});
+
+// Get vendor payments (for vendor to see their payment status)
+router.get('/vendor/payments', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'vendor') {
+      return res.status(403).json({ error: 'Vendor access required' });
+    }
+
+    const vendorId = req.user.sub;
+
+    // Get all bookings for this vendor
+    const bookings = await prisma.booking.findMany({
+      where: { vendorId },
+      include: {
+        payments: {
+          orderBy: { paymentDate: 'desc' },
+        },
+        couple: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+        selectedServices: {
+          include: {
+            serviceListing: {
+              select: {
+                id: true,
+                name: true,
+                category: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Flatten payments with booking info
+    const payments = [];
+    bookings.forEach((booking) => {
+      booking.payments.forEach((payment) => {
+        payments.push({
+          id: payment.id,
+          bookingId: booking.id,
+          paymentType: payment.paymentType,
+          amount: payment.amount.toString(),
+          paymentMethod: payment.paymentMethod,
+          paymentDate: payment.paymentDate,
+          receipt: payment.receipt,
+          releasedToVendor: payment.releasedToVendor,
+          releasedAt: payment.releasedAt,
+          couple: {
+            id: booking.couple.userId,
+            name: booking.couple.user.name,
+            email: booking.couple.user.email,
+          },
+          booking: {
+            id: booking.id,
+            reservedDate: booking.reservedDate,
+            status: booking.status,
+            selectedServices: booking.selectedServices.map((ss) => ({
+              id: ss.id,
+              serviceName: ss.serviceListing.name,
+              category: ss.serviceListing.category,
+              quantity: ss.quantity,
+              totalPrice: ss.totalPrice.toString(),
+            })),
+          },
+        });
+      });
+    });
+
+    res.json(payments);
+  } catch (err) {
     next(err);
   }
 });

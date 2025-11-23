@@ -478,6 +478,15 @@ router.post('/login', async (req, res, next) => {
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+    
+    // Check if account is blocked
+    if (user.status === 'blocked') {
+      return res.status(403).json({ 
+        error: 'Account is blocked', 
+        blockReason: user.blockReason || 'No reason provided' 
+      });
+    }
+    
     if (user.status !== 'active') return res.status(403).json({ error: 'Account not active' });
     const token = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: false, maxAge: 7*24*60*60*1000 });

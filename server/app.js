@@ -43,8 +43,9 @@ app.use('/budgets', budgetRoutes);
 app.use('/conversations', conversationRoutes);
 
 app.use((err, _req, res, _next) => {
-  console.error(err);
-  res.status(500).json({ error: 'Internal error' });
+  console.error('Error:', err);
+  console.error('Stack:', err.stack);
+  res.status(500).json({ error: 'Internal error', message: process.env.NODE_ENV === 'development' ? err.message : undefined });
 });
 
 module.exports = app;
