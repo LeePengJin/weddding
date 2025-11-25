@@ -7,6 +7,7 @@ import {
   EventAvailable as EventAvailableIcon,
   List as ListIcon,
   Message as MessageIcon,
+  Payment as PaymentIcon,
   Logout as LogoutIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../../context/AuthContext';
@@ -60,6 +61,12 @@ export default function VendorLayout({ children }) {
       label: 'Messages',
       path: '/messages',
       icon: MessageIcon,
+      isSvg: false,
+    },
+    {
+      label: 'Payments',
+      path: '/vendor/payments',
+      icon: PaymentIcon,
       isSvg: false,
     },
   ];

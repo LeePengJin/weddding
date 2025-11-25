@@ -2,9 +2,30 @@ const express = require('express');
 const { z } = require('zod');
 const { PrismaClient } = require('@prisma/client');
 const { requireAuth } = require('../middleware/auth');
+const { applyPackageDesignToProject } = require('../services/package.service');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+const BASE_PACKAGE_INCLUDE = {
+  items: {
+    include: {
+      serviceListing: {
+        include: {
+          vendor: {
+            include: {
+              user: {
+                select: {
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
 
 // Validation schemas
 const createProjectSchema = z.object({
@@ -51,7 +72,9 @@ router.get('/', requireAuth, async (req, res, next) => {
             },
           },
         },
-        basePackage: true,
+      basePackage: {
+        include: BASE_PACKAGE_INCLUDE,
+      },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -92,7 +115,9 @@ router.get('/:id', requireAuth, async (req, res, next) => {
             },
           },
         },
-        basePackage: true,
+        basePackage: {
+          include: BASE_PACKAGE_INCLUDE,
+        },
         venueDesign: true,
         budget: true,
         tasks: {
@@ -170,14 +195,25 @@ router.post('/', requireAuth, async (req, res, next) => {
       }
     }
 
-    // If base package is provided, verify it exists
+    // If base package is provided, ensure it is published and healthy
     if (data.basePackageId) {
-      const basePackage = await prisma.weddingPackage.findUnique({
-        where: { id: data.basePackageId },
+      const basePackage = await prisma.weddingPackage.findFirst({
+        where: {
+          id: data.basePackageId,
+          status: 'published',
+        },
+        select: {
+          id: true,
+          invalidListingIds: true,
+        },
       });
 
       if (!basePackage) {
-        return res.status(404).json({ error: 'Base package not found' });
+        return res.status(404).json({ error: 'Base package is not available' });
+      }
+
+      if (basePackage.invalidListingIds && basePackage.invalidListingIds.length > 0) {
+        return res.status(400).json({ error: 'Selected package requires vendor updates. Please choose another package.' });
       }
     }
 
@@ -206,9 +242,15 @@ router.post('/', requireAuth, async (req, res, next) => {
             },
           },
         },
-        basePackage: true,
+        basePackage: {
+          include: BASE_PACKAGE_INCLUDE,
+        },
       },
     });
+
+    if (data.basePackageId) {
+      await applyPackageDesignToProject(prisma, data.basePackageId, project.id);
+    }
 
     res.status(201).json(project);
   } catch (err) {
@@ -280,14 +322,25 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       }
     }
 
-    // If base package is provided, verify it exists
+    // If base package is provided, ensure it is available
     if (data.basePackageId !== undefined && data.basePackageId) {
-      const basePackage = await prisma.weddingPackage.findUnique({
-        where: { id: data.basePackageId },
+      const basePackage = await prisma.weddingPackage.findFirst({
+        where: {
+          id: data.basePackageId,
+          status: 'published',
+        },
+        select: {
+          id: true,
+          invalidListingIds: true,
+        },
       });
 
       if (!basePackage) {
-        return res.status(404).json({ error: 'Base package not found' });
+        return res.status(404).json({ error: 'Base package is not available' });
+      }
+
+      if (basePackage.invalidListingIds && basePackage.invalidListingIds.length > 0) {
+        return res.status(400).json({ error: 'Selected package requires vendor updates. Please choose another package.' });
       }
     }
 
@@ -317,9 +370,15 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
             },
           },
         },
-        basePackage: true,
+        basePackage: {
+          include: BASE_PACKAGE_INCLUDE,
+        },
       },
     });
+
+    if (data.basePackageId) {
+      await applyPackageDesignToProject(prisma, data.basePackageId, project.id);
+    }
 
     res.json(project);
   } catch (err) {

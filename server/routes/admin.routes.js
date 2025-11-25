@@ -2,14 +2,86 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient, VendorCategory, WeddingPackageStatus } = require('@prisma/client');
 const { requireAdmin } = require('../middleware/auth');
 const { approveVendor, rejectVendor } = require('../services/vendor.service');
 const { sendEmail } = require('../utils/mailer');
+const {
+  PACKAGE_INCLUDE,
+  buildPackageResponse,
+  getListingSnapshot,
+  validatePackageHealth,
+  flagPackagesForVendor,
+  revalidatePackagesForVendor,
+} = require('../services/package.service');
 
 const router = express.Router();
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-secret';
+const PACKAGE_STATUS_VALUES = Object.values(WeddingPackageStatus || {});
+
+const numericField = z
+  .coerce.number()
+  .min(0, 'Value cannot be negative')
+  .max(1000000, 'Value cannot exceed RM 1,000,000');
+
+const packageItemSchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    label: z.string().min(3, 'Label must be at least 3 characters').max(120, 'Label cannot exceed 120 characters'),
+    category: z.nativeEnum(VendorCategory),
+    serviceListingId: z.string().uuid().optional().nullable(),
+    isRequired: z.boolean().optional().default(true),
+    minPrice: numericField.optional().nullable(),
+    maxPrice: numericField.optional().nullable(),
+    replacementTags: z.array(z.string().min(1).max(30)).max(6, 'Maximum 6 replacement tags').optional().default([]),
+    notes: z.string().max(500).optional().nullable(),
+  })
+  .refine(
+    (data) => {
+      if (data.minPrice !== null && data.minPrice !== undefined && data.maxPrice !== null && data.maxPrice !== undefined) {
+        return data.minPrice <= data.maxPrice;
+      }
+      return true;
+    },
+    { message: 'Min price cannot exceed max price', path: ['maxPrice'] }
+  );
+
+const packagePayloadSchema = z.object({
+  packageName: z.string().min(3, 'Package name must be at least 3 characters').max(120, 'Package name cannot exceed 120 characters'),
+  description: z.string().max(2000).optional().nullable(),
+  previewImage: z.string().url('Preview image must be a valid URL').optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  items: z.array(packageItemSchema).min(1, 'At least one service or slot is required'),
+});
+
+const packageStatusSchema = z.object({
+  status: z.nativeEnum(WeddingPackageStatus, {
+    errorMap: () => ({ message: 'Invalid package status' }),
+  }),
+});
+
+async function buildPackageItemWriteData(item) {
+  const snapshot = item.serviceListingId ? await getListingSnapshot(prisma, item.serviceListingId) : null;
+
+  if (item.serviceListingId && !snapshot) {
+    const error = new Error('Service listing not found');
+    error.status = 404;
+    throw error;
+  }
+
+  return {
+    label: item.label,
+    category: item.category,
+    serviceListingId: item.serviceListingId || null,
+    isRequired: item.isRequired ?? true,
+    minPrice: item.minPrice ?? null,
+    maxPrice: item.maxPrice ?? null,
+    replacementTags: item.replacementTags || [],
+    notes: item.notes || null,
+    serviceListingSnapshot: snapshot,
+  };
+}
 
 // Admin login
 router.post('/auth/login', async (req, res, next) => {
@@ -264,6 +336,10 @@ Weddding Platform Team`;
 
     await sendEmail(user.email, emailSubject, emailBody);
 
+    if (user.role === 'vendor') {
+      await flagPackagesForVendor(prisma, userId);
+    }
+
     res.json({ ok: true, user: updatedUser });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -329,11 +405,304 @@ Weddding Platform Team`;
 
     await sendEmail(user.email, emailSubject, emailBody);
 
+    if (user.role === 'vendor') {
+      await revalidatePackagesForVendor(prisma, userId);
+    }
+
     res.json({ ok: true, user: updatedUser });
   } catch (err) {
     next(err);
   }
 });
+
+// --------------------- Wedding Packages ---------------------
+router.get('/packages/listings', requireAdmin, async (req, res, next) => {
+  try {
+    const { q, includeInactive } = req.query;
+    const where = {};
+
+    if (!includeInactive || includeInactive === 'false') {
+      where.isActive = true;
+    }
+
+    if (q && q.trim()) {
+      where.OR = [
+        { name: { contains: q.trim(), mode: 'insensitive' } },
+        {
+          vendor: {
+            user: {
+              name: { contains: q.trim(), mode: 'insensitive' },
+            },
+          },
+        },
+      ];
+    }
+
+    const listings = await prisma.serviceListing.findMany({
+      where,
+      include: {
+        vendor: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 150,
+    });
+
+    const payload = listings.map((listing) => ({
+      id: listing.id,
+      name: listing.name,
+      category: listing.category,
+      customCategory: listing.customCategory,
+      price: listing.price.toString(),
+      isActive: listing.isActive,
+      has3DModel: listing.has3DModel,
+      vendor: listing.vendor
+        ? {
+            id: listing.vendor.userId,
+            name: listing.vendor.user?.name || null,
+            email: listing.vendor.user?.email || null,
+            status: listing.vendor.user?.status || null,
+          }
+        : null,
+    }));
+
+    res.json(payload);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/packages', requireAdmin, async (req, res, next) => {
+  try {
+    const { status, search } = req.query;
+    const where = {};
+
+    if (status && PACKAGE_STATUS_VALUES.includes(status)) {
+      where.status = status;
+    }
+
+    if (search && search.trim()) {
+      where.packageName = { contains: search.trim(), mode: 'insensitive' };
+    }
+
+    const packages = await prisma.weddingPackage.findMany({
+      where,
+      include: PACKAGE_INCLUDE,
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    res.json(packages.map(buildPackageResponse));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/packages/:packageId', requireAdmin, async (req, res, next) => {
+  try {
+    const pkg = await prisma.weddingPackage.findUnique({
+      where: { id: req.params.packageId },
+      include: PACKAGE_INCLUDE,
+    });
+
+    if (!pkg) {
+      return res.status(404).json({ error: 'Package not found' });
+    }
+
+    res.json(buildPackageResponse(pkg));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/packages', requireAdmin, async (req, res, next) => {
+  try {
+    const payload = packagePayloadSchema.parse(req.body || {});
+
+    const itemsData = [];
+    for (const item of payload.items) {
+      // eslint-disable-next-line no-await-in-loop
+      itemsData.push(await buildPackageItemWriteData(item));
+    }
+
+    const pkg = await prisma.weddingPackage.create({
+      data: {
+        packageName: payload.packageName,
+        description: payload.description || null,
+        previewImage: payload.previewImage || null,
+        notes: payload.notes || null,
+        items: {
+          create: itemsData.map((item) => ({
+            ...item,
+          })),
+        },
+      },
+      include: PACKAGE_INCLUDE,
+    });
+
+    await validatePackageHealth(prisma, pkg.id);
+    const refreshed = await prisma.weddingPackage.findUnique({
+      where: { id: pkg.id },
+      include: PACKAGE_INCLUDE,
+    });
+
+    res.status(201).json(buildPackageResponse(refreshed));
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input', issues: err.issues });
+    }
+    if (err.status === 404) {
+      return res.status(404).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+router.put('/packages/:packageId', requireAdmin, async (req, res, next) => {
+  try {
+    const payload = packagePayloadSchema.parse(req.body || {});
+    const { packageId } = req.params;
+
+    const existingPackage = await prisma.weddingPackage.findUnique({
+      where: { id: packageId },
+      select: { id: true },
+    });
+
+    if (!existingPackage) {
+      return res.status(404).json({ error: 'Package not found' });
+    }
+
+    const itemsData = [];
+    for (const item of payload.items) {
+      // eslint-disable-next-line no-await-in-loop
+      itemsData.push({ input: item, data: await buildPackageItemWriteData(item) });
+    }
+
+    await prisma.weddingPackage.update({
+      where: { id: packageId },
+      data: {
+        packageName: payload.packageName,
+        description: payload.description || null,
+        previewImage: payload.previewImage || null,
+        notes: payload.notes || null,
+      },
+    });
+
+    const existingItems = await prisma.weddingPackageItem.findMany({
+      where: { packageId },
+      select: { id: true },
+    });
+
+    const incomingIds = new Set(payload.items.filter((item) => item.id).map((item) => item.id));
+    const deleteIds = existingItems.filter((item) => !incomingIds.has(item.id)).map((item) => item.id);
+
+    if (deleteIds.length) {
+      await prisma.weddingPackageItem.deleteMany({
+        where: { id: { in: deleteIds } },
+      });
+    }
+
+    for (const item of itemsData) {
+      if (item.input.id) {
+        // eslint-disable-next-line no-await-in-loop
+        await prisma.weddingPackageItem.update({
+          where: { id: item.input.id },
+          data: item.data,
+        });
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        await prisma.weddingPackageItem.create({
+          data: {
+            ...item.data,
+            packageId,
+          },
+        });
+      }
+    }
+
+    await validatePackageHealth(prisma, packageId);
+
+    const refreshed = await prisma.weddingPackage.findUnique({
+      where: { id: packageId },
+      include: PACKAGE_INCLUDE,
+    });
+
+    res.json(buildPackageResponse(refreshed));
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input', issues: err.issues });
+    }
+    if (err.status === 404) {
+      return res.status(404).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+router.post('/packages/:packageId/validate', requireAdmin, async (req, res, next) => {
+  try {
+    const { packageId } = req.params;
+    const existingPackage = await prisma.weddingPackage.findUnique({
+      where: { id: packageId },
+      select: { id: true },
+    });
+
+    if (!existingPackage) {
+      return res.status(404).json({ error: 'Package not found' });
+    }
+
+    const { package: pkg, issues } = await validatePackageHealth(prisma, packageId);
+    res.json({ package: buildPackageResponse(pkg), issues });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/packages/:packageId/status', requireAdmin, async (req, res, next) => {
+  try {
+    const { status } = packageStatusSchema.parse(req.body || {});
+    const { packageId } = req.params;
+
+    const existingPackage = await prisma.weddingPackage.findUnique({
+      where: { id: packageId },
+      include: PACKAGE_INCLUDE,
+    });
+
+    if (!existingPackage) {
+      return res.status(404).json({ error: 'Package not found' });
+    }
+
+    if (status === WeddingPackageStatus.published) {
+      const { issues } = await validatePackageHealth(prisma, packageId);
+      if (issues.length) {
+        return res.status(400).json({ error: 'Resolve package issues before publishing', issues });
+      }
+    }
+
+    const updated = await prisma.weddingPackage.update({
+      where: { id: packageId },
+      data: { status },
+      include: PACKAGE_INCLUDE,
+    });
+
+    res.json(buildPackageResponse(updated));
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input', issues: err.issues });
+    }
+    next(err);
+  }
+});
+// ------------------------------------------------------------
 
 // Get all vendor payments (for admin to manage)
 router.get('/vendor-payments', requireAdmin, async (req, res, next) => {

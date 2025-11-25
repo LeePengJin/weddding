@@ -1,16 +1,39 @@
-import React, { Suspense, useCallback, useMemo, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { ContactShadows, Environment, OrbitControls, useGLTF } from '@react-three/drei';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
+import { ContactShadows, Environment, OrbitControls, PointerLockControls, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+import PropTypes from 'prop-types';
 import PlacedElement from './PlacedElement';
 import { useVenueDesigner } from './VenueDesignerContext';
 import { useWASDControls } from './useWASDControls';
+import BudgetTracker from '../../components/BudgetTracker/BudgetTracker';
 import './Scene3D.css';
 
 const DEFAULT_GRID = {
   size: 1,
   visible: false, // Grid hidden by default
   snapToGrid: false, // Snap off by default - allow free movement
+};
+
+const CAMERA_BOUNDS = {
+  minX: -40,
+  maxX: 40,
+  minZ: -40,
+  maxZ: 40,
+  minY: 1.2,
+  maxY: 18,
+};
+
+const FIRST_PERSON_HEIGHT = 1.55;
+
+const exitPointerLockIfNeeded = () => {
+  if (document.exitPointerLock && document.pointerLockElement) {
+    try {
+      document.exitPointerLock();
+    } catch (err) {
+      console.warn('[PointerLock] exit failed', err);
+    }
+  }
 };
 
 const SceneGround = ({ size = 160 }) => (
@@ -40,7 +63,7 @@ const normalizeUrl = (url) => {
   return url;
 };
 
-const VenueModel = ({ modelUrl }) => {
+const VenueModel = ({ modelUrl, onBoundsCalculated }) => {
   const { scene } = useGLTF(modelUrl);
 
   const venueScene = useMemo(() => {
@@ -75,8 +98,23 @@ const VenueModel = ({ modelUrl }) => {
     const minY = alignedBox.min.y;
     copy.position.y -= minY;
 
+    // Calculate final bounds after all transformations
+    const finalBox = new THREE.Box3().setFromObject(copy);
+    
+    // Notify parent of calculated bounds
+    if (onBoundsCalculated) {
+      onBoundsCalculated({
+        minX: finalBox.min.x,
+        maxX: finalBox.max.x,
+        minY: finalBox.min.y,
+        maxY: finalBox.max.y,
+        minZ: finalBox.min.z,
+        maxZ: finalBox.max.z,
+      });
+    }
+
     return copy;
-  }, [scene]);
+  }, [scene, onBoundsCalculated]);
 
   if (!venueScene) return null;
 
@@ -84,12 +122,74 @@ const VenueModel = ({ modelUrl }) => {
 };
 
 // WASD Controls Component
-const WASDControls = () => {
-  useWASDControls();
+const WASDControls = ({ mode, venueBounds }) => {
+  const bounds = venueBounds || CAMERA_BOUNDS;
+  useWASDControls({
+    mode,
+    bounds,
+    firstPersonHeight: FIRST_PERSON_HEIGHT,
+  });
   return null;
 };
 
-const Scene3D = () => {
+const CaptureBridge = ({ onRegisterCapture, controlsRef }) => {
+  const { gl, scene, camera } = useThree();
+
+  useEffect(() => {
+    if (!onRegisterCapture) return undefined;
+    const capture = async () => {
+      const renderer = gl;
+      const prevSize = renderer.getSize(new THREE.Vector2());
+      const prevPixelRatio = renderer.getPixelRatio();
+      const prevPosition = camera.position.clone();
+      const prevQuaternion = camera.quaternion.clone();
+      const controls = controlsRef?.current;
+      const prevTarget = controls?.target?.clone();
+      const framingTarget = new THREE.Vector3(0, 1.5, 0);
+
+      renderer.setPixelRatio(1);
+      renderer.setSize(1400, 900, false);
+
+      camera.position.set(18, 14, 20);
+      camera.lookAt(framingTarget);
+      if (controls && prevTarget) {
+        controls.target.copy(framingTarget);
+        controls.update();
+      }
+
+      renderer.render(scene, camera);
+      const dataUrl = renderer.domElement.toDataURL('image/jpeg', 0.92);
+
+      camera.position.copy(prevPosition);
+      camera.quaternion.copy(prevQuaternion);
+      if (controls && prevTarget) {
+        controls.target.copy(prevTarget);
+        controls.update();
+      }
+
+      renderer.setPixelRatio(prevPixelRatio);
+      renderer.setSize(prevSize.x, prevSize.y, false);
+
+      return dataUrl;
+    };
+    onRegisterCapture(() => capture());
+    return undefined;
+  }, [gl, scene, camera, onRegisterCapture, controlsRef]);
+
+  return null;
+};
+
+CaptureBridge.propTypes = {
+  onRegisterCapture: PropTypes.func,
+  controlsRef: PropTypes.shape({ current: PropTypes.object }),
+};
+
+CaptureBridge.defaultProps = {
+  onRegisterCapture: undefined,
+  controlsRef: undefined,
+};
+
+const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout, onRegisterCapture, budgetData }) => {
   const {
     placements = [],
     availabilityMap = {},
@@ -105,7 +205,25 @@ const Scene3D = () => {
 
   const [selectedId, setSelectedId] = useState(null);
   const [orbitEnabled, setOrbitEnabled] = useState(true);
+  const [viewMode, setViewMode] = useState('orbit'); // 'orbit' | 'walk'
+  const [pointerLocked, setPointerLocked] = useState(false);
+  const [venueBounds, setVenueBounds] = useState(null);
   const venueModelUrl = useMemo(() => normalizeUrl(venueInfo?.modelFile), [venueInfo?.modelFile]);
+  const orbitControlsRef = useRef(null);
+  const wrapperRef = useRef(null);
+
+  const handleVenueBoundsCalculated = useCallback((bounds) => {
+    // Add a small margin to allow some flexibility, but keep elements within venue
+    const margin = 0.5; // Small margin in units
+    setVenueBounds({
+      minX: bounds.minX + margin,
+      maxX: bounds.maxX - margin,
+      minY: bounds.minY,
+      maxY: bounds.maxY,
+      minZ: bounds.minZ + margin,
+      maxZ: bounds.maxZ - margin,
+    });
+  }, []);
 
   const gridSettings = useMemo(() => {
     if (!designLayout?.grid) return DEFAULT_GRID;
@@ -211,10 +329,76 @@ const Scene3D = () => {
 
   const selectedPlacement = placements.find((placement) => placement.id === selectedId) || null;
 
+  const handleViewModeChange = useCallback(
+    (mode) => {
+      if (mode === viewMode) return;
+      if (mode === 'orbit') {
+        exitPointerLockIfNeeded();
+        setPointerLocked(false);
+      } else {
+        handleCloseSelection();
+      }
+      setViewMode(mode);
+    },
+    [handleCloseSelection, viewMode]
+  );
+
+  useEffect(() => {
+    const handleGlobalPointerDown = (event) => {
+      if (!wrapperRef.current) return;
+      if (!wrapperRef.current.contains(event.target)) {
+        handleCloseSelection();
+      }
+    };
+    document.addEventListener('pointerdown', handleGlobalPointerDown, true);
+    return () => document.removeEventListener('pointerdown', handleGlobalPointerDown, true);
+  }, [handleCloseSelection]);
+
+  const isProjectMode = designerMode === 'project';
+  const handleSaveClick = useCallback(() => {
+    onSaveDesign?.();
+  }, [onSaveDesign]);
+
+  const handleSummaryClick = useCallback(() => {
+    onOpenSummary?.();
+  }, [onOpenSummary]);
+
+  const handleCheckoutClick = useCallback(() => {
+    onProceedCheckout?.();
+  }, [onProceedCheckout]);
+
   return (
-    <div className="scene3d-wrapper">
+    <div className="scene3d-wrapper" ref={wrapperRef}>
+      <div className="scene3d-floating-actions">
+        <button
+          type="button"
+          className="scene3d-fab scene3d-fab-primary"
+          onClick={handleSaveClick}
+          disabled={savingState?.loading}
+        >
+          <i className="fas fa-save" />
+          {savingState?.loading ? 'Saving…' : 'Save design'}
+        </button>
+        {isProjectMode && (
+          <>
+            <button type="button" className="scene3d-fab" onClick={handleSummaryClick}>
+              Summary
+            </button>
+            <button type="button" className="scene3d-fab scene3d-fab-accent" onClick={handleCheckoutClick}>
+              Checkout
+            </button>
+          </>
+        )}
+      </div>
       <div className="scene3d-toolbar">
-        {/* Grid and snap controls removed - grid is hidden and snap is off by default */}
+        {isProjectMode && budgetData && (
+          <BudgetTracker
+            total={budgetData.total}
+            planned={budgetData.planned}
+            remaining={budgetData.remaining}
+            progress={budgetData.progress}
+          />
+        )}
         {selectedPlacement && (
           <div className="scene3d-selection">
             <strong>{selectedPlacement.designElement?.name || 'Design Element'}</strong>
@@ -227,6 +411,37 @@ const Scene3D = () => {
           </div>
         )}
       </div>
+      <div className="scene3d-view-mode-controls">
+        <button
+          type="button"
+          className={`scene3d-view-mode-btn ${viewMode === 'orbit' ? 'active' : ''}`}
+          onClick={() => handleViewModeChange('orbit')}
+          title="Orbit view"
+        >
+          <i className="fas fa-satellite-dish"></i>
+        </button>
+        <button
+          type="button"
+          className={`scene3d-view-mode-btn ${viewMode === 'walk' ? 'active' : ''}`}
+          onClick={() => handleViewModeChange('walk')}
+          title="Walk view"
+        >
+          <i className="fas fa-walking"></i>
+        </button>
+      </div>
+      <div className="scene3d-meta">
+        <span>Wedding Venue Space</span>
+        {savingState?.lastSaved && (
+          <span className="scene3d-meta-muted">
+            Last saved {new Date(savingState.lastSaved).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+      {viewMode === 'walk' && !pointerLocked && (
+        <div className="scene3d-hint">
+          Click inside the scene to look around. Press Esc to exit walk mode.
+        </div>
+      )}
 
       <Canvas
         shadows
@@ -234,6 +449,7 @@ const Scene3D = () => {
         dpr={[1, 2]}
         onPointerMissed={handleCanvasPointerMiss}
       >
+        <CaptureBridge onRegisterCapture={onRegisterCapture} controlsRef={orbitControlsRef} />
         <color attach="background" args={['#cbd2de']} />
         <fog attach="fog" args={['#efe9e4', 60, 220]} />
         <ambientLight intensity={0.65} />
@@ -249,7 +465,7 @@ const Scene3D = () => {
 
         {venueModelUrl && (
           <Suspense fallback={null}>
-            <VenueModel modelUrl={venueModelUrl} />
+            <VenueModel modelUrl={venueModelUrl} onBoundsCalculated={handleVenueBoundsCalculated} />
           </Suspense>
         )}
 
@@ -283,25 +499,40 @@ const Scene3D = () => {
               onToggleLock={handleTogglePlacementLock}
               onShowDetails={sceneOptions.onShowDetails}
               onClose={handleCloseSelection}
+              venueBounds={venueBounds}
             />
           ))}
         </Suspense>
 
         <Environment preset="sunset" />
 
-        <WASDControls />
+        <WASDControls mode={viewMode} venueBounds={venueBounds} />
 
-        <OrbitControls
-          makeDefault
-          enabled={orbitEnabled}
-          enableDamping
-          dampingFactor={0.08}
-          minDistance={6}
-          maxDistance={80}
-          minPolarAngle={0.05}
-          maxPolarAngle={Math.PI / 2.05}
-          target={[0, 2, 0]}
-        />
+        {viewMode === 'orbit' && (
+          <OrbitControls
+            ref={orbitControlsRef}
+            makeDefault
+            enabled={orbitEnabled}
+            enableDamping
+            dampingFactor={0.08}
+            minDistance={6}
+            maxDistance={45}
+            minPolarAngle={0.05}
+            maxPolarAngle={Math.PI / 2.05}
+            target={[0, 2, 0]}
+          />
+        )}
+
+        {viewMode === 'walk' && (
+          <PointerLockControls
+            makeDefault
+            onLock={() => setPointerLocked(true)}
+            onUnlock={() => {
+              setPointerLocked(false);
+              setViewMode('orbit');
+            }}
+          />
+        )}
       </Canvas>
 
       <div className="scene3d-meta">
@@ -314,6 +545,28 @@ const Scene3D = () => {
       </div>
     </div>
   );
+};
+
+Scene3D.propTypes = {
+  designerMode: PropTypes.oneOf(['package', 'project']),
+  onSaveDesign: PropTypes.func,
+  onOpenSummary: PropTypes.func,
+  onProceedCheckout: PropTypes.func,
+  onRegisterCapture: PropTypes.func,
+  budgetData: PropTypes.shape({
+    total: PropTypes.number,
+    planned: PropTypes.number,
+    remaining: PropTypes.number,
+    progress: PropTypes.number,
+  }),
+};
+
+Scene3D.defaultProps = {
+  designerMode: 'project',
+  onSaveDesign: undefined,
+  onOpenSummary: undefined,
+  onProceedCheckout: undefined,
+  onRegisterCapture: undefined,
 };
 
 export default Scene3D;

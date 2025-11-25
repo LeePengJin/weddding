@@ -17,6 +17,8 @@ const designElementRoutes = require('./routes/designElement.routes');
 const taskRoutes = require('./routes/task.routes');
 const budgetRoutes = require('./routes/budget.routes');
 const conversationRoutes = require('./routes/conversation.routes');
+const packageRoutes = require('./routes/package.routes');
+const packageDesignRoutes = require('./routes/packageDesign.routes');
 
 const app = express();
 
@@ -41,6 +43,8 @@ app.use('/design-elements', designElementRoutes);
 app.use('/tasks', taskRoutes);
 app.use('/budgets', budgetRoutes);
 app.use('/conversations', conversationRoutes);
+app.use('/packages', packageRoutes);
+app.use('/admin/package-design', packageDesignRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error('Error:', err);

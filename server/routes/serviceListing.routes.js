@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../middleware/auth');
+const { flagPackagesForListing, revalidatePackagesForListing } = require('../services/package.service');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -513,6 +514,12 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       },
     });
 
+    if (existingListing.isActive && updatedListing.isActive === false) {
+      await flagPackagesForListing(prisma, req.params.id);
+    } else if (!existingListing.isActive && updatedListing.isActive === true) {
+      await revalidatePackagesForListing(prisma, req.params.id);
+    }
+
     // Update components if provided
     if (components !== undefined) {
       // Delete existing components
@@ -625,6 +632,8 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
     await prisma.serviceListing.delete({
       where: { id: req.params.id },
     });
+
+    await flagPackagesForListing(prisma, req.params.id);
 
     res.json({ message: 'Service listing deleted successfully' });
   } catch (err) {

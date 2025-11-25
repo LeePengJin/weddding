@@ -16,11 +16,13 @@ import {
   Chip,
   Stack,
   Paper,
+  Tooltip,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import './DesignSummary.styles.css';
 import { useVenueDesigner } from './VenueDesignerContext';
 
@@ -37,28 +39,20 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
     }
     setExpandedVendors(newExpanded);
   };
-  // First, group placements by bundle or individual items
   const itemGroups = useMemo(() => {
     const groups = new Map();
-    const bundleInstanceTracker = new Map(); // Track bundle instances globally: bundleId -> counted
 
     placements.forEach((placement) => {
       const bundleId = placement.metadata?.bundleId;
       const serviceListingId = placement.metadata?.serviceListingId;
       const designElementName = placement.designElement?.name || 'Design Element';
-      
-      // Determine the grouping key
-      // If it's part of a bundle, group by serviceListingId (bundle type)
-      // Otherwise, group by designElement id (item type)
-      const groupKey = bundleId 
-        ? `bundle_${serviceListingId}` 
-        : `item_${placement.designElement?.id || designElementName}`;
+      const groupKey = bundleId
+        ? `bundle_${serviceListingId}`
+        : `item_${placement.designElement?.id || placement.id}`;
 
       if (!groups.has(groupKey)) {
         const isBundle = Boolean(bundleId);
-        const itemName = isBundle 
-          ? (placement.serviceListing?.name || 'Bundle Item')
-          : designElementName;
+        const itemName = isBundle ? placement.serviceListing?.name || 'Bundle Item' : designElementName;
 
         groups.set(groupKey, {
           key: groupKey,
@@ -67,53 +61,56 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
           quantity: 0,
           price: 0,
           placementIds: [],
-          bundleIds: new Set(), // Track all bundleIds for this group
+          bundleInstanceRefs: new Map(),
+          singlePlacementQueue: [],
           serviceListingId: serviceListingId || null,
           designElementId: placement.designElement?.id || null,
           isUnavailable: false,
           vendorId: placement.designElement?.vendorId,
-          vendorName: placement.designElement?.vendor?.name || placement.designElement?.vendor?.user?.name || 'Unknown Vendor',
+          vendorName:
+            placement.designElement?.vendor?.name ||
+            placement.designElement?.vendor?.user?.name ||
+            'Unknown Vendor',
         });
       }
 
       const group = groups.get(groupKey);
       group.placementIds.push(placement.id);
 
-      // For bundles, track unique bundle instances
       if (bundleId) {
-        group.bundleIds.add(bundleId);
-        
-        // Count this bundle instance only once (across all placements in this bundle)
-        if (!bundleInstanceTracker.has(bundleId)) {
-          bundleInstanceTracker.set(bundleId, true);
-          group.quantity += 1; // Count bundle instances, not individual components
-          
-          // Add price once per bundle instance
-          const price = placement.metadata?.unitPrice 
+        if (!group.bundleInstanceRefs.has(bundleId)) {
+          group.bundleInstanceRefs.set(bundleId, placement.id);
+          group.quantity += 1;
+          const price = placement.metadata?.unitPrice
             ? parseFloat(placement.metadata.unitPrice)
-            : placement.serviceListing?.price 
+            : placement.serviceListing?.price
             ? parseFloat(placement.serviceListing.price)
             : 0;
           group.price += price;
         }
       } else {
-        // For individual items, count each placement
         group.quantity += 1;
-        const price = placement.metadata?.unitPrice 
+        group.singlePlacementQueue.push(placement.id);
+        const price = placement.metadata?.unitPrice
           ? parseFloat(placement.metadata.unitPrice)
-          : placement.serviceListing?.price 
+          : placement.serviceListing?.price
           ? parseFloat(placement.serviceListing.price)
           : 0;
         group.price += price;
       }
 
-      // Check availability
       if (serviceListingId && availabilityMap[serviceListingId]?.available === false) {
         group.isUnavailable = true;
       }
     });
 
-    return Array.from(groups.values());
+    return Array.from(groups.values()).map((group) => ({
+      ...group,
+      bundleInstances: Array.from(group.bundleInstanceRefs.entries()).map(([bundleId, placementId]) => ({
+        bundleId,
+        placementId,
+      })),
+    }));
   }, [placements, availabilityMap]);
 
   // Group items by vendor
@@ -157,32 +154,41 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
 
   const handleRemove = (item) => {
     if (!onRemovePlacement) return;
-    
-    // Remove all instances of this item/bundle
-    // For bundles: remove all bundle instances (each with scope='bundle' to remove all components)
-    // For individual items: remove all placements of this item type
-    if (item.isBundle && item.bundleIds && item.bundleIds.size > 0) {
-      // For each bundle instance, remove it (which will remove all its components)
-      // We'll use the first placement ID from each bundle instance
-      const processedBundles = new Set();
-      placements.forEach((placement) => {
-        const bundleId = placement.metadata?.bundleId;
-        if (bundleId && item.bundleIds.has(bundleId) && !processedBundles.has(bundleId)) {
-          processedBundles.add(bundleId);
-          // Remove this bundle instance (scope='bundle' removes all components)
-          onRemovePlacement(placement.id, 'bundle');
+    const confirmed = window.confirm('Remove this service from your 3D design?');
+    if (!confirmed) return;
+
+    if (item.isBundle && item.bundleInstances?.length > 0) {
+      item.bundleInstances.forEach((instance) => {
+        if (instance?.placementId) {
+          onRemovePlacement(instance.placementId, 'bundle');
         }
       });
-    } else if (!item.isBundle && item.designElementId) {
-      // For individual items, remove all placements with the same designElement
-      const itemPlacements = placements.filter(
-        (p) => !p.metadata?.bundleId && 
-               p.designElement?.id === item.designElementId
-      );
-      // Remove each placement individually
-      itemPlacements.forEach((placement) => {
-        onRemovePlacement(placement.id, 'single');
+    } else if (!item.isBundle && item.placementIds.length > 0) {
+      item.placementIds.forEach((placementId) => {
+        onRemovePlacement(placementId, 'single');
       });
+    }
+  };
+
+  const handleDecreaseQuantity = (item) => {
+    if (!onRemovePlacement || item.quantity <= 0) return;
+
+    const isFinalUnit = item.quantity <= 1;
+    const message = isFinalUnit
+      ? 'Reducing this item will remove it entirely from your design. Continue?'
+      : 'Remove one unit of this service from your design?';
+    if (!window.confirm(message)) return;
+
+    if (item.isBundle) {
+      const targetInstance = item.bundleInstances?.[0];
+      if (targetInstance?.placementId) {
+        onRemovePlacement(targetInstance.placementId, 'bundle');
+      }
+    } else {
+      const targetPlacementId = item.singlePlacementQueue?.[0] || item.placementIds?.[0];
+      if (targetPlacementId) {
+        onRemovePlacement(targetPlacementId, 'single');
+      }
     }
   };
 
@@ -315,7 +321,30 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                                 </Typography>
                               }
                             />
-                            <ListItemSecondaryAction sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <ListItemSecondaryAction
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 2,
+                              }}
+                            >
+                              <Stack direction="row" alignItems="center" spacing={0.5}>
+                                <Tooltip title="Reduce quantity">
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleDecreaseQuantity(item)}
+                                      disabled={item.quantity === 0}
+                                      sx={{ color: 'text.secondary' }}
+                                    >
+                                      <RemoveCircleOutlineIcon fontSize="small" />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Typography variant="body2" sx={{ minWidth: 24, textAlign: 'center', fontWeight: 600 }}>
+                                  {item.quantity}
+                                </Typography>
+                              </Stack>
                               <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.main' }}>
                                 RM {item.price.toLocaleString()}
                               </Typography>

@@ -120,13 +120,15 @@ model ServiceListing {
   pricingPolicy    PricingPolicy @default(flat) // How to calculate units from design
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
-  packages      WeddingPackage[]
   designElement  DesignElement? @relation(fields: [designElementId], references: [id], onDelete: SetNull)
   reviews        Review[]
   selectedServices SelectedService[]
   serviceAvailability ServiceAvailability[]
   components    ServiceComponent[] // Bundle composition (for multi-element services)
+  packageItems  WeddingPackageItem[]
+  packagePlacements PackagePlacedElement[]
   venueProjects  WeddingProject[] @relation("ProjectVenue") // Projects that selected this service as venue
+  packageDesigns PackageDesign[] @relation("PackageDesignVenue") // Package templates using this venue
 
   @@index([vendorId])
   @@index([isActive])
@@ -176,19 +178,99 @@ model Message {
   @@index([senderId])
 }
 
-// Wedding Package composed of multiple service listings
+// Wedding Package composed of multiple service listings or generic slots
 model WeddingPackage {
-  id            String           @id @default(uuid())
-  packageName   String
-  description   String?
-  price         Decimal          @db.Decimal(12, 2)
-  previewImage  String?
-  services      ServiceListing[]
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  weddingProjects WeddingProject[]
+  id               String                @id @default(uuid())
+  packageName      String
+  description      String?
+  previewImage     String?
+  status           WeddingPackageStatus  @default(draft)
+  lastValidatedAt  DateTime?
+  invalidListingIds String[]             @default([])
+  notes            String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  items            WeddingPackageItem[]
+  design           PackageDesign?
+  weddingProjects  WeddingProject[]
 
   @@index([packageName])
+  @@index([status])
+}
+
+model WeddingPackageItem {
+  id                     String           @id @default(uuid())
+  packageId              String
+  serviceListingId       String?
+  label                  String
+  category               VendorCategory
+  isRequired             Boolean          @default(true)
+  minPrice               Decimal?         @db.Decimal(12, 2)
+  maxPrice               Decimal?         @db.Decimal(12, 2)
+  serviceListingSnapshot Json?
+  replacementTags        String[]         @default([])
+  notes                  String?
+  healthStatus           WeddingPackageItemStatus @default(ok)
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  package        WeddingPackage  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  serviceListing ServiceListing? @relation(fields: [serviceListingId], references: [id], onDelete: SetNull)
+
+  @@index([packageId])
+  @@index([serviceListingId])
+}
+
+enum WeddingPackageStatus {
+  draft
+  published
+  needs_vendor_updates
+  archived
+}
+
+enum WeddingPackageItemStatus {
+  ok
+  missing_listing
+  listing_inactive
+  vendor_inactive
+  vendor_blocked
+}
+
+model PackageDesign {
+  id                 String        @id @default(uuid())
+  packageId          String        @unique
+  venueServiceListingId String?    // The venue service listing used for this template
+  venueName          String?
+  layoutData         Json?
+  cameraPositionId   String?
+  zoomLevel          Float?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  package            WeddingPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  venueServiceListing ServiceListing? @relation("PackageDesignVenue", fields: [venueServiceListingId], references: [id], onDelete: SetNull)
+  cameraPosition     Coordinates?   @relation(fields: [cameraPositionId], references: [id], onDelete: SetNull)
+  placedElements     PackagePlacedElement[]
+}
+
+model PackagePlacedElement {
+  id                String        @id @default(uuid())
+  packageDesignId   String
+  designElementId   String
+  serviceListingId  String?
+  positionId        String
+  rotation          Float?
+  isLocked          Boolean       @default(false)
+  metadata          Json?
+
+  packageDesign PackageDesign @relation(fields: [packageDesignId], references: [id], onDelete: Cascade)
+  designElement DesignElement @relation(fields: [designElementId], references: [id], onDelete: Cascade)
+  serviceListing ServiceListing? @relation(fields: [serviceListingId], references: [id], onDelete: SetNull)
+  position      Coordinates   @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@index([packageDesignId])
+  @@index([designElementId])
+  @@index([serviceListingId])
 }
 
 // Wedding project owned by a Couple
@@ -311,6 +393,8 @@ model Coordinates {
   z  Float
   cameraFor    VenueDesign[]
   positionsFor PlacedElement[]
+  packageCameraFor PackageDesign[]
+  packagePositionsFor PackagePlacedElement[]
 }
 
 // Library of reusable 3D elements
@@ -330,6 +414,7 @@ model DesignElement {
   updatedAt  DateTime         @updatedAt
   services   ServiceListing[]  // Single-model listings (via designElementId)
   placements PlacedElement[]
+  packagePlacements PackagePlacedElement[]
   components ServiceComponent[] // Bundle components (inverse relation)
 
   @@index([vendorId])

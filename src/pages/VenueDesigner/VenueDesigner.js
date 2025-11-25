@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import './VenueDesigner.styles.css';
 import DesignSummary from './DesignSummary.jsx';
 import CheckoutModal from './CheckoutModal.jsx';
@@ -11,6 +11,13 @@ import {
   saveVenueDesign,
   getVenueCatalog,
   getVenueAvailability,
+  getPackageDesign,
+  addPackageDesignElement,
+  updatePackageDesignElement,
+  deletePackageDesignElement,
+  savePackageDesign,
+  getPackageCatalog,
+  uploadPackagePreview,
   apiFetch,
 } from '../../lib/api';
 import BudgetTracker from '../../components/BudgetTracker/BudgetTracker';
@@ -21,7 +28,6 @@ import { VenueDesignerProvider } from './VenueDesignerContext';
 
 const CATEGORIES = [
   'All Categories',
-  'Venue',
   'Caterer',
   'Florist',
   'Photographer',
@@ -45,11 +51,17 @@ const normalizeLayout = (layout = {}) => ({
 
 const VenueDesigner = () => {
   const location = useLocation();
-  const { projectId: routeProjectId } = useParams();
+  const navigate = useNavigate();
+  const { projectId: routeProjectId, packageId: routePackageId } = useParams();
   const searchParams = new URLSearchParams(location.search);
   const projectIdFromQuery = searchParams.get('projectId');
+  const packageIdFromQuery = searchParams.get('packageId');
   const projectIdFromState = location.state?.projectId;
+  const packageIdFromState = location.state?.packageId;
   const projectId = routeProjectId || projectIdFromQuery || projectIdFromState || null;
+  const packageId = routePackageId || packageIdFromQuery || packageIdFromState || null;
+  const designerMode = packageId ? 'package' : 'project';
+  const resourceId = packageId || projectId || null;
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
@@ -71,6 +83,10 @@ const VenueDesigner = () => {
   const [venueInfo, setVenueInfo] = useState(null);
   const layoutAutosaveTimerRef = useRef(null);
   const skipNextLayoutSaveRef = useRef(true);
+  const captureScreenshotRef = useRef(null);
+  const handleRegisterCapture = useCallback((fn) => {
+    captureScreenshotRef.current = fn;
+  }, []);
 
   const plannedSpend = useMemo(() => {
     const bundleTotals = new Map();
@@ -88,59 +104,74 @@ const VenueDesigner = () => {
   const budgetProgress = totalBudget > 0 ? (plannedSpend / totalBudget) * 100 : 0;
 
   const loadDesign = useCallback(async () => {
-    if (!projectId) {
+    if (!resourceId) {
       setIsLoading(false);
       return;
     }
 
     setIsLoading(true);
     try {
-      const data = await getVenueDesign(projectId);
+      const data =
+        designerMode === 'package' ? await getPackageDesign(packageId) : await getVenueDesign(projectId);
+
       setPlacements(data.design?.placedElements || []);
       skipNextLayoutSaveRef.current = true;
       const layoutFromServer = normalizeLayout(data.design?.layoutData || {});
       setDesignLayout(layoutFromServer);
       setSidebarCollapsed(layoutFromServer.sidebar.collapsed ?? false);
-      setVenueInfo(data.venue || null);
       setSavingState((prev) => ({
         ...prev,
         lastSaved: data.design?.layoutData?.lastSavedAt || null,
       }));
 
-      const backendBudget = data.project?.budget?.totalBudget;
-      if (backendBudget) {
-        setTotalBudget(Number(backendBudget));
+      if (designerMode === 'project') {
+        setVenueInfo(data.venue || null);
+        const backendBudget = data.project?.budget?.totalBudget;
+        if (backendBudget) {
+          setTotalBudget(Number(backendBudget));
+        }
+        if (data.project?.weddingDate) {
+          setWeddingDate(data.project.weddingDate);
+        }
+      } else {
+        // Package mode: set venue info if available
+        setVenueInfo(data.venue || null);
+        setWeddingDate(null);
       }
-      if (data.project?.weddingDate) {
-        setWeddingDate(data.project.weddingDate);
-      }
+
       setErrorMessage('');
     } catch (err) {
       setErrorMessage(err.message || 'Failed to load venue design');
     } finally {
       setIsLoading(false);
     }
-  }, [projectId]);
+  }, [resourceId, designerMode, projectId, packageId]);
 
   const loadCatalog = useCallback(async () => {
-    if (!projectId) return;
+    if (!resourceId) return;
     setCatalogLoading(true);
     try {
-      const response = await getVenueCatalog(projectId, {
+      const queryPayload = {
         search: searchTerm || undefined,
         category: selectedCategory !== 'All Categories' ? selectedCategory : undefined,
-        includeUnavailable: true,
-      });
+      };
+      if (designerMode === 'project') {
+        queryPayload.includeUnavailable = true;
+      }
+      const response =
+        designerMode === 'package'
+          ? await getPackageCatalog(packageId, queryPayload)
+          : await getVenueCatalog(projectId, queryPayload);
       setCatalogItems(response.listings || []);
     } catch (err) {
       setErrorMessage(err.message || 'Failed to load catalog');
     } finally {
       setCatalogLoading(false);
     }
-  }, [projectId, searchTerm, selectedCategory]);
+  }, [resourceId, designerMode, packageId, projectId, searchTerm, selectedCategory]);
 
   const refreshAvailability = useCallback(async () => {
-    if (!projectId || placements.length === 0) return;
+    if (designerMode !== 'project' || !projectId || placements.length === 0) return;
     const listingIds = Array.from(
       new Set(
         placements
@@ -159,19 +190,33 @@ const VenueDesigner = () => {
     } catch (err) {
       console.error('[VenueDesigner] Availability check failed', err);
     }
-  }, [projectId, placements]);
+  }, [designerMode, projectId, placements]);
 
   const saveLayoutData = useCallback(
     async (layoutData = {}) => {
-      if (!projectId) {
-        setErrorMessage('No project selected. Please select a wedding project first.');
+      if (!resourceId) {
+        setErrorMessage('No design context selected.');
         return;
       }
       setSavingState((prev) => ({ ...prev, loading: true }));
       setErrorMessage(''); // Clear any previous errors
       try {
         const payload = { layoutData };
-        await saveVenueDesign(projectId, payload);
+        if (designerMode === 'package') {
+          await savePackageDesign(packageId, payload);
+          if (captureScreenshotRef.current) {
+            try {
+              const imageData = await captureScreenshotRef.current();
+              if (imageData) {
+                await uploadPackagePreview(packageId, imageData);
+              }
+            } catch (captureErr) {
+              console.warn('Failed to capture package preview image', captureErr);
+            }
+          }
+        } else {
+          await saveVenueDesign(projectId, payload);
+        }
         setSavingState({
           loading: false,
           lastSaved: new Date().toISOString(),
@@ -183,51 +228,69 @@ const VenueDesigner = () => {
         setSavingState((prev) => ({ ...prev, loading: false }));
       }
     },
-    [projectId]
+    [resourceId, designerMode, projectId, packageId]
   );
 
-  const handleAddItem = useCallback(async (item) => {
-    if (!projectId) return;
-    try {
-      const response = await addDesignElement(projectId, {
-        serviceListingId: item.id,
-      });
-      setPlacements((prev) => [...prev, ...(response.placements || [])]);
-      setErrorMessage('');
-    } catch (err) {
-      setErrorMessage(err.message || 'Unable to add item to design');
-    }
-  }, [projectId]);
+  const handleAddItem = useCallback(
+    async (item) => {
+      if (!resourceId) return;
+      try {
+        const response =
+          designerMode === 'package'
+            ? await addPackageDesignElement(packageId, { serviceListingId: item.id })
+            : await addDesignElement(projectId, { serviceListingId: item.id });
+        setPlacements((prev) => [...prev, ...(response.placements || [])]);
+        setErrorMessage('');
+      } catch (err) {
+        setErrorMessage(err.message || 'Unable to add item to design');
+      }
+    },
+    [resourceId, designerMode, packageId, projectId]
+  );
 
-  const handleRemovePlacement = useCallback(async (placementId, scope = 'bundle') => {
-    if (!projectId) return;
-    try {
-      const response = await deleteDesignElement(projectId, placementId, scope);
-      const removedIds = response.removedPlacementIds || [];
-      setPlacements((prev) => prev.filter((placement) => !removedIds.includes(placement.id)));
-      setErrorMessage('');
-    } catch (err) {
-      setErrorMessage(err.message || 'Unable to remove item');
-    }
-  }, [projectId]);
+  const handleRemovePlacement = useCallback(
+    async (placementId, scope = 'bundle') => {
+      if (!resourceId) return;
+      try {
+        const response =
+          designerMode === 'package'
+            ? await deletePackageDesignElement(packageId, placementId, scope)
+            : await deleteDesignElement(projectId, placementId, scope);
+        const removedIds = response.removedPlacementIds || [];
+        setPlacements((prev) => prev.filter((placement) => !removedIds.includes(placement.id)));
+        setErrorMessage('');
+      } catch (err) {
+        setErrorMessage(err.message || 'Unable to remove item');
+      }
+    },
+    [resourceId, designerMode, packageId, projectId]
+  );
 
   const handleToggleLock = useCallback(async (placement) => {
-    if (!projectId) return;
+    if (!resourceId) return;
     try {
-      const updated = await updateDesignElement(projectId, placement.id, {
-        isLocked: !placement.isLocked,
-      });
+      const updated =
+        designerMode === 'package'
+          ? await updatePackageDesignElement(packageId, placement.id, {
+              isLocked: !placement.isLocked,
+            })
+          : await updateDesignElement(projectId, placement.id, {
+              isLocked: !placement.isLocked,
+            });
       setPlacements((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
     } catch (err) {
       setErrorMessage(err.message || 'Unable to update lock state');
     }
-  }, [projectId]);
+  }, [resourceId, designerMode, packageId, projectId]);
 
   const handleUpdatePlacement = useCallback(
     async (placementId, payload) => {
-      if (!projectId) return null;
+      if (!resourceId) return null;
       try {
-        const updated = await updateDesignElement(projectId, placementId, payload);
+        const updated =
+          designerMode === 'package'
+            ? await updatePackageDesignElement(packageId, placementId, payload)
+            : await updateDesignElement(projectId, placementId, payload);
         setPlacements((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
         return updated;
       } catch (err) {
@@ -235,7 +298,7 @@ const VenueDesigner = () => {
         throw err;
       }
     },
-    [projectId]
+    [resourceId, designerMode, packageId, projectId]
   );
 
   const handleSidebarToggle = () => {
@@ -264,6 +327,9 @@ const VenueDesigner = () => {
   const contextValue = useMemo(
     () => ({
       projectId,
+      packageId,
+      mode: designerMode,
+      resourceId,
       placements,
       isLoading,
       availabilityMap,
@@ -279,6 +345,9 @@ const VenueDesigner = () => {
     }),
     [
       projectId,
+      packageId,
+      designerMode,
+      resourceId,
       placements,
       isLoading,
       availabilityMap,
@@ -338,14 +407,22 @@ const VenueDesigner = () => {
     };
   }, [designLayout, projectId, saveLayoutData]);
 
-  if (!projectId) {
-  return (
-    <div className="venue-designer">
+  const backHref = designerMode === 'package' ? '/admin/packages' : '/project-dashboard';
+  const backLabel = designerMode === 'package' ? 'Back to packages' : 'Back to dashboard';
+  const handleBackNavigation = useCallback(() => {
+    navigate(backHref);
+  }, [navigate, backHref]);
+
+  if (designerMode === 'project' && !projectId) {
+    return (
+      <div className="venue-designer">
         <div className="empty-state">
           <h3>Please select a wedding project first</h3>
-          <p>Open the designer from a project card or use the route <code>/projects/PROJECT_ID/venue-designer</code>.</p>
-            </div>
-          </div>
+          <p>
+            Open the designer from a project card or use the route <code>/projects/PROJECT_ID/venue-designer</code>.
+          </p>
+        </div>
+      </div>
     );
   }
 
@@ -365,6 +442,9 @@ const VenueDesigner = () => {
         <CatalogSidebar
           collapsed={sidebarCollapsed}
           onToggle={handleSidebarToggle}
+          backLabel={backLabel}
+          backTo={backHref}
+          onBack={handleBackNavigation}
           searchTerm={searchTerm}
           onSearch={setSearchTerm}
           selectedCategory={selectedCategory}
@@ -377,75 +457,67 @@ const VenueDesigner = () => {
           selectedItem={selectedItemInfo}
           onCloseDetails={() => setSelectedItemInfo(null)}
           onShowItem3D={handleShow3D}
-          onMessageVendor={async (item) => {
-            try {
-              // Check for vendor.id (from catalog) or vendor.userId (direct)
-              const vendorId = item?.vendor?.id || item?.vendor?.userId;
-              if (!vendorId) {
-                console.error('Vendor data:', item?.vendor);
-                alert('Vendor information not available');
-                return;
-              }
-              console.log('Creating conversation with vendorId:', vendorId);
-              // Create or get conversation with vendor
-              const conversation = await apiFetch('/conversations', {
-                method: 'POST',
-                body: JSON.stringify({ vendorId: vendorId }),
-              });
-              // Navigate to messages with conversation ID
-              window.location.href = `/messages?conversationId=${conversation.id}`;
-            } catch (err) {
-              console.error('Failed to create conversation:', err);
-              alert(err.message || 'Failed to start conversation');
-            }
-          }}
+          onMessageVendor={
+            designerMode === 'project'
+              ? async (item) => {
+                  try {
+                    const vendorId = item?.vendor?.id || item?.vendor?.userId;
+                    if (!vendorId) {
+                      console.error('Vendor data:', item?.vendor);
+                      alert('Vendor information not available');
+                      return;
+                    }
+                    const conversation = await apiFetch('/conversations', {
+                      method: 'POST',
+                      body: JSON.stringify({ vendorId }),
+                    });
+                    window.location.href = `/messages?conversationId=${conversation.id}`;
+                  } catch (err) {
+                    console.error('Failed to create conversation:', err);
+                    alert(err.message || 'Failed to start conversation');
+                  }
+                }
+              : undefined
+          }
         />
 
         <div className="canvas-column">
-          <div className="canvas-toolbar">
-            <Link to="/project-dashboard" className="back-link">
-              <i className="fas fa-arrow-left"></i>
-              Back to dashboard
-            </Link>
-            <BudgetTracker
-              total={totalBudget}
-              planned={plannedSpend}
-              remaining={remainingBudget}
-              progress={budgetProgress}
-            />
-            <div className="toolbar-actions">
-              <button className="secondary-btn" onClick={handleManualSave}>
-            <i className="fas fa-save"></i>
-                {savingState.loading ? 'Saving…' : 'Save design'}
-          </button>
-              <button className="secondary-btn" onClick={() => setShowCheckout(true)}>
-            <i className="fas fa-list-alt"></i>
-            Summary
-          </button>
-              <button className="primary-btn" onClick={() => setShowCheckout(true)}>
-            <i className="fas fa-shopping-cart"></i>
-                Proceed to checkout
-          </button>
+          <Scene3D
+            designerMode={designerMode}
+            onSaveDesign={handleManualSave}
+            onOpenSummary={designerMode === 'project' ? () => setShowCheckout(true) : undefined}
+            onProceedCheckout={designerMode === 'project' ? () => setShowCheckout(true) : undefined}
+            onRegisterCapture={handleRegisterCapture}
+            budgetData={
+              designerMode === 'project'
+                ? {
+                    total: totalBudget,
+                    planned: plannedSpend,
+                    remaining: remainingBudget,
+                    progress: budgetProgress,
+                  }
+                : null
+            }
+          />
         </div>
       </div>
 
-          <Scene3D />
-            </div>
-          </div>
+      {designerMode === 'project' && (
+        <DesignSummary
+          open={showCheckout}
+          onClose={() => setShowCheckout(false)}
+          onProceedToCheckout={() => {
+            setShowCheckout(false);
+            setShowCheckoutModal(true);
+          }}
+        />
+      )}
 
-      <DesignSummary
-        open={showCheckout}
-        onClose={() => setShowCheckout(false)}
-        onProceedToCheckout={() => {
-          setShowCheckout(false);
-          setShowCheckoutModal(true);
-        }}
-                />
-
-      <CheckoutModal
-        open={showCheckoutModal}
-        onClose={() => setShowCheckoutModal(false)}
-        groupedByVendor={(() => {
+      {designerMode === 'project' && (
+        <CheckoutModal
+          open={showCheckoutModal}
+          onClose={() => setShowCheckoutModal(false)}
+          groupedByVendor={(() => {
           // Calculate groupedByVendor from placements (same logic as DesignSummary)
           const itemGroups = new Map();
           const bundleInstanceTracker = new Map();
@@ -524,15 +596,15 @@ const VenueDesigner = () => {
             vendorGroups[vendorKey].total += item.price;
           });
 
-          return Object.values(vendorGroups);
-        })()}
-        projectId={projectId}
-        weddingDate={weddingDate}
-        onSuccess={() => {
-          // Refresh design to reflect changes
-          loadDesign();
-                        }}
-      />
+            return Object.values(vendorGroups);
+          })()}
+          projectId={projectId}
+          weddingDate={weddingDate}
+          onSuccess={() => {
+            loadDesign();
+          }}
+        />
+      )}
 
       {threeDPreview && (
         <Listing3DDialog

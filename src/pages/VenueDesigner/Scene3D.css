@@ -13,6 +13,54 @@
   height: 100% !important;
 }
 
+.scene3d-floating-actions {
+  position: absolute;
+  top: 20px;
+  right: 22px;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.scene3d-fab {
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1f2933;
+  font-weight: 600;
+  padding: 10px 18px;
+  min-width: 140px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  box-shadow: 0 12px 30px rgba(15, 6, 13, 0.15);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.scene3d-fab-primary {
+  background: linear-gradient(135deg, #1d1a38, #3d2c4f);
+  color: #fff;
+}
+
+.scene3d-fab-accent {
+  background: linear-gradient(135deg, #16a085, #0f8a6b);
+  color: #fff;
+}
+
+.scene3d-fab:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.scene3d-fab:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(15, 6, 13, 0.25);
+}
+
 .scene3d-toolbar {
   position: absolute;
   top: 18px;
@@ -23,11 +71,60 @@
   gap: 18px;
   align-items: center;
   padding: 10px 16px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.85);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
   box-shadow: 0 8px 24px rgba(15, 18, 35, 0.15);
   backdrop-filter: blur(18px);
   border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.scene3d-toolbar .budget-panel {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.scene3d-view-mode-controls {
+  position: absolute;
+  bottom: 20px;
+  right: 22px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.scene3d-view-mode-btn {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.scene3d-view-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.05);
+}
+
+.scene3d-view-mode-btn.active {
+  background: rgba(255, 255, 255, 0.95);
+  color: #0f060d;
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
 }
 
 .scene3d-toolbar-group {
@@ -99,20 +196,38 @@
 
 .scene3d-meta {
   position: absolute;
-  bottom: 16px;
-  right: 22px;
-  color: white;
-  text-shadow: 0 6px 26px rgba(0, 0, 0, 0.4);
-  font-size: 0.92rem;
+  top: 20px;
+  left: 22px;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  font-size: 0.85rem;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  gap: 4px;
+  z-index: 9;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 8px 12px;
+  border-radius: 8px;
+  backdrop-filter: blur(8px);
 }
 
 .scene3d-meta-muted {
   font-size: 0.78rem;
   opacity: 0.85;
+}
+
+.scene3d-hint {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 0.78rem;
+  color: #473c36;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+  z-index: 9;
 }
 
 .placement-toolbar-wrapper {

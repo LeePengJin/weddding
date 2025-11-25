@@ -9,11 +9,15 @@ import {
   MenuItem,
   Typography,
   Box,
+  Button,
+  Tooltip,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { Link as RouterLink } from 'react-router-dom';
 import ServiceListingCard from './ServiceListingCard';
 import CatalogDetailPanel from './CatalogDetailPanel';
 import './CatalogSidebar.css';
@@ -21,6 +25,9 @@ import './CatalogSidebar.css';
 const CatalogSidebar = ({
   collapsed,
   onToggle,
+  backLabel = 'Back',
+  backTo,
+  onBack,
   searchTerm,
   onSearch,
   selectedCategory,
@@ -34,19 +41,39 @@ const CatalogSidebar = ({
   onCloseDetails,
   onShowItem3D,
   onMessageVendor,
+  sidebarFooter,
 }) => {
+  const backButtonProps = backTo
+    ? {
+        component: RouterLink,
+        to: backTo,
+      }
+    : {};
+
+  const handleBackClick = (event) => {
+    if (onBack) {
+      onBack(event);
+    }
+  };
+
   return (
     <Paper elevation={0} square className={`catalog-panel ${collapsed ? 'collapsed' : ''}`}>
       <div className="catalog-header-row">
         {!collapsed && (
           <div className="catalog-heading">
-            <Typography variant="overline" className="catalog-label">
-              Add Items
-            </Typography>
+            <Button
+              variant="text"
+              startIcon={<ArrowBackIcon fontSize="small" />}
+              className="catalog-back-button"
+              onClick={handleBackClick}
+              {...backButtonProps}
+            >
+              {backLabel}
+            </Button>
             <Typography variant="h5" component="h3">
-              Design Catalog
+              Design catalog
             </Typography>
-            <Typography variant="body2">Drag items to your venue space</Typography>
+            <Typography variant="body2">Browse services and add them directly to your scene.</Typography>
           </div>
         )}
         <IconButton className="catalog-toggle" onClick={onToggle} aria-label="Toggle catalog">
@@ -56,6 +83,16 @@ const CatalogSidebar = ({
 
       {collapsed ? (
         <div className="catalog-collapsed">
+          <Tooltip title={backLabel}>
+            <IconButton
+              size="small"
+              className="catalog-back-icon"
+              onClick={handleBackClick}
+              {...backButtonProps}
+            >
+              <ArrowBackIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
           <LayersOutlinedIcon fontSize="small" />
           <span>Catalog</span>
         </div>
@@ -111,16 +148,13 @@ const CatalogSidebar = ({
 
             {!loading &&
               items.map((item) => (
-                <ServiceListingCard
-                  key={item.id}
-                  item={item}
-                  onAdd={onAdd}
-                  onShowDetails={onShowDetails}
-                />
+                <ServiceListingCard key={item.id} item={item} onAdd={onAdd} onShowDetails={onShowDetails} />
               ))}
           </Box>
         </>
       )}
+
+      {!collapsed && sidebarFooter && <Box className="catalog-sidebar-footer">{sidebarFooter}</Box>}
     </Paper>
   );
 };

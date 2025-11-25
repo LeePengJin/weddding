@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import './Login.css';
 import { Box, Button, TextField, Typography } from '@mui/material';
@@ -7,6 +7,7 @@ import { Box, Button, TextField, Typography } from '@mui/material';
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -18,12 +19,18 @@ export default function Login() {
     setSubmitting(true);
     try {
       const user = await login(email, password);
-      // Redirect based on user role
-      if (user.role === 'vendor') {
-        navigate('/vendor/dashboard');
+      // Redirect to the page the user was trying to access, or default based on role
+      const from = location.state?.from?.pathname;
+      if (from) {
+        navigate(from, { replace: true });
       } else {
-        // Default to homepage for couple
-        navigate('/');
+        // Default redirect based on user role
+        if (user.role === 'vendor') {
+          navigate('/vendor/dashboard', { replace: true });
+        } else {
+          // Default to homepage for couple
+          navigate('/', { replace: true });
+        }
       }
     } catch (err) {
       setError(err.message || 'Login failed');

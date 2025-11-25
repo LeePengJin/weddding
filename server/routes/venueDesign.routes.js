@@ -47,7 +47,7 @@ const CAMERA_SCHEMA = z.object({
   });
 
 const SAVE_SCHEMA = z.object({
-  layoutData: z.record(z.any()).optional(),
+  layoutData: z.any().optional(),
 });
 
 const CATALOG_QUERY_SCHEMA = z.object({
@@ -163,6 +163,12 @@ function serializeServiceListing(listing) {
 }
 
 function serializePlacement(placement, meta, serviceMap) {
+  const position = placement?.position;
+  const safePosition = {
+    x: typeof position?.x === 'number' ? position.x : 0,
+    y: typeof position?.y === 'number' ? position.y : 0,
+    z: typeof position?.z === 'number' ? position.z : 0,
+  };
   const service =
     meta && meta.serviceListingId ? serviceMap[meta.serviceListingId] ?? null : null;
 
@@ -171,9 +177,9 @@ function serializePlacement(placement, meta, serviceMap) {
     rotation: placement.rotation ?? 0,
     isLocked: placement.isLocked,
     position: {
-      x: placement.position.x,
-      y: placement.position.y,
-      z: placement.position.z,
+      x: safePosition.x,
+      y: safePosition.y,
+      z: safePosition.z,
     },
     designElement: placement.designElement
       ? {
@@ -629,6 +635,10 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
 
     if (!serviceListing) {
       return res.status(404).json({ error: 'Service listing not found or inactive' });
+    }
+
+    if (serviceListing.category === 'Venue') {
+      return res.status(400).json({ error: 'Venue listings cannot be placed inside another venue.' });
     }
 
     const elementDescriptors = [];
@@ -1110,9 +1120,15 @@ router.get('/:projectId/catalog', requireAuth, async (req, res, next) => {
 
     const where = {
       isActive: true,
+      category: {
+        not: 'Venue',
+      },
     };
 
     if (query.category) {
+      if (query.category === 'Venue') {
+        return res.status(400).json({ error: 'Venue listings cannot be placed inside another venue.' });
+      }
       where.category = query.category;
     }
 

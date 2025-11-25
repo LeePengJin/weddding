@@ -88,6 +88,69 @@ export function getVenueAvailability(projectId, serviceListingIds = []) {
   return apiFetch(`/venue-designs/${projectId}/availability?${params.toString()}`);
 }
 
+// Package design APIs
+export function getPackageDesign(packageId) {
+  return apiFetch(`/admin/package-design/${packageId}`);
+}
+
+export function addPackageDesignElement(packageId, payload) {
+  return apiFetch(`/admin/package-design/${packageId}/elements`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePackageDesignElement(packageId, elementId, payload) {
+  return apiFetch(`/admin/package-design/${packageId}/elements/${elementId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deletePackageDesignElement(packageId, elementId, scope = 'single') {
+  const params = new URLSearchParams({ scope });
+  return apiFetch(`/admin/package-design/${packageId}/elements/${elementId}?${params.toString()}`, {
+    method: 'DELETE',
+  });
+}
+
+export function savePackageDesign(packageId, payload) {
+  return apiFetch(`/admin/package-design/${packageId}/save`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getPackageCatalog(packageId, query = {}) {
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      params.append(key, value);
+    }
+  });
+  const qs = params.toString();
+  const path = qs ? `/admin/package-design/${packageId}/catalog?${qs}` : `/admin/package-design/${packageId}/catalog`;
+  return apiFetch(path);
+}
+
+export function getPackageVenues(packageId) {
+  return apiFetch(`/admin/package-design/${packageId}/venues`);
+}
+
+export function setPackageVenue(packageId, venueServiceListingId) {
+  return apiFetch(`/admin/package-design/${packageId}/venue`, {
+    method: 'PATCH',
+    body: JSON.stringify({ venueServiceListingId }),
+  });
+}
+
+export function uploadPackagePreview(packageId, imageData) {
+  return apiFetch(`/admin/package-design/${packageId}/preview`, {
+    method: 'POST',
+    body: JSON.stringify({ imageData }),
+  });
+}
+
 // Booking APIs
 export function createBooking(payload) {
   return apiFetch('/bookings', {

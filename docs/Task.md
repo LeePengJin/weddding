@@ -108,8 +108,10 @@ _Last updated: November 18, 2025_
 - [x] (Couple) Complete the Booked Suppliers part
 - [x] (Vendor) Manage booking requests
 - [ ] (Admin) Complete the wedding package things 
-- [ ] (Admin) Complete account management
-- [ ] (Admin) Complete vendor payment
+- [x] (Admin) Complete account management
+- [x] (Admin) Complete vendor payment
 - [ ] Reporting functionality (Admin & Vendor)
 - [ ] Couple profile view (from vendor)
-- [ ] (General) Improve footer, add more pages (FaQ, About Us)
+- [x] (General) Improve footer, add more pages (FaQ, About Us)
+- [ ] Remove service availability in database
+- [ ] Remove design playgrond (both file and route)

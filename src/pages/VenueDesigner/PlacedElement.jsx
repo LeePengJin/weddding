@@ -191,6 +191,7 @@ const PlacedElement = ({
   onClose,
   allPlacements = [],
   removable = false,
+  venueBounds,
 }) => {
   const { scene, camera, raycaster } = useThree();
   const groupRef = useRef();
@@ -387,6 +388,18 @@ const PlacedElement = ({
             }
           }
 
+          // Check venue bounds constraint - account for element footprint radius
+          if (venueBounds) {
+            const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+            // Clamp position considering the element's footprint radius
+            nextX = clamp(nextX, venueBounds.minX + footprintRadius, venueBounds.maxX - footprintRadius);
+            nextZ = clamp(nextZ, venueBounds.minZ + footprintRadius, venueBounds.maxZ - footprintRadius);
+            // Y can go up but not below venue floor
+            if (nextY < venueBounds.minY) {
+              nextY = venueBounds.minY;
+            }
+          }
+
           if (!collisionFound) {
             groupRef.current.position.set(nextX, nextY, nextZ);
           }
@@ -398,7 +411,7 @@ const PlacedElement = ({
         groupRef.current.rotation.y = state.startRotation + delta * 0.01;
       }
     },
-    [snapIncrement, allPlacements, footprintRadius, placement.id, placement, scene, camera, raycaster]
+    [snapIncrement, allPlacements, footprintRadius, placement.id, placement, scene, camera, raycaster, venueBounds]
   );
 
   const handlePointerUp = useCallback(
@@ -473,9 +486,9 @@ const PlacedElement = ({
 
       {isSelected && (
         <Html
-          position={[0, (boundingBoxRef.current.max.y || 1.2) + 0.6, 0]}
+          position={[0, (boundingBoxRef.current.max.y || 1.2) + 1, 0]}
           center
-          distanceFactor={22}
+          distanceFactor={24}
           className="placement-toolbar-wrapper"
         >
           <div 
@@ -565,6 +578,14 @@ PlacedElement.propTypes = {
   onClose: PropTypes.func,
   allPlacements: PropTypes.arrayOf(PropTypes.object),
   removable: PropTypes.bool,
+  venueBounds: PropTypes.shape({
+    minX: PropTypes.number,
+    maxX: PropTypes.number,
+    minY: PropTypes.number,
+    maxY: PropTypes.number,
+    minZ: PropTypes.number,
+    maxZ: PropTypes.number,
+  }),
 };
 
 export default PlacedElement;

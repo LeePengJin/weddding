@@ -2,15 +2,23 @@ import { useEffect, useRef } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-const MOVE_SPEED = 0.3;
+const MOVE_SPEED_UNITS_PER_SECOND = 8;
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
-export function useWASDControls() {
-  const { camera } = useThree();
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+export function useWASDControls({ mode = 'orbit', bounds, firstPersonHeight = 1.75 } = {}) {
+  const { camera, controls } = useThree((state) => ({
+    camera: state.camera,
+    controls: state.controls,
+  }));
   const keysRef = useRef({});
+  const forwardRef = useRef(new THREE.Vector3());
+  const rightRef = useRef(new THREE.Vector3());
+  const moveRef = useRef(new THREE.Vector3());
 
   useEffect(() => {
     const handleKeyDown = (event) => {
-      // Only handle if not typing in an input/textarea
       if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
         return;
       }
@@ -30,26 +38,46 @@ export function useWASDControls() {
     };
   }, []);
 
-  useFrame(() => {
+  useEffect(() => {
+    if (mode === 'walk') {
+      camera.position.y = firstPersonHeight;
+    } else if (bounds) {
+      camera.position.y = clamp(camera.position.y, bounds.minY ?? camera.position.y, bounds.maxY ?? camera.position.y);
+    }
+  }, [camera, firstPersonHeight, mode, bounds]);
+
+  useFrame((_, delta) => {
+    if (mode === 'disabled') return;
     const keys = keysRef.current;
-    if (!keys['w'] && !keys['s'] && !keys['a'] && !keys['d'] && 
-        !keys['arrowup'] && !keys['arrowdown'] && !keys['arrowleft'] && !keys['arrowright']) {
+    const isMoving =
+      keys['w'] ||
+      keys['a'] ||
+      keys['s'] ||
+      keys['d'] ||
+      keys['arrowup'] ||
+      keys['arrowdown'] ||
+      keys['arrowleft'] ||
+      keys['arrowright'];
+
+    if (!isMoving) {
       return;
     }
 
-    // Get camera direction vectors
-    const forward = new THREE.Vector3();
+    const forward = forwardRef.current;
+    forward.set(0, 0, 0);
     camera.getWorldDirection(forward);
-    forward.y = 0; // Keep movement on horizontal plane
+    forward.y = 0;
+    if (forward.lengthSq() === 0) {
+      forward.z = -1;
+    }
     forward.normalize();
 
-    const right = new THREE.Vector3();
-    right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
-    right.normalize();
+    const right = rightRef.current;
+    right.copy(forward).cross(UP_AXIS).normalize();
 
-    const moveDirection = new THREE.Vector3();
+    const moveDirection = moveRef.current;
+    moveDirection.set(0, 0, 0);
 
-    // Calculate movement direction based on keys
     if (keys['w'] || keys['arrowup']) {
       moveDirection.add(forward);
     }
@@ -63,11 +91,39 @@ export function useWASDControls() {
       moveDirection.add(right);
     }
 
-    // Normalize and apply speed
-    if (moveDirection.length() > 0) {
-      moveDirection.normalize();
-      moveDirection.multiplyScalar(MOVE_SPEED);
-      camera.position.add(moveDirection);
+    if (moveDirection.lengthSq() === 0) {
+      return;
+    }
+
+    moveDirection.normalize();
+    const distance = MOVE_SPEED_UNITS_PER_SECOND * delta;
+    moveDirection.multiplyScalar(distance);
+
+    const nextPosition = camera.position.clone().add(moveDirection);
+
+    if (bounds) {
+      nextPosition.x = clamp(nextPosition.x, bounds.minX, bounds.maxX);
+      nextPosition.z = clamp(nextPosition.z, bounds.minZ, bounds.maxZ);
+      if (mode === 'walk') {
+        nextPosition.y = firstPersonHeight;
+      } else {
+        nextPosition.y = clamp(nextPosition.y, bounds.minY, bounds.maxY);
+      }
+    } else if (mode === 'walk') {
+      nextPosition.y = firstPersonHeight;
+    }
+
+    camera.position.copy(nextPosition);
+
+    if (controls?.target) {
+      const nextTarget = controls.target.clone().add(moveDirection);
+      if (bounds) {
+        nextTarget.x = clamp(nextTarget.x, bounds.minX, bounds.maxX);
+        nextTarget.z = clamp(nextTarget.z, bounds.minZ, bounds.maxZ);
+        nextTarget.y = clamp(nextTarget.y, bounds.minY, bounds.maxY);
+      }
+      controls.target.copy(nextTarget);
+      controls.update?.();
     }
   });
 }

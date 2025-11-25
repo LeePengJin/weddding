@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { apiFetch } from '../../lib/api';
+import { formatImageUrl } from '../../utils/image';
+import PackagePreview3D from '../../components/PackagePreview3D/PackagePreview3D';
 import './CreateProject.styles.css';
 
 const Step3WeddingType = ({ formData, updateFormData, error, setError }) => {
   const [packages, setPackages] = useState([]);
   const [loadingPackages, setLoadingPackages] = useState(false);
+  const [detailsPackage, setDetailsPackage] = useState(null);
+  const [previewPackage, setPreviewPackage] = useState(null);
 
   useEffect(() => {
     // Fetch packages if prepackaged is selected
@@ -16,14 +20,10 @@ const Step3WeddingType = ({ formData, updateFormData, error, setError }) => {
   const fetchPackages = async () => {
     try {
       setLoadingPackages(true);
-      // TODO: Replace with actual API endpoint when available
-      // const data = await apiFetch('/packages');
-      // For now, use placeholder data
-      const data = [];
+      const data = await apiFetch('/packages');
       setPackages(data);
     } catch (err) {
       console.error('Failed to fetch packages:', err);
-      // For now, use empty array since packages are not yet implemented
       setPackages([]);
     } finally {
       setLoadingPackages(false);
@@ -40,6 +40,19 @@ const Step3WeddingType = ({ formData, updateFormData, error, setError }) => {
     updateFormData('basePackageId', packageId);
     setError(null);
   };
+
+  const handleViewDetails = (pkg, event) => {
+    event.stopPropagation();
+    setDetailsPackage(pkg);
+  };
+
+  const handlePreviewPackage = (pkg, event) => {
+    event.stopPropagation();
+    setPreviewPackage(pkg);
+  };
+
+  const closeDetailsModal = () => setDetailsPackage(null);
+  const closePreviewModal = () => setPreviewPackage(null);
 
   return (
     <div className="step-content step3-content">
@@ -96,28 +109,143 @@ const Step3WeddingType = ({ formData, updateFormData, error, setError }) => {
             </div>
           ) : (
             <div className="packages-grid">
-              {packages.map((pkg) => (
-                <div
-                  key={pkg.id}
-                  className={`package-card ${formData.basePackageId === pkg.id ? 'selected' : ''}`}
-                  onClick={() => handlePackageSelect(pkg.id)}
-                >
-                  <h4 className="package-name">{pkg.name}</h4>
-                  <div className="package-price">RM {pkg.price?.toLocaleString() || '0'}</div>
-                  {pkg.description && (
-                    <p className="package-description">{pkg.description}</p>
-                  )}
-                  {pkg.components && pkg.components.length > 0 && (
-                    <ul className="package-features">
-                      {pkg.components.map((component, idx) => (
-                        <li key={idx}>{component.name || component}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
+              {packages.map((pkg) => {
+                const isSelected = formData.basePackageId === pkg.id;
+                return (
+                  <div
+                    key={pkg.id}
+                    className={`package-card ${isSelected ? 'selected' : ''}`}
+                    onClick={() => handlePackageSelect(pkg.id)}
+                  >
+                    <div className="package-card__image">
+                      {pkg.previewImage ? (
+                        <img src={formatImageUrl(pkg.previewImage)} alt={`${pkg.packageName} preview`} />
+                      ) : (
+                        <div className="package-card__image--placeholder">
+                          <i className="fas fa-cube"></i>
+                          <span>3D preview coming soon</span>
+                        </div>
+                      )}
+                      <div className="package-card__pill">
+                        {pkg.designSummary?.elementCount
+                          ? `${pkg.designSummary.elementCount} elements ready`
+                          : 'Template in progress'}
+                      </div>
+                      {isSelected && <div className="package-card__check"><i className="fas fa-check" /></div>}
+                    </div>
+                    <div className="package-card__body">
+                      <div className="package-card__header">
+                        <div>
+                          <h4 className="package-name">{pkg.packageName}</h4>
+                          <p className="package-description">
+                            {pkg.description || 'Curated venue layout with hand-picked services.'}
+                          </p>
+                        </div>
+                        <span className="package-card__badge">{pkg.items?.length || 0} services</span>
+                      </div>
+                      {pkg.items && pkg.items.length > 0 && (
+                        <div className="package-card__chips">
+                          {pkg.items.slice(0, 3).map((item) => (
+                            <span key={item.id || item.label} className="package-chip">
+                              {item.label}
+                            </span>
+                          ))}
+                          {pkg.items.length > 3 && (
+                            <span className="package-chip package-chip--muted">
+                              +{pkg.items.length - 3} more
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <div className="package-card__actions">
+                        <button type="button" className="package-btn ghost" onClick={(e) => handleViewDetails(pkg, e)}>
+                          Details
+                        </button>
+                        <button
+                          type="button"
+                          className="package-btn primary"
+                          onClick={(e) => handlePreviewPackage(pkg, e)}
+                        >
+                          Preview 3D
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
+        </div>
+      )}
+
+      {detailsPackage && (
+        <div className="package-modal" onClick={closeDetailsModal}>
+          <div className="package-modal__content package-modal__content--details" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="package-modal__close" onClick={closeDetailsModal}>
+              <i className="fas fa-times" />
+            </button>
+            <div className="package-modal__header package-modal__header--details">
+              <div className="package-modal__header-main">
+                <p className="package-modal__eyebrow">Template Details</p>
+                <h3 className="package-modal__title">{detailsPackage.packageName}</h3>
+                {detailsPackage.description && (
+                  <p className="package-modal__subtitle">{detailsPackage.description}</p>
+                )}
+                <div className="package-modal__stats">
+                  <div className="package-modal__stat">
+                    <span className="package-modal__stat-value">{detailsPackage.items?.length || 0}</span>
+                    <span className="package-modal__stat-label">Services</span>
+                  </div>
+                  <div className="package-modal__stat">
+                    <span className="package-modal__stat-value">{detailsPackage.designSummary?.elementCount || 0}</span>
+                    <span className="package-modal__stat-label">3D Elements</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="package-modal__body package-modal__body--details">
+              <div className="package-modal__services-section">
+                <h4 className="package-modal__section-title">Included Services</h4>
+                <div className="package-modal__services-list">
+                  {(detailsPackage.items || []).length > 0 ? (
+                    <ul className="package-modal__services-ul">
+                      {(detailsPackage.items || []).map((item) => (
+                        <li key={item.id || item.label} className="package-modal__service-item">
+                          <i className="fas fa-check package-modal__service-icon"></i>
+                          <span>{item.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="package-modal__empty-state">No services included in this template.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewPackage && (
+        <div className="package-modal package-modal--fullscreen" onClick={closePreviewModal}>
+          <div
+            className="package-modal__content package-modal__content--fullscreen"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button type="button" className="package-modal__close package-modal__close--fullscreen" onClick={closePreviewModal}>
+              <i className="fas fa-times" />
+            </button>
+            <div className="package-preview-frame package-preview-frame--fullscreen">
+              {previewPackage.id ? (
+                <PackagePreview3D packageId={previewPackage.id} height="100%" />
+              ) : (
+                <div className="package-card__image--placeholder package-card__image--placeholder--large">
+                  <i className="fas fa-vr-cardboard" />
+                  <span>Preview not available yet</span>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

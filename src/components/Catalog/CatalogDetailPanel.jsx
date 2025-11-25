@@ -224,9 +224,11 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
         <Button variant="contained" fullWidth startIcon={<AddIcon />} onClick={() => onAdd?.(item)}>
           Add to Design
         </Button>
-        <Button variant="outlined" fullWidth startIcon={<ChatBubbleOutlineIcon />} onClick={handleMessage}>
-          Message Vendor
-        </Button>
+        {onMessageVendor && (
+          <Button variant="outlined" fullWidth startIcon={<ChatBubbleOutlineIcon />} onClick={handleMessage}>
+            Message Vendor
+          </Button>
+        )}
         {hasModels && (
           <Button variant="text" fullWidth onClick={handleOpen3D}>
             See this item in 3D

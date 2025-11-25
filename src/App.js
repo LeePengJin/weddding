@@ -33,10 +33,15 @@ import AdminLayout from './admin/components/layout/AdminLayout';
 import Dashboard from './admin/pages/Dashboard';
 import Vendors from './admin/pages/Vendors';
 import AccountManagement from './admin/pages/AccountManagement';
+import PackageManagement from './admin/pages/PackageManagement';
 import VendorPayment from './admin/pages/VendorPayment';
 import VendorLayout from './vendor/components/layout/VendorLayout';
 import Profile from './pages/Profile/Profile';
 import VendorProfile from './pages/VendorProfile/VendorProfile';
+import VendorPayments from './pages/VendorPayments/VendorPayments';
+import NotFound from './pages/NotFound/NotFound';
+import About from './pages/About/About';
+import FAQ from './pages/FAQ/FAQ';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WebSocketProvider } from './context/WebSocketContext';
 
@@ -68,13 +73,15 @@ const AppContent = () => {
     <div className="App">
       {isVendorRoute ? (
         <Routes>
-          <Route path="/vendor/dashboard" element={<VendorLayout><VendorDashboard /></VendorLayout>} />
-          <Route path="/vendor/booking-requests" element={<VendorLayout><BookingRequests /></VendorLayout>} />
-          <Route path="/vendor/availability" element={<VendorLayout><AvailabilityManagement /></VendorLayout>} />
-          <Route path="/vendor/listings" element={<VendorLayout><ManageListings /></VendorLayout>} />
-          <Route path="/vendor/design-elements" element={<VendorLayout><ManageDesignElements /></VendorLayout>} />
-          <Route path="/vendor/venue-floorplan/:listingId?" element={<VendorLayout><VenueFloorplanEditor /></VendorLayout>} />
-          <Route path="/vendor/profile" element={<VendorLayout><VendorProfile /></VendorLayout>} />
+          <Route path="/vendor/dashboard" element={<RequireAuth requiredRole="vendor"><VendorLayout><VendorDashboard /></VendorLayout></RequireAuth>} />
+          <Route path="/vendor/booking-requests" element={<RequireAuth requiredRole="vendor"><VendorLayout><BookingRequests /></VendorLayout></RequireAuth>} />
+          <Route path="/vendor/availability" element={<RequireAuth requiredRole="vendor"><VendorLayout><AvailabilityManagement /></VendorLayout></RequireAuth>} />
+          <Route path="/vendor/listings" element={<RequireAuth requiredRole="vendor"><VendorLayout><ManageListings /></VendorLayout></RequireAuth>} />
+          <Route path="/vendor/design-elements" element={<RequireAuth requiredRole="vendor"><VendorLayout><ManageDesignElements /></VendorLayout></RequireAuth>} />
+          <Route path="/vendor/venue-floorplan/:listingId?" element={<RequireAuth requiredRole="vendor"><VendorLayout><VenueFloorplanEditor /></VendorLayout></RequireAuth>} />
+          <Route path="/vendor/profile" element={<RequireAuth requiredRole="vendor"><VendorLayout><VendorProfile /></VendorLayout></RequireAuth>} />
+          <Route path="/vendor/payments" element={<RequireAuth requiredRole="vendor"><VendorLayout><VendorPayments /></VendorLayout></RequireAuth>} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       ) : (
         <>
@@ -88,11 +95,14 @@ const AppContent = () => {
               <Route path="/otp" element={<Otp />} />
               <Route path="/vendor/submitted" element={<VendorSubmitted />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/faq" element={<FAQ />} />
               <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/admin/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />
               <Route path="/admin/vendors" element={<AdminLayout><Vendors /></AdminLayout>} />
-              <Route path="/admin/packages" element={<AdminLayout><Box sx={{ p: 3 }}><Typography variant="h4">Package Management</Typography><Typography variant="body1" sx={{ mt: 2 }}>Coming soon...</Typography></Box></AdminLayout>} />
+              <Route path="/admin/packages" element={<AdminLayout><PackageManagement /></AdminLayout>} />
+              <Route path="/admin/packages/:packageId/designer" element={<VenueDesigner />} />
               <Route path="/admin/accounts" element={<AdminLayout><AccountManagement /></AdminLayout>} />
               <Route path="/admin/vendor-payment" element={<AdminLayout><VendorPayment /></AdminLayout>} />
               <Route path="/admin/reports" element={<AdminLayout><Box sx={{ p: 3 }}><Typography variant="h4">Report</Typography><Typography variant="body1" sx={{ mt: 2 }}>Coming soon...</Typography></Box></AdminLayout>} />
@@ -110,6 +120,7 @@ const AppContent = () => {
               <Route path="/payment" element={<RequireAuth><Payment /></RequireAuth>} />
               <Route path="/booked-suppliers" element={<RequireAuth><BookedSuppliers /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </main>
         </>
@@ -132,9 +143,27 @@ function App() {
 
 export default App;
 
-function RequireAuth({ children }) {
+function RequireAuth({ children, requiredRole }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
+  
   if (loading) return null; // or a spinner
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    // Store the attempted location to redirect after login
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  
+  // Check role if required
+  if (requiredRole && user.role !== requiredRole) {
+    // Redirect to appropriate dashboard based on user role
+    if (user.role === 'vendor') {
+      return <Navigate to="/vendor/dashboard" replace />;
+    } else if (user.role === 'admin') {
+      return <Navigate to="/admin/dashboard" replace />;
+    } else {
+      return <Navigate to="/" replace />;
+    }
+  }
+  
   return children;
 }
