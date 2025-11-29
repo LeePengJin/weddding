@@ -3,6 +3,8 @@ import PropTypes from 'prop-types';
 import { Html, useGLTF } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useVenueDesigner } from './VenueDesignerContext';
+import TableTaggingModal from '../../components/TableTaggingModal/TableTaggingModal';
 
 const PLACEHOLDER_COLOR = '#e5dcd2';
 const HIGHLIGHT_COLOR = '#e76f93';
@@ -209,6 +211,8 @@ const PlacedElement = ({
   });
   const [isLockedLocal, setIsLockedLocal] = useState(Boolean(placement.isLocked));
   const [interactionMode, setInteractionMode] = useState('translate'); // 'translate' | 'rotate'
+  const [showTaggingModal, setShowTaggingModal] = useState(false);
+  const { venueDesignId, projectId, onReloadDesign } = useVenueDesigner();
 
   const footprintRadius = useMemo(() => getFootprintRadius(placement), [placement]);
 
@@ -224,6 +228,26 @@ const PlacedElement = ({
   const rotationY = useMemo(() => degToRad(placement.rotation || 0), [placement.rotation]);
 
   const availabilityState = availability?.available === false ? 'unavailable' : 'available';
+
+  // Check if this is a table
+  const isTable = useMemo(() => {
+    return (
+      placement?.designElement?.elementType === 'table' ||
+      placement?.elementType === 'table' ||
+      placement?.designElement?.name?.toLowerCase().includes('table')
+    );
+  }, [placement]);
+
+  // Handle tag updates - reload design to get updated placement data
+  const handleTagUpdate = useCallback(
+    async (placementId) => {
+      // Reload the design to get updated placement data with serviceListingIds
+      if (onReloadDesign) {
+        await onReloadDesign();
+      }
+    },
+    [onReloadDesign]
+  );
 
   useEffect(() => {
     setIsLockedLocal(Boolean(placement.isLocked));
@@ -535,6 +559,16 @@ const PlacedElement = ({
                   Lock
                 </button>
                 {onShowDetails && <button onClick={(e) => { e.stopPropagation(); onShowDetails?.(placement); }}>Details</button>}
+                {isTable && projectId && venueDesignId && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowTaggingModal(true);
+                    }}
+                  >
+                    Tag Services
+                  </button>
+                )}
                 {removable && (
                   <button onClick={(e) => { e.stopPropagation(); onDelete?.(placement.id); }} aria-label="Delete placement">
                     Delete
@@ -545,6 +579,17 @@ const PlacedElement = ({
             )}
           </div>
         </Html>
+      )}
+
+      {isTable && projectId && venueDesignId && (
+        <TableTaggingModal
+          open={showTaggingModal}
+          onClose={() => setShowTaggingModal(false)}
+          placement={placement}
+          venueDesignId={venueDesignId}
+          projectId={projectId}
+          onTagUpdate={handleTagUpdate}
+        />
       )}
     </group>
   );

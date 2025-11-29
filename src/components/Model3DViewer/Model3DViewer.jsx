@@ -1,8 +1,81 @@
 import React, { Suspense, useRef, useEffect, useState, useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera, useGLTF } from '@react-three/drei';
+import { Canvas, useThree } from '@react-three/fiber';
+import { OrbitControls, useGLTF } from '@react-three/drei';
 import { Box, Typography } from '@mui/material';
 import * as THREE from 'three';
+
+// Camera controller that adjusts to fit the model
+function CameraController({ autoRotate = false }) {
+  const { camera, scene } = useThree();
+  const controlsRef = useRef();
+
+  useEffect(() => {
+    if (!scene || !camera) return;
+    
+    // Wait for scene to load
+    const timer = setTimeout(() => {
+      const box = new THREE.Box3();
+      box.makeEmpty();
+      
+      scene.traverse((child) => {
+        if (child.isMesh) {
+          if (child.geometry) {
+            if (!child.geometry.boundingBox) {
+              child.geometry.computeBoundingBox();
+            }
+            const meshBox = child.geometry.boundingBox;
+            if (meshBox && !meshBox.isEmpty()) {
+              const worldBox = meshBox.clone().applyMatrix4(child.matrixWorld);
+              box.union(worldBox);
+            }
+          }
+        }
+      });
+
+      if (!box.isEmpty()) {
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        
+        // Calculate distance to fit the model with some padding
+        const distance = maxDim * 1.5;
+        const fov = camera.fov * (Math.PI / 180);
+        const cameraZ = Math.abs(distance / Math.sin(fov / 2));
+        
+        // Position camera to view the model from an angle
+        camera.position.set(
+          center.x + cameraZ * 0.5,
+          center.y + cameraZ * 0.5,
+          center.z + cameraZ * 0.8
+        );
+        camera.lookAt(center);
+        camera.updateProjectionMatrix();
+        
+        // Update controls target
+        if (controlsRef.current) {
+          controlsRef.current.target.copy(center);
+          controlsRef.current.update();
+        }
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [camera, scene]);
+
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      makeDefault
+      enablePan={false}
+      enableZoom={true}
+      enableRotate={true}
+      autoRotate={autoRotate}
+      autoRotateSpeed={0.6}
+      minDistance={0.5}
+      maxDistance={10}
+    />
+  );
+}
 
 // Model loader component
 function parseDimensions(dimensions) {
@@ -199,21 +272,12 @@ const Model3DViewer = ({
               </mesh>
             }
           >
-            <PerspectiveCamera makeDefault position={[0, 0, 2.5]} fov={50} />
+            <CameraController autoRotate={autoRotate} />
             <ambientLight intensity={0.9} />
             <directionalLight position={[6, 8, 6]} intensity={1.1} />
             <directionalLight position={[-4, -6, -4]} intensity={0.6} />
             <directionalLight position={[0, 5, -6]} intensity={0.5} />
             <Model url={fullUrl} onError={setLoadError} targetDimensions={targetDimensions} />
-            <OrbitControls
-              enablePan
-              enableZoom
-              enableRotate
-              autoRotate={autoRotate}
-              autoRotateSpeed={0.6}
-              minDistance={1}
-              maxDistance={8}
-            />
           </Suspense>
         </Canvas>
       )}

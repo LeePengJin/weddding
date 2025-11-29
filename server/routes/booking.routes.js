@@ -6,6 +6,140 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+// Booking statuses that should lock linked design elements/services (non-removable)
+const ACTIVE_BOOKING_STATUSES = [
+  'pending_vendor_confirmation',
+  'pending_deposit_payment',
+  'confirmed',
+  'pending_final_payment',
+  'completed',
+];
+
+/**
+ * Update isBooked/bookingId for PlacedElement and ProjectService linked to a booking.
+ * Rules:
+ * - If status is in ACTIVE_BOOKING_STATUSES => mark linked items as booked and attach bookingId.
+ * - If status is cancelled or rejected     => clear bookingId and mark as not booked.
+ *
+ * Note: This assumes there is at most one active booking for a given project/service at a time.
+ */
+async function updateLinkedDesignItemsForBooking(bookingId, status) {
+  const isActiveStatus = ACTIVE_BOOKING_STATUSES.includes(status);
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      selectedServices: true,
+      project: {
+        include: {
+          venueDesign: {
+            include: {
+              placedElements: {
+                select: {
+                  id: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!booking || !booking.projectId) {
+    return;
+  }
+
+  const serviceListingIds = booking.selectedServices.map(
+    (s) => s.serviceListingId
+  );
+
+  if (!booking.project.venueDesign) {
+    // No 3D design yet – only ProjectService entries will be affected
+    if (isActiveStatus) {
+      await prisma.projectService.updateMany({
+        where: {
+          projectId: booking.projectId,
+          serviceListingId: { in: serviceListingIds },
+        },
+        data: {
+          isBooked: true,
+          bookingId,
+        },
+      });
+    } else if (status === 'cancelled' || status === 'rejected') {
+      await prisma.projectService.updateMany({
+        where: {
+          bookingId,
+        },
+        data: {
+          isBooked: false,
+          bookingId: null,
+        },
+      });
+    }
+    return;
+  }
+
+  const venueDesign = booking.project.venueDesign;
+  const layoutData = venueDesign.layoutData || {};
+  const placementsMeta = layoutData.placementsMeta || {};
+
+  const placementIdsForServices = venueDesign.placedElements
+    .filter((placement) => {
+      const meta = placementsMeta[placement.id];
+      return meta && serviceListingIds.includes(meta.serviceListingId);
+    })
+    .map((placement) => placement.id);
+
+  if (isActiveStatus) {
+    // Mark linked 3D elements and non-3D services as booked
+    if (placementIdsForServices.length > 0) {
+      await prisma.placedElement.updateMany({
+        where: {
+          id: { in: placementIdsForServices },
+        },
+        data: {
+          isBooked: true,
+          bookingId,
+        },
+      });
+    }
+
+    await prisma.projectService.updateMany({
+      where: {
+        projectId: booking.projectId,
+        serviceListingId: { in: serviceListingIds },
+      },
+      data: {
+        isBooked: true,
+        bookingId,
+      },
+    });
+  } else if (status === 'cancelled' || status === 'rejected') {
+    // Booking no longer locks linked items – clear flags for this bookingId
+    await prisma.placedElement.updateMany({
+      where: {
+        bookingId,
+      },
+      data: {
+        isBooked: false,
+        bookingId: null,
+      },
+    });
+
+    await prisma.projectService.updateMany({
+      where: {
+        bookingId,
+      },
+      data: {
+        isBooked: false,
+        bookingId: null,
+      },
+    });
+  }
+}
+
 // Validation schema for booking status update
 const bookingStatusSchema = z.object({
   status: z.enum([
@@ -118,6 +252,7 @@ router.get('/', requireAuth, async (req, res, next) => {
         serviceListing: {
           ...service.serviceListing,
           price: service.serviceListing.price.toString(),
+          hourlyRate: service.serviceListing.hourlyRate ? service.serviceListing.hourlyRate.toString() : null,
         },
       })),
       payments: booking.payments.map((payment) => ({
@@ -192,6 +327,8 @@ router.get('/:id', requireAuth, async (req, res, next) => {
                 price: true,
                 images: true,
                 description: true,
+                pricingPolicy: true,
+                hourlyRate: true,
               },
             },
           },
@@ -225,6 +362,7 @@ router.get('/:id', requireAuth, async (req, res, next) => {
         serviceListing: {
           ...service.serviceListing,
           price: service.serviceListing.price.toString(),
+          hourlyRate: service.serviceListing.hourlyRate ? service.serviceListing.hourlyRate.toString() : null,
         },
       })),
       payments: booking.payments.map((payment) => ({
@@ -368,6 +506,9 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
       },
     });
 
+    // Update linked design items (PlacedElement / ProjectService) based on new status
+    await updateLinkedDesignItemsForBooking(updatedBooking.id, updatedBooking.status);
+
     // Convert Decimal to string for JSON response
     const bookingWithStringPrices = {
       ...updatedBooking,
@@ -506,12 +647,18 @@ router.post('/', requireAuth, async (req, res, next) => {
                 name: true,
                 category: true,
                 price: true,
+                pricingPolicy: true,
+                hourlyRate: true,
               },
             },
           },
         },
       },
     });
+
+    // Newly created bookings start in an active status (pending_vendor_confirmation)
+    // Mark linked design items as booked
+    await updateLinkedDesignItemsForBooking(booking.id, booking.status);
 
     // Convert Decimal to string for JSON response
     const bookingWithStringPrices = {
@@ -522,6 +669,7 @@ router.post('/', requireAuth, async (req, res, next) => {
         serviceListing: {
           ...service.serviceListing,
           price: service.serviceListing.price.toString(),
+          hourlyRate: service.serviceListing.hourlyRate ? service.serviceListing.hourlyRate.toString() : null,
         },
       })),
     };
@@ -604,11 +752,13 @@ router.post('/:id/payments', requireAuth, async (req, res, next) => {
       newStatus = 'completed';
     }
 
-    // Update booking status
-    await prisma.booking.update({
+    // Update booking status and linked design items
+    const updatedBooking = await prisma.booking.update({
       where: { id: booking.id },
       data: { status: newStatus },
     });
+
+    await updateLinkedDesignItemsForBooking(updatedBooking.id, updatedBooking.status);
 
     // Convert Decimal to string for JSON response
     const paymentWithStringAmount = {

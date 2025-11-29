@@ -248,11 +248,23 @@ router.post('/', requireAuth, async (req, res, next) => {
       },
     });
 
+    // Ensure each project has its own budget record as soon as it is created
+    const budget = await prisma.budget.upsert({
+      where: { projectId: project.id },
+      update: {},
+      create: {
+        projectId: project.id,
+        totalBudget: 0,
+        totalSpent: 0,
+        totalRemaining: 0,
+      },
+    });
+
     if (data.basePackageId) {
       await applyPackageDesignToProject(prisma, data.basePackageId, project.id);
     }
 
-    res.status(201).json(project);
+    res.status(201).json({ ...project, budget });
   } catch (err) {
     if (err instanceof z.ZodError) {
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
@@ -422,6 +434,65 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
     });
 
     res.json({ message: 'Project deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /projects/:projectId/services/:serviceListingId
+ * Remove a non-3D service (ProjectService) from a project, only if not booked.
+ */
+router.delete('/:projectId/services/:serviceListingId', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'couple') {
+      return res.status(403).json({ error: 'Couple access required' });
+    }
+
+    const { projectId, serviceListingId } = req.params;
+
+    // Ensure project belongs to this couple
+    const project = await prisma.weddingProject.findFirst({
+      where: {
+        id: projectId,
+        coupleId: req.user.sub,
+      },
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const projectService = await prisma.projectService.findUnique({
+      where: {
+        projectId_serviceListingId: {
+          projectId,
+          serviceListingId,
+        },
+      },
+    });
+
+    if (!projectService) {
+      return res.status(404).json({ error: 'Service not found in this project' });
+    }
+
+    if (projectService.isBooked) {
+      return res.status(400).json({
+        error:
+          'This service is part of a booking and cannot be removed from the project. Please contact your vendor if you need to change a booked service.',
+      });
+    }
+
+    await prisma.projectService.delete({
+      where: {
+        projectId_serviceListingId: {
+          projectId,
+          serviceListingId,
+        },
+      },
+    });
+
+    return res.json({ message: 'Service removed from project successfully' });
   } catch (err) {
     next(err);
   }

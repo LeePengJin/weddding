@@ -361,6 +361,27 @@ const BudgetManagement = () => {
   });
 
   useEffect(() => {
+    // Clear all state when projectId changes
+    setBudget(null);
+    setSelectedCategory(null);
+    setHoveredSegment(null);
+    setIsEditingBudget(false);
+    setEditingBudgetValue('');
+    setNewCategoryName('');
+    setNewExpense({ expenseName: '', estimatedCost: '', actualCost: '', remark: '' });
+    setEditingExpense(null);
+    setSearchQuery('');
+    setEditingCategoryId(null);
+    setEditingCategoryName('');
+    setFormErrors({
+      categoryName: '',
+      expenseName: '',
+      estimatedCost: '',
+      actualCost: '',
+      budget: '',
+      remark: '',
+    });
+    
     if (projectId) {
       fetchBudget();
     } else {
@@ -387,11 +408,26 @@ const BudgetManagement = () => {
     try {
       setLoading(true);
       setError('');
-      const data = await apiFetch(`/budgets/project/${projectId}`);
-      setBudget(data);
+      // Ensure we're using the current projectId from URL
+      const currentProjectId = searchParams.get('projectId');
+      if (!currentProjectId) {
+        setError('Project ID is required');
+        setLoading(false);
+        return;
+      }
+      const data = await apiFetch(`/budgets/project/${currentProjectId}`);
+      // Double-check that the returned budget belongs to the current project
+      if (data && data.projectId !== currentProjectId) {
+        console.error('Budget data mismatch: returned budget does not belong to current project');
+        setError('Budget data mismatch. Please refresh the page.');
+        setBudget(null);
+      } else {
+        setBudget(data);
+      }
     } catch (err) {
       setError(err.message || 'Failed to load budget');
       console.error('Error fetching budget:', err);
+      setBudget(null);
     } finally {
       setLoading(false);
     }
@@ -480,6 +516,14 @@ const BudgetManagement = () => {
   const handleUpdateBudget = async () => {
     if (!budget) return;
     
+    // Verify budget belongs to current project
+    const currentProjectId = searchParams.get('projectId');
+    if (!currentProjectId || budget.projectId !== currentProjectId) {
+      setError('Budget does not belong to current project. Please refresh the page.');
+      await fetchBudget();
+      return;
+    }
+    
     const error = validateBudget(editingBudgetValue);
     if (error) {
       setFormErrors(prev => ({ ...prev, budget: error }));
@@ -488,11 +532,12 @@ const BudgetManagement = () => {
 
     try {
       const totalBudget = parseFloat(editingBudgetValue);
-      const updated = await apiFetch(`/budgets/${budget.id}`, {
+      await apiFetch(`/budgets/${budget.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ totalBudget }),
       });
-      setBudget(updated);
+      // Refetch budget to ensure we have the latest data
+      await fetchBudget();
       setIsEditingBudget(false);
       setEditingBudgetValue('');
       setFormErrors(prev => ({ ...prev, budget: '' }));
@@ -506,6 +551,14 @@ const BudgetManagement = () => {
   const handleAddCategory = async () => {
     if (!budget) return;
     
+    // Verify budget belongs to current project
+    const currentProjectId = searchParams.get('projectId');
+    if (!currentProjectId || budget.projectId !== currentProjectId) {
+      setError('Budget does not belong to current project. Please refresh the page.');
+      await fetchBudget();
+      return;
+    }
+    
     const error = validateCategoryName(newCategoryName);
     if (error) {
       setFormErrors(prev => ({ ...prev, categoryName: error }));
@@ -517,10 +570,8 @@ const BudgetManagement = () => {
         method: 'POST',
         body: JSON.stringify({ categoryName: newCategoryName.trim() }),
       });
-      setBudget(prev => ({
-        ...prev,
-        categories: [...(prev.categories || []), newCategory],
-      }));
+      // Refetch budget to ensure we have the latest data
+      await fetchBudget();
       setNewCategoryName('');
       setShowAddCategoryDialog(false);
       setFormErrors(prev => ({ ...prev, categoryName: '' }));
@@ -534,6 +585,14 @@ const BudgetManagement = () => {
   const handleUpdateCategory = async () => {
     if (!editingCategoryId || !budget) return;
     
+    // Verify budget belongs to current project
+    const currentProjectId = searchParams.get('projectId');
+    if (!currentProjectId || budget.projectId !== currentProjectId) {
+      setError('Budget does not belong to current project. Please refresh the page.');
+      await fetchBudget();
+      return;
+    }
+    
     const error = validateCategoryName(editingCategoryName);
     if (error) {
       setFormErrors(prev => ({ ...prev, categoryName: error }));
@@ -541,16 +600,18 @@ const BudgetManagement = () => {
     }
 
     try {
-      const updated = await apiFetch(`/budgets/${budget.id}/categories/${editingCategoryId}`, {
+      await apiFetch(`/budgets/${budget.id}/categories/${editingCategoryId}`, {
         method: 'PATCH',
         body: JSON.stringify({ categoryName: editingCategoryName.trim() }),
       });
-      setBudget(prev => ({
-        ...prev,
-        categories: prev.categories.map(cat => cat.id === editingCategoryId ? updated : cat),
-      }));
+      // Refetch budget to ensure we have the latest data
+      await fetchBudget();
       if (selectedCategory?.id === editingCategoryId) {
-        setSelectedCategory(updated);
+        const updatedBudget = await apiFetch(`/budgets/project/${currentProjectId}`);
+        const updatedCategory = updatedBudget.categories.find(cat => cat.id === editingCategoryId);
+        if (updatedCategory) {
+          setSelectedCategory(updatedCategory);
+        }
       }
       setEditingCategoryId(null);
       setEditingCategoryName('');
@@ -587,6 +648,14 @@ const BudgetManagement = () => {
   const handleAddExpense = async () => {
     if (!selectedCategory || !budget) return;
     
+    // Verify budget belongs to current project
+    const currentProjectId = searchParams.get('projectId');
+    if (!currentProjectId || budget.projectId !== currentProjectId) {
+      setError('Budget does not belong to current project. Please refresh the page.');
+      await fetchBudget();
+      return;
+    }
+    
     const nameError = validateExpenseName(newExpense.expenseName);
     const estimatedError = validateCost(newExpense.estimatedCost, 'estimatedCost');
     const actualError = newExpense.actualCost ? validateCost(newExpense.actualCost, 'actualCost') : '';
@@ -613,9 +682,13 @@ const BudgetManagement = () => {
           remark: newExpense.remark.trim() || null,
         }),
       });
+      // Refetch budget to ensure we have the latest data
       await fetchBudget();
-      const updatedBudget = await apiFetch(`/budgets/project/${projectId}`);
-      setSelectedCategory(updatedBudget.categories.find(cat => cat.id === selectedCategory.id));
+      const updatedBudget = await apiFetch(`/budgets/project/${currentProjectId}`);
+      const updatedCategory = updatedBudget.categories.find(cat => cat.id === selectedCategory.id);
+      if (updatedCategory) {
+        setSelectedCategory(updatedCategory);
+      }
       setNewExpense({ expenseName: '', estimatedCost: '', actualCost: '', remark: '' });
       setShowAddExpenseDialog(false);
       setFormErrors(prev => ({ ...prev, expenseName: '', estimatedCost: '', actualCost: '', remark: '' }));
@@ -628,6 +701,14 @@ const BudgetManagement = () => {
 
   const handleUpdateExpense = async () => {
     if (!editingExpense || !selectedCategory || !budget) return;
+    
+    // Verify budget belongs to current project
+    const currentProjectId = searchParams.get('projectId');
+    if (!currentProjectId || budget.projectId !== currentProjectId) {
+      setError('Budget does not belong to current project. Please refresh the page.');
+      await fetchBudget();
+      return;
+    }
     
     const nameError = validateExpenseName(editingExpense.expenseName);
     const estimatedError = validateCost(editingExpense.estimatedCost, 'estimatedCost');
@@ -655,9 +736,13 @@ const BudgetManagement = () => {
           remark: editingExpense.remark.trim() || null,
         }),
       });
+      // Refetch budget to ensure we have the latest data
       await fetchBudget();
-      const updatedBudget = await apiFetch(`/budgets/project/${projectId}`);
-      setSelectedCategory(updatedBudget.categories.find(cat => cat.id === selectedCategory.id));
+      const updatedBudget = await apiFetch(`/budgets/project/${currentProjectId}`);
+      const updatedCategory = updatedBudget.categories.find(cat => cat.id === selectedCategory.id);
+      if (updatedCategory) {
+        setSelectedCategory(updatedCategory);
+      }
       setShowEditExpenseDialog(null);
       setEditingExpense(null);
       setFormErrors(prev => ({ ...prev, expenseName: '', estimatedCost: '', actualCost: '', remark: '' }));
@@ -670,13 +755,26 @@ const BudgetManagement = () => {
 
   const handleDeleteExpense = async () => {
     if (!showDeleteDialog || !selectedCategory || !budget) return;
+    
+    // Verify budget belongs to current project
+    const currentProjectId = searchParams.get('projectId');
+    if (!currentProjectId || budget.projectId !== currentProjectId) {
+      setError('Budget does not belong to current project. Please refresh the page.');
+      await fetchBudget();
+      return;
+    }
+    
     try {
       await apiFetch(`/budgets/${budget.id}/categories/${selectedCategory.id}/expenses/${showDeleteDialog.id}`, {
         method: 'DELETE',
       });
+      // Refetch budget to ensure we have the latest data
       await fetchBudget();
-      const updatedBudget = await apiFetch(`/budgets/project/${projectId}`);
-      setSelectedCategory(updatedBudget.categories.find(cat => cat.id === selectedCategory.id));
+      const updatedBudget = await apiFetch(`/budgets/project/${currentProjectId}`);
+      const updatedCategory = updatedBudget.categories.find(cat => cat.id === selectedCategory.id);
+      if (updatedCategory) {
+        setSelectedCategory(updatedCategory);
+      }
       setShowDeleteDialog(null);
       setSuccessMessage({ open: true, message: 'Expense deleted successfully!' });
     } catch (err) {

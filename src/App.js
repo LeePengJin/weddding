@@ -41,6 +41,7 @@ import VendorProfile from './pages/VendorProfile/VendorProfile';
 import VendorPayments from './pages/VendorPayments/VendorPayments';
 import NotFound from './pages/NotFound/NotFound';
 import About from './pages/About/About';
+import Features from './pages/Features/Features';
 import FAQ from './pages/FAQ/FAQ';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WebSocketProvider } from './context/WebSocketContext';
@@ -86,7 +87,20 @@ const AppContent = () => {
       ) : (
         <>
           {!hideNavbar && <Header />}
-          <main style={isMessagesRoute ? { paddingTop: 0 } : {}}>
+          {/*
+            Apply an offset only on authenticated/couple pages so the floating
+            header doesn't overlap their content. Marketing pages (home/about/faq)
+            remain flush with the viewport.
+          */}
+          <main
+            style={
+              !hideNavbar &&
+              !isMessagesRoute &&
+              !['/', '/about', '/faq', '/features'].includes(location.pathname)
+                ? { paddingTop: '80px' }
+                : {}
+            }
+          >
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
@@ -96,6 +110,7 @@ const AppContent = () => {
               <Route path="/vendor/submitted" element={<VendorSubmitted />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/about" element={<About />} />
+              <Route path="/features" element={<Features />} />
               <Route path="/faq" element={<FAQ />} />
               <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
               <Route path="/admin/login" element={<AdminLogin />} />

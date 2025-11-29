@@ -68,6 +68,34 @@ const VENDOR_CATEGORIES = [
   'Other',
 ];
 
+// Pricing policies matching the backend enum
+const PRICING_POLICIES = {
+  fixed_package: 'Fixed Package',
+  per_table: 'Per Table',
+  per_unit: 'Per Unit',
+  tiered_package: 'Tiered Package',
+  time_based: 'Time Based',
+};
+
+// Filter pricing policies based on category and availability type
+const getAvailablePricingPolicies = (category, availabilityType) => {
+  // Venues should only have fixed_package
+  if (category === 'Venue') {
+    return { fixed_package: PRICING_POLICIES.fixed_package };
+  }
+  
+  // For exclusive services, usually fixed_package or time_based
+  if (availabilityType === 'exclusive') {
+    return {
+      fixed_package: PRICING_POLICIES.fixed_package,
+      time_based: PRICING_POLICIES.time_based,
+    };
+  }
+  
+  // For reusable/quantity-based, show all options
+  return PRICING_POLICIES;
+};
+
 const ManageListings = () => {
   const { user, loading: authLoading } = useAuth();
   const [listings, setListings] = useState([]);
@@ -95,7 +123,10 @@ const ManageListings = () => {
     isActive: true,
     availabilityType: 'exclusive',
     maxQuantity: '',
-    pricingPolicy: 'flat',
+    pricingPolicy: 'fixed_package',
+    hourlyRate: '',
+    tieredPricing: [],
+    isBundle: false,
   });
   const [components, setComponents] = useState([]);
   const [designElements, setDesignElements] = useState([]);
@@ -221,7 +252,10 @@ const ManageListings = () => {
         isActive: listing.isActive !== undefined ? listing.isActive : true,
         availabilityType: listing.availabilityType || 'exclusive',
         maxQuantity: listing.maxQuantity ? listing.maxQuantity.toString() : '',
-        pricingPolicy: listing.pricingPolicy || 'flat',
+        pricingPolicy: listing.pricingPolicy || 'fixed_package',
+        hourlyRate: listing.hourlyRate ? parseFloat(listing.hourlyRate).toString() : '',
+        tieredPricing: listing.tieredPricing || [],
+        isBundle: (listing.components && listing.components.length > 0) || false,
       });
       // Map components to include designElementId (not just the full designElement object)
       const mappedComponents = (listing.components || []).map((comp) => ({
@@ -283,7 +317,9 @@ const ManageListings = () => {
         isActive: true,
         availabilityType: 'exclusive',
         maxQuantity: '',
-        pricingPolicy: 'flat',
+        pricingPolicy: 'fixed_package',
+        hourlyRate: '',
+        tieredPricing: [],
       });
       setComponents([]);
       setImages([]);
@@ -325,6 +361,7 @@ const ManageListings = () => {
       description: wizardData.description || '',
       price: wizardData.price,
       pricingPolicy: wizardData.pricingPolicy,
+      isBundle: wizardData.isBundle || false,
     }));
     
     // Update other state from wizard
@@ -540,6 +577,8 @@ const ManageListings = () => {
           availabilityType: formData.availabilityType,
           maxQuantity: formData.availabilityType === 'quantity_based' ? parseInt(formData.maxQuantity) : null,
           pricingPolicy: formData.pricingPolicy,
+          hourlyRate: formData.pricingPolicy === 'time_based' && formData.hourlyRate ? parseFloat(formData.hourlyRate) : null,
+          tieredPricing: formData.pricingPolicy === 'tiered_package' && formData.tieredPricing ? formData.tieredPricing : null,
           // Include designElementId for non-bundle services
           ...(components.length === 0 && useExistingDesignElement && selectedDesignElementId
             ? { designElementId: selectedDesignElementId }
@@ -717,6 +756,8 @@ const ManageListings = () => {
           availabilityType: formData.availabilityType,
           maxQuantity: formData.availabilityType === 'quantity_based' ? parseInt(formData.maxQuantity) : null,
           pricingPolicy: formData.pricingPolicy,
+          hourlyRate: formData.pricingPolicy === 'time_based' && formData.hourlyRate ? parseFloat(formData.hourlyRate) : null,
+          tieredPricing: formData.pricingPolicy === 'tiered_package' && formData.tieredPricing ? formData.tieredPricing : null,
           // Include designElementId for non-bundle services
           ...(components.length === 0 && useExistingDesignElement && selectedDesignElementId
             ? { designElementId: selectedDesignElementId }
@@ -875,7 +916,19 @@ const ManageListings = () => {
         handleCloseModal();
       }, 1000);
     } catch (err) {
-      setError(err.message || 'Failed to save listing');
+      // Try to extract validation errors from the error response
+      let errorMessage = err.message || 'Failed to save listing';
+      
+      // If the error contains issues array (from Zod validation), show all errors
+      if (err.issues && Array.isArray(err.issues)) {
+        const errorMessages = err.issues.map(issue => {
+          const field = issue.path?.[0] || 'field';
+          return `${field}: ${issue.message}`;
+        });
+        errorMessage = errorMessages.join('\n');
+      }
+      
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -1551,17 +1604,17 @@ const ManageListings = () => {
                       )}
                     </TableCell>
                     <TableCell align="center" sx={{ width: 120 }}>
-                      {listing.pricingPolicy && listing.pricingPolicy !== 'flat' ? (
+                      {listing.pricingPolicy ? (
                         <Chip
                           size="small"
-                          label={listing.pricingPolicy.replace('_', ' ')}
+                          label={PRICING_POLICIES[listing.pricingPolicy] || (listing.pricingPolicy === 'flat' ? 'Fixed Package' : listing.pricingPolicy.replace(/_/g, ' '))}
                           sx={{
                             backgroundColor: '#e8f5e9',
                             color: '#2e7d32',
                           }}
                         />
                       ) : (
-                        'Flat'
+                        '-'
                       )}
                     </TableCell>
                     <TableCell sx={{ width: 200 }}>
@@ -1986,21 +2039,143 @@ const ManageListings = () => {
               label="Pricing Policy"
               value={formData.pricingPolicy}
               onChange={(e) => handleInputChange('pricingPolicy', e.target.value)}
-              helperText="How units are calculated from 3D design"
+              helperText="How the price is calculated"
               sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
             >
-              <MenuItem value="flat">Flat - One unit per booking</MenuItem>
-              <MenuItem value="per_table">Per Table - Units = number of tables in design</MenuItem>
-              <MenuItem value="per_set">Per Set - Units = number of table sets in design</MenuItem>
-              <MenuItem value="per_guest">Per Guest - Units = project guest count</MenuItem>
-              <MenuItem value="tiered">Tiered - Advanced volume pricing</MenuItem>
+              {Object.entries(getAvailablePricingPolicies(formData.category, formData.availabilityType)).map(([key, label]) => (
+                <MenuItem key={key} value={key}>
+                  {label}
+                </MenuItem>
+              ))}
             </TextField>
 
-            {/* Service Components Section */}
+            {/* Hourly Rate - Only show when time_based pricing is selected */}
+            {formData.pricingPolicy === 'time_based' && (
+              <TextField
+                fullWidth
+                label="Hourly Rate (RM)"
+                type="number"
+                value={formData.hourlyRate}
+                onChange={(e) => handleInputChange('hourlyRate', e.target.value)}
+                error={!!fieldErrors.hourlyRate}
+                helperText={fieldErrors.hourlyRate || 'The rate charged per hour for this service'}
+                required
+                inputProps={{ min: 0, step: 0.01 }}
+                sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
+              />
+            )}
+
+            {/* Tiered Pricing - Only show when tiered_package pricing is selected */}
+            {formData.pricingPolicy === 'tiered_package' && (
+              <Box sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f8f9fa' }}>
+                <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+                  Pricing Tiers
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                  Define different prices for different quantities or guest counts.
+                </Typography>
+
+                <Stack spacing={2}>
+                  {formData.tieredPricing.map((tier, index) => (
+                    <Box key={index} sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                      <TextField
+                        label="Tier Name"
+                        size="small"
+                        value={tier.name}
+                        onChange={(e) => {
+                          const newTiers = [...formData.tieredPricing];
+                          newTiers[index] = { ...tier, name: e.target.value };
+                          handleInputChange('tieredPricing', newTiers);
+                        }}
+                        error={!!fieldErrors[`tier_${index}_name`]}
+                        helperText={fieldErrors[`tier_${index}_name`]}
+                        required
+                        sx={{ flex: 2 }}
+                      />
+                      <TextField
+                        label="Price (RM)"
+                        type="number"
+                        size="small"
+                        value={tier.price}
+                        onChange={(e) => {
+                          const newTiers = [...formData.tieredPricing];
+                          newTiers[index] = { ...tier, price: e.target.value };
+                          handleInputChange('tieredPricing', newTiers);
+                        }}
+                        error={!!fieldErrors[`tier_${index}_price`]}
+                        helperText={fieldErrors[`tier_${index}_price`]}
+                        required
+                        inputProps={{ min: 0, step: 0.01 }}
+                        sx={{ flex: 1 }}
+                      />
+                      <IconButton
+                        onClick={() => {
+                          const newTiers = formData.tieredPricing.filter((_, i) => i !== index);
+                          handleInputChange('tieredPricing', newTiers);
+                        }}
+                        color="error"
+                        size="small"
+                      >
+                        <CloseIcon />
+                      </IconButton>
+                    </Box>
+                  ))}
+                </Stack>
+
+                <Button
+                  startIcon={<AddIcon />}
+                  onClick={() => {
+                    const newTiers = [...formData.tieredPricing, { name: '', price: '' }];
+                    handleInputChange('tieredPricing', newTiers);
+                  }}
+                  variant="outlined"
+                  sx={{ mt: 2, textTransform: 'none' }}
+                >
+                  Add Tier
+                </Button>
+
+                {fieldErrors.tieredPricing && (
+                  <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
+                    {fieldErrors.tieredPricing}
+                  </Typography>
+                )}
+              </Box>
+            )}
+
+            {/* Bundle Toggle */}
+            <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#fafafa' }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={formData.isBundle}
+                    onChange={(e) => {
+                      handleInputChange('isBundle', e.target.checked);
+                      if (!e.target.checked) {
+                        // Clear components when disabling bundle
+                        setComponents([]);
+                      }
+                    }}
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      This is a bundle service
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Enable this if your service consists of multiple components (e.g., "Table Set" = 1 table + 10 chairs)
+                    </Typography>
+                  </Box>
+                }
+              />
+            </Box>
+
+            {/* Service Components Section - Only show when bundle is enabled */}
+            {formData.isBundle && (
             <Box>
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                  Service Components (Optional - for bundle services)
+                  Service Components
                 </Typography>
                 <Button
                   variant="outlined"
@@ -2231,6 +2406,7 @@ const ManageListings = () => {
                 </Typography>
               )}
             </Box>
+            )}
 
             {/* Images */}
             <Box>

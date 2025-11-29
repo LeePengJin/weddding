@@ -97,19 +97,42 @@ router.get('/project/:projectId', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // First, get the budget to ensure it exists and belongs to the project
     let budget = await prisma.budget.findUnique({
       where: { projectId: req.params.projectId },
-      include: {
-        categories: {
-          include: {
-            expenses: {
-              orderBy: { createdAt: 'asc' },
-            },
-          },
-          orderBy: { createdAt: 'asc' },
-        },
-      },
     });
+
+    // If budget exists, verify it belongs to the correct project and fetch categories
+    if (budget) {
+      // Double-check: ensure budget's projectId matches the requested projectId
+      if (budget.projectId !== req.params.projectId) {
+        console.error(`Budget data integrity error: Budget ${budget.id} has projectId ${budget.projectId} but was queried for projectId ${req.params.projectId}`);
+        return res.status(500).json({ error: 'Data integrity error detected' });
+      }
+
+      // Fetch categories explicitly filtered by budgetId to ensure data isolation
+      const categories = await prisma.budgetCategory.findMany({
+        where: { 
+          budgetId: budget.id, // Explicitly filter by the budget's ID to ensure isolation
+        },
+        include: {
+          expenses: {
+            orderBy: { createdAt: 'asc' },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      
+      // Verify all categories belong to this budget
+      const invalidCategories = categories.filter(cat => cat.budgetId !== budget.id);
+      if (invalidCategories.length > 0) {
+        console.error(`Data integrity error: Found ${invalidCategories.length} categories that don't belong to budget ${budget.id}`);
+        // Filter out invalid categories
+        budget = { ...budget, categories: categories.filter(cat => cat.budgetId === budget.id) };
+      } else {
+        budget = { ...budget, categories };
+      }
+    }
 
     // Create budget if it doesn't exist
     if (!budget) {

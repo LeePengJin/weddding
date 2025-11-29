@@ -23,11 +23,17 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import LockIcon from '@mui/icons-material/Lock';
 import './DesignSummary.styles.css';
 import { useVenueDesigner } from './VenueDesignerContext';
 
 const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
-  const { placements = [], availabilityMap = {}, onRemovePlacement } = useVenueDesigner();
+  const {
+    placements = [],
+    projectServices = [],
+    availabilityMap = {},
+    onRemovePlacement,
+  } = useVenueDesigner();
   const [expandedVendors, setExpandedVendors] = useState(new Set());
 
   const handleToggleVendor = (vendorId) => {
@@ -42,17 +48,21 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
   const itemGroups = useMemo(() => {
     const groups = new Map();
 
+    // 3D placements
     placements.forEach((placement) => {
       const bundleId = placement.metadata?.bundleId;
       const serviceListingId = placement.metadata?.serviceListingId;
-      const designElementName = placement.designElement?.name || 'Design Element';
+      const designElementName = placement.designElement?.name || placement.serviceListing?.name || 'Service Item';
       const groupKey = bundleId
         ? `bundle_${serviceListingId}`
-        : `item_${placement.designElement?.id || placement.id}`;
+        : `item_${placement.designElement?.id || placement.id || serviceListingId}`;
 
       if (!groups.has(groupKey)) {
         const isBundle = Boolean(bundleId);
-        const itemName = isBundle ? placement.serviceListing?.name || 'Bundle Item' : designElementName;
+        // For non-3D items (no designElement), use service listing name
+        const itemName = isBundle 
+          ? placement.serviceListing?.name || 'Bundle Item' 
+          : (placement.designElement ? designElementName : (placement.serviceListing?.name || 'Service Item'));
 
         groups.set(groupKey, {
           key: groupKey,
@@ -66,10 +76,12 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
           serviceListingId: serviceListingId || null,
           designElementId: placement.designElement?.id || null,
           isUnavailable: false,
-          vendorId: placement.designElement?.vendorId,
+          vendorId: placement.designElement?.vendorId || placement.serviceListing?.vendorId,
           vendorName:
             placement.designElement?.vendor?.name ||
             placement.designElement?.vendor?.user?.name ||
+            placement.serviceListing?.vendor?.name ||
+            placement.serviceListing?.vendor?.user?.name ||
             'Unknown Vendor',
         });
       }
@@ -100,6 +112,44 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
       }
 
       if (serviceListingId && availabilityMap[serviceListingId]?.available === false) {
+        group.isUnavailable = true;
+      }
+    });
+
+    // Non-3D project services (no placements, grouped by service listing)
+    projectServices.forEach((ps) => {
+      const groupKey = `service_${ps.serviceListingId}`;
+      const listing = ps.serviceListing || {};
+
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          key: groupKey,
+          isBundle: false,
+          name: listing.name || 'Service Item',
+          quantity: 0,
+          price: 0,
+          placementIds: [],
+          bundleInstanceRefs: new Map(),
+          singlePlacementQueue: [],
+          serviceListingId: ps.serviceListingId,
+          designElementId: null,
+          isUnavailable: false,
+          vendorId: listing.vendor?.id,
+          vendorName:
+            listing.vendor?.name ||
+            listing.vendor?.user?.name ||
+            'Unknown Vendor',
+          isNon3DService: true,
+          isBooked: ps.isBooked,
+        });
+      }
+
+      const group = groups.get(groupKey);
+      group.quantity += ps.quantity || 1;
+      const price = listing.price ? parseFloat(listing.price) : 0;
+      group.price += price * (ps.quantity || 1);
+
+      if (ps.serviceListingId && availabilityMap[ps.serviceListingId]?.available === false) {
         group.isUnavailable = true;
       }
     });
@@ -154,6 +204,11 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
 
   const handleRemove = (item) => {
     if (!onRemovePlacement) return;
+    // Non-3D services should be removed via project service API (not yet wired here)
+    if (item.isNon3DService) {
+      window.alert('Please remove this non-3D service from the project summary view (UI to be added).');
+      return;
+    }
     const confirmed = window.confirm('Remove this service from your 3D design?');
     if (!confirmed) return;
 
@@ -313,6 +368,17 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                                   {item.isUnavailable && (
                                     <Chip label="Unavailable" size="small" color="warning" variant="outlined" />
                                   )}
+                                  {item.isNon3DService && (
+                                    <Chip label="No 3D model" size="small" color="default" variant="outlined" />
+                                  )}
+                                  {item.isBooked && (
+                                    <Tooltip title="This item is linked to a booking and cannot be removed">
+                                      <LockIcon
+                                        fontSize="small"
+                                        sx={{ color: 'success.main' }}
+                                      />
+                                    </Tooltip>
+                                  )}
                                 </Box>
                               }
                               secondary={
@@ -334,7 +400,7 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                                     <IconButton
                                       size="small"
                                       onClick={() => handleDecreaseQuantity(item)}
-                                      disabled={item.quantity === 0}
+                                      disabled={item.quantity === 0 || item.isBooked}
                                       sx={{ color: 'text.secondary' }}
                                     >
                                       <RemoveCircleOutlineIcon fontSize="small" />
@@ -354,6 +420,7 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                                 size="small"
                                 aria-label="Remove item"
                                 sx={{ color: 'error.main' }}
+                                disabled={item.isBooked}
                               >
                                 <DeleteIcon fontSize="small" />
                               </IconButton>

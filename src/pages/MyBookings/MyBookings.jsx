@@ -451,30 +451,64 @@ const MyBookings = () => {
                     Services ({selectedBooking.selectedServices.length})
                   </Typography>
                   <Stack spacing={1}>
-                    {selectedBooking.selectedServices.map((service, index) => (
-                      <Box
-                        key={index}
-                        sx={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          p: 1,
-                          backgroundColor: '#f5f5f5',
-                          borderRadius: 1,
-                        }}
-                      >
-                        <Box>
-                          <Typography variant="body2" fontWeight="medium">
-                            {service.serviceListing.name}
+                    {selectedBooking.selectedServices.map((service, index) => {
+                      const pricingPolicy = service.serviceListing?.pricingPolicy || 'fixed_package';
+                      const basePrice = parseFloat(service.serviceListing?.price || 0);
+                      const totalPrice = parseFloat(service.totalPrice || 0);
+                      const quantity = service.quantity || 1;
+
+                      // Generate pricing breakdown text based on pricing policy
+                      let breakdownText = '';
+                      switch (pricingPolicy) {
+                        case 'per_unit':
+                          breakdownText = `${quantity} units × RM${basePrice.toLocaleString()} = RM${totalPrice.toLocaleString()}`;
+                          break;
+                        case 'per_table':
+                          breakdownText = `${quantity} table${quantity !== 1 ? 's' : ''} × RM${basePrice.toLocaleString()} = RM${totalPrice.toLocaleString()}`;
+                          break;
+                        case 'fixed_package':
+                          breakdownText = `Fixed package: RM${totalPrice.toLocaleString()}`;
+                          break;
+                        case 'tiered_package':
+                          breakdownText = `Tiered pricing: RM${totalPrice.toLocaleString()} (Quantity: ${quantity})`;
+                          break;
+                        case 'time_based':
+                          const hourlyRate = parseFloat(service.serviceListing?.hourlyRate || basePrice);
+                          const hours = totalPrice / hourlyRate;
+                          breakdownText = `${hours.toFixed(1)} hours × RM${hourlyRate.toLocaleString()}/hour = RM${totalPrice.toLocaleString()}`;
+                          break;
+                        default:
+                          breakdownText = `Quantity: ${quantity} × RM${basePrice.toLocaleString()}`;
+                      }
+
+                      return (
+                        <Box
+                          key={index}
+                          sx={{
+                            p: 2,
+                            backgroundColor: '#f5f5f5',
+                            borderRadius: 1,
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                            <Typography variant="body2" fontWeight="medium">
+                              {service.serviceListing.name}
+                            </Typography>
+                            <Typography variant="body2" fontWeight="medium" color="primary.main">
+                              RM {totalPrice.toLocaleString()}
+                            </Typography>
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            {breakdownText}
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Quantity: {service.quantity} × RM {(parseFloat(service.serviceListing.price) || 0).toLocaleString()}
-                          </Typography>
+                          <Chip
+                            label={pricingPolicy.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            size="small"
+                            sx={{ mt: 0.5, height: 20, fontSize: '0.65rem' }}
+                          />
                         </Box>
-                        <Typography variant="body2" fontWeight="medium">
-                          RM {(parseFloat(service.totalPrice) || 0).toLocaleString()}
-                        </Typography>
-                      </Box>
-                    ))}
+                      );
+                    })}
                   </Stack>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2, pt: 2, borderTop: 1 }}>
                     <Typography variant="h6">Total:</Typography>

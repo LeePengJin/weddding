@@ -226,6 +226,24 @@ async function fetchProject(projectId, coupleId) {
           },
         },
       },
+      projectServices: {
+        include: {
+          serviceListing: {
+            include: {
+              vendor: {
+                include: {
+                  user: {
+                    select: {
+                      name: true,
+                      email: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     },
   });
 }
@@ -547,6 +565,31 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
 
     const venueListing = project.venueServiceListing;
 
+    const projectServices = (project.projectServices || []).map((ps) => ({
+      id: ps.id,
+      projectId: ps.projectId,
+      serviceListingId: ps.serviceListingId,
+      quantity: ps.quantity,
+      isBooked: ps.isBooked,
+      bookingId: ps.bookingId,
+      serviceListing: ps.serviceListing
+        ? {
+            id: ps.serviceListing.id,
+            name: ps.serviceListing.name,
+            category: ps.serviceListing.category,
+            price: ps.serviceListing.price?.toString() ?? null,
+            images: ps.serviceListing.images || [],
+            vendor: ps.serviceListing.vendor
+              ? {
+                  id: ps.serviceListing.vendor.userId,
+                  name: ps.serviceListing.vendor.user?.name ?? null,
+                  email: ps.serviceListing.vendor.user?.email ?? null,
+                }
+              : null,
+          }
+        : null,
+    }));
+
     return res.json({
       project: {
         id: project.id,
@@ -583,6 +626,7 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
         zoomLevel: venueDesign.zoomLevel,
         placedElements: placements,
       },
+      projectServices,
     });
   } catch (err) {
     if (err.statusCode) {
@@ -661,9 +705,30 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
       }
     });
 
+    // If no 3D models, add to ProjectService instead of PlacedElement
     if (elementDescriptors.length === 0) {
-      return res.status(400).json({
-        error: 'Selected service listing does not have any 3D design elements yet.',
+      // Add to ProjectService table (for non-3D services)
+      await prisma.projectService.upsert({
+        where: {
+          projectId_serviceListingId: {
+            projectId: project.id,
+            serviceListingId: serviceListing.id,
+          },
+        },
+        update: {
+          quantity: { increment: 1 }, // Increment if already exists
+        },
+        create: {
+          projectId: project.id,
+          serviceListingId: serviceListing.id,
+          quantity: 1,
+        },
+      });
+
+      return res.status(200).json({
+        message: 'Service added to project (no 3D model available)',
+        placements: [], // No placements for non-3D services
+        projectService: true,
       });
     }
 
@@ -690,7 +755,7 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
             data: {
               id: prefixedUlid('ple'),
               venueDesignId: venueDesign.id,
-              designElementId: descriptor.designElementId,
+              designElementId: descriptor.designElementId || null, // Allow null for non-3D items
               positionId: positionRecord.id,
               rotation,
             },
@@ -920,11 +985,21 @@ router.delete('/:projectId/elements/:elementId', requireAuth, async (req, res, n
       select: {
         id: true,
         positionId: true,
+        isBooked: true,
       },
     });
 
     if (placements.length === 0) {
       return res.status(404).json({ error: 'Placed element not found' });
+    }
+
+    // Prevent removal of any booked elements
+    const hasBookedPlacement = placements.some((p) => p.isBooked);
+    if (hasBookedPlacement) {
+      return res.status(400).json({
+        error:
+          'One or more selected elements are part of a booking and cannot be removed. Please contact your vendor if you need to change a booked service.',
+      });
     }
 
     const positionIds = placements.map((placement) => placement.positionId);
@@ -1272,6 +1347,175 @@ router.get('/:projectId/availability', requireAuth, async (req, res, next) => {
       return res.status(err.statusCode).json({ error: err.message });
     }
     return next(err);
+  }
+});
+
+// GET /venue-designs/:venueDesignId/table-count - Get table count, optionally filtered by service listing
+router.get('/:venueDesignId/table-count', requireAuth, async (req, res, next) => {
+  try {
+    const { getTableCount } = require('../services/tableCountService');
+    const { venueDesignId } = req.params;
+    const { serviceListingId } = req.query;
+
+    // Verify user has access to this project's venue design
+    const venueDesign = await prisma.venueDesign.findUnique({
+      where: { id: venueDesignId },
+      include: {
+        project: {
+          select: {
+            coupleId: true,
+          },
+        },
+      },
+    });
+
+    if (!venueDesign) {
+      return res.status(404).json({ error: 'Venue design not found' });
+    }
+
+    // Check if user is the couple who owns this project
+    if (venueDesign.project.coupleId !== req.user.sub) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const count = await getTableCount(venueDesignId, serviceListingId || null);
+
+    res.json({
+      venueDesignId,
+      serviceListingId: serviceListingId || null,
+      count,
+    });
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+// POST /venue-designs/:venueDesignId/tag-tables - Tag tables with service listing IDs
+router.post('/:venueDesignId/tag-tables', requireAuth, async (req, res, next) => {
+  try {
+    const { tagTables } = require('../services/tableCountService');
+
+    const tagSchema = z.object({
+      placedElementIds: z.array(z.string().uuid()).min(1, 'At least one placed element ID is required'),
+      serviceListingIds: z.array(z.string().uuid()).min(1, 'At least one service listing ID is required'),
+    });
+
+    const validatedData = tagSchema.parse(req.body);
+    const { venueDesignId } = req.params;
+
+    // Verify user has access to this project's venue design
+    const venueDesign = await prisma.venueDesign.findUnique({
+      where: { id: venueDesignId },
+      include: {
+        project: {
+          select: {
+            coupleId: true,
+          },
+        },
+      },
+    });
+
+    if (!venueDesign) {
+      return res.status(404).json({ error: 'Venue design not found' });
+    }
+
+    // Check if user is the couple who owns this project
+    if (venueDesign.project.coupleId !== req.user.sub) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const updatedCount = await tagTables(
+      venueDesignId,
+      validatedData.placedElementIds,
+      validatedData.serviceListingIds
+    );
+
+    res.json({
+      message: `Successfully tagged ${updatedCount} table(s)`,
+      venueDesignId,
+      updatedCount,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const issues = err.issues.map((issue) => ({
+        field: issue.path?.join('.') ?? 'unknown',
+        message: issue.message,
+      }));
+      return res.status(400).json({
+        error: issues[0]?.message || 'Invalid input',
+        issues,
+      });
+    }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+// POST /venue-designs/:venueDesignId/untag-tables - Remove service listing tags from tables
+router.post('/:venueDesignId/untag-tables', requireAuth, async (req, res, next) => {
+  try {
+    const { untagTables } = require('../services/tableCountService');
+
+    const untagSchema = z.object({
+      placedElementIds: z.array(z.string().uuid()).min(1, 'At least one placed element ID is required'),
+      serviceListingIds: z.array(z.string().uuid()).min(1, 'At least one service listing ID is required'),
+    });
+
+    const validatedData = untagSchema.parse(req.body);
+    const { venueDesignId } = req.params;
+
+    // Verify user has access to this project's venue design
+    const venueDesign = await prisma.venueDesign.findUnique({
+      where: { id: venueDesignId },
+      include: {
+        project: {
+          select: {
+            coupleId: true,
+          },
+        },
+      },
+    });
+
+    if (!venueDesign) {
+      return res.status(404).json({ error: 'Venue design not found' });
+    }
+
+    // Check if user is the couple who owns this project
+    if (venueDesign.project.coupleId !== req.user.sub) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const updatedCount = await untagTables(
+      venueDesignId,
+      validatedData.placedElementIds,
+      validatedData.serviceListingIds
+    );
+
+    res.json({
+      message: `Successfully untagged ${updatedCount} table(s)`,
+      venueDesignId,
+      updatedCount,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const issues = err.issues.map((issue) => ({
+        field: issue.path?.join('.') ?? 'unknown',
+        message: issue.message,
+      }));
+      return res.status(400).json({
+        error: issues[0]?.message || 'Invalid input',
+        issues,
+      });
+    }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    next(err);
   }
 });
 

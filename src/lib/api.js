@@ -18,7 +18,10 @@ export async function apiFetch(path, options = {}) {
       message = body;
     } else if (body) {
       if (Array.isArray(body.issues) && body.issues.length > 0) {
-        message = body.issues[0].message || body.error || message;
+        // Include the issues array in the error for better error handling
+        const error = new Error(body.issues[0].message || body.error || message);
+        error.issues = body.issues;
+        throw error;
       } else if (body.error) {
         message = body.error;
       }
@@ -86,6 +89,36 @@ export function getVenueAvailability(projectId, serviceListingIds = []) {
     params.append('serviceListingIds', serviceListingIds.join(','));
   }
   return apiFetch(`/venue-designs/${projectId}/availability?${params.toString()}`);
+}
+
+export function getTableCount(venueDesignId, serviceListingId = null) {
+  const params = new URLSearchParams();
+  if (serviceListingId) {
+    params.append('serviceListingId', serviceListingId);
+  }
+  const qs = params.toString();
+  const path = qs ? `/venue-designs/${venueDesignId}/table-count?${qs}` : `/venue-designs/${venueDesignId}/table-count`;
+  return apiFetch(path);
+}
+
+export function tagTables(venueDesignId, placedElementIds, serviceListingIds) {
+  return apiFetch(`/venue-designs/${venueDesignId}/tag-tables`, {
+    method: 'POST',
+    body: JSON.stringify({
+      placedElementIds,
+      serviceListingIds,
+    }),
+  });
+}
+
+export function untagTables(venueDesignId, placedElementIds, serviceListingIds) {
+  return apiFetch(`/venue-designs/${venueDesignId}/untag-tables`, {
+    method: 'POST',
+    body: JSON.stringify({
+      placedElementIds,
+      serviceListingIds,
+    }),
+  });
 }
 
 // Package design APIs

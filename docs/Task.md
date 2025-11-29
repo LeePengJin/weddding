@@ -107,11 +107,30 @@ _Last updated: November 18, 2025_
 - [ ] (Couple) 3D venue design: When the user submit booking requests for a particular elements in the 3D venue design, it cannot be removed from the 3D venue design. Only can be removed if the booking is rejected.
 - [x] (Couple) Complete the Booked Suppliers part
 - [x] (Vendor) Manage booking requests
-- [ ] (Admin) Complete the wedding package things 
+- [x] (Admin) Complete the wedding package things 
 - [x] (Admin) Complete account management
 - [x] (Admin) Complete vendor payment
 - [ ] Reporting functionality (Admin & Vendor)
 - [ ] Couple profile view (from vendor)
 - [x] (General) Improve footer, add more pages (FaQ, About Us)
 - [ ] Remove service availability in database
-- [ ] Remove design playgrond (both file and route)
+- [x] Remove design playgrond (both file and route)
+- [ ] Add grouping, duplicate functionality in 3D venue design
+- [ ] Solve the issue about the logic about listing price
+- [ ] Try to enhance the 3D venue design functionality
+- [ ] Check OTP, not functioning right now (SMTP sendMail failed, falling back to console log: Error: Invalid login: 535-5.7.8 Username and Password not accepted.)
+- [ ] Change all IDs in database to be meaningful (have prefix)
+- [ ] For the listing image, if there is 3D model, take a screenshot of the 3D model and make it its listing image. But if the vendor choose to upload themselve, use the image uploaded. If none of them is provided, put a default image (need to be appropriate).
+- [ ] Allow pan for adjusting dimension.
+- [ ] Do one more list that store the 3D element that can be added into the 3D space. My idea is like 
+- [x] (Pricing Policy) Build pricing calculation engine for all 5 pricing models (per_unit, per_table, fixed_package, tiered_package, time_based)
+- [x] (Pricing Policy) Create table count service to count tagged tables from 3D design
+- [x] (Pricing Policy) Add API endpoint for calculating service price: POST /service-listings/:id/calculate-price
+- [x] (Pricing Policy) Add API endpoint for getting table count: GET /venue-designs/:venueDesignId/table-count (Ready to test once venue designs with tables are created)
+- [x] (Pricing Policy) Add API endpoint for tagging tables: POST /venue-designs/:venueDesignId/tag-tables
+- [x] (Pricing Policy) Add API endpoint for untagging tables: POST /venue-designs/:venueDesignId/untag-tables
+- [x] (Pricing Policy) Add UI for tagging tables in 3D venue planner (allow users to tag placed elements with service listing IDs)
+- [x] (Pricing Policy) Update booking flow to use tagged table counts for per_table services and calculate prices using the pricing engine
+- [x] (Pricing Policy) Add hourly rate input field for time_based pricing in listing creation form
+- [x] (Pricing Policy) Add tiered pricing configuration UI (tier name, price, min/max guests) in listing creation form
+- [x] (Pricing Policy) Update booking confirmation to show calculated prices based on pricing model

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   Box,
   Button,
@@ -32,6 +32,7 @@ import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../lib/api';
 import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
 import Model3DViewer from '../../components/Model3DViewer/Model3DViewer';
+import Viewer3D from '../../components/ModelDimensionEditor/Viewer3D';
 import './ManageDesignElements.css';
 
 const ManageDesignElements = () => {
@@ -59,6 +60,8 @@ const ManageDesignElements = () => {
   const [viewingElement, setViewingElement] = useState(null);
   const [dimensions, setDimensions] = useState({ width: '', height: '', depth: '' });
   const [isStackable, setIsStackable] = useState(false);
+  const [useDimensionEditor, setUseDimensionEditor] = useState(false);
+  const dimensionExportRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('name'); // 'name', 'elementType', 'dateAdded'
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' or 'desc'
@@ -109,12 +112,14 @@ const ManageDesignElements = () => {
         height: element.dimensions?.height ?? '',
         depth: element.dimensions?.depth ?? '',
       };
-      setDimensions({
+      const dims = {
         width: nextDimensions.width === '' ? '' : String(nextDimensions.width),
         height: nextDimensions.height === '' ? '' : String(nextDimensions.height),
         depth: nextDimensions.depth === '' ? '' : String(nextDimensions.depth),
-      });
+      };
+      setDimensions(dims);
       setIsStackable(Boolean(element.isStackable));
+      setUseDimensionEditor(element.modelFile ? true : false); // Show dimension editor if model exists
     } else {
       setEditingElement(null);
       setFormData({
@@ -130,6 +135,7 @@ const ManageDesignElements = () => {
       setLivePreviewUrl(null);
       setDimensions({ width: '', height: '', depth: '' });
       setIsStackable(false);
+      setUseDimensionEditor(false);
     }
     setError('');
     setSuccess('');
@@ -154,6 +160,7 @@ const ManageDesignElements = () => {
     setSuccess('');
     setDimensions({ width: '', height: '', depth: '' });
     setIsStackable(false);
+    setUseDimensionEditor(false);
   };
 
   const handleInputChange = (field, value) => {
@@ -191,6 +198,7 @@ const ManageDesignElements = () => {
       const blobUrl = URL.createObjectURL(file);
       previewBlobUrlRef.current = blobUrl;
       setLivePreviewUrl(blobUrl);
+      setUseDimensionEditor(true); // Automatically show dimension editor when model is uploaded
       setError('');
     }
   };
@@ -220,6 +228,21 @@ const ManageDesignElements = () => {
         previewBlobUrlRef.current = null;
       }
     };
+  }, []);
+
+  // Stable callback for dimension changes to prevent feedback loops
+  // Update dimensions state when user drags dimension handles in 3D editor
+  const handleDimensionsChange = useCallback((dims) => {
+    // Update the form dimensions so they're saved when user clicks update
+    const newWidth = dims.x > 0 ? dims.x.toString() : '';
+    const newHeight = dims.y > 0 ? dims.y.toString() : '';
+    const newDepth = dims.z > 0 ? dims.z.toString() : '';
+    
+    setDimensions({
+      width: newWidth,
+      height: newHeight,
+      depth: newDepth,
+    });
   }, []);
 
   const buildDimensionsPayload = () => {
@@ -862,23 +885,23 @@ const ManageDesignElements = () => {
                 </Box>
               )}
 
-              {livePreviewUrl && (
+              {livePreviewUrl && useDimensionEditor && (
                 <Box
                   sx={{
-                    p: 2,
-                    backgroundColor: '#f5f5f5',
+                    p: 0,
+                    backgroundColor: '#f5f6fa',
                     borderRadius: 1,
                     mb: 2,
+                    position: 'relative',
+                    height: '500px',
+                    overflow: 'hidden',
                   }}
                 >
-                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-                    Live Preview
-                  </Typography>
-                  <Model3DViewer
-                    modelUrl={livePreviewUrl}
-                    width="100%"
-                    height="300px"
-                    targetDimensions={dimensions}
+                  <Viewer3D
+                    fileUrl={livePreviewUrl}
+                    onDimensionsChange={handleDimensionsChange}
+                    targetDimensions={null}
+                    exportRef={dimensionExportRef}
                   />
                 </Box>
               )}
@@ -895,38 +918,9 @@ const ManageDesignElements = () => {
                 <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
                   Physical Properties
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                  Enter real-world dimensions (in meters) so the system can auto-scale this model accurately.
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                  Adjust the dimensions using the interactive 3D editor above. Drag the dimension arrows to resize the model.
                 </Typography>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
-                  <TextField
-                    label="Width (X)"
-                    type="number"
-                    size="small"
-                    value={dimensions.width}
-                    onChange={(e) => setDimensions((prev) => ({ ...prev, width: e.target.value }))}
-                    InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                    inputProps={{ step: '0.01', min: '0' }}
-                  />
-                  <TextField
-                    label="Height (Y)"
-                    type="number"
-                    size="small"
-                    value={dimensions.height}
-                    onChange={(e) => setDimensions((prev) => ({ ...prev, height: e.target.value }))}
-                    InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                    inputProps={{ step: '0.01', min: '0' }}
-                  />
-                  <TextField
-                    label="Depth (Z)"
-                    type="number"
-                    size="small"
-                    value={dimensions.depth}
-                    onChange={(e) => setDimensions((prev) => ({ ...prev, depth: e.target.value }))}
-                    InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                    inputProps={{ step: '0.01', min: '0' }}
-                  />
-                </Stack>
                 <FormControlLabel
                   control={
                     <Switch

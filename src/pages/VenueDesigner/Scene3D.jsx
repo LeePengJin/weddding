@@ -47,6 +47,8 @@ const SceneGround = ({ size = 160 }) => (
         polygonOffset
         polygonOffsetFactor={1}
         polygonOffsetUnits={1}
+        transparent
+        opacity={0.3}
       />
     </mesh>
   </group>
@@ -484,24 +486,24 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
 
         <Suspense fallback={null}>
           {placements.map((placement) => (
-            <PlacedElement
-              key={placement.id}
-              placement={placement}
-              isSelected={selectedId === placement.id}
-              onSelect={handleSelect}
-              availability={availabilityMap[placement.metadata?.serviceListingId]}
-              snapIncrement={effectiveGrid.snapToGrid ? effectiveGrid.size || 1 : null}
-              onOrbitToggle={setOrbitEnabled}
-              onTransformCommit={handleTransformCommit}
-              allPlacements={placements}
-              removable={true}
-              onDelete={handleDeletePlacement}
-              onToggleLock={handleTogglePlacementLock}
-              onShowDetails={sceneOptions.onShowDetails}
-              onClose={handleCloseSelection}
-              venueBounds={venueBounds}
-            />
-          ))}
+              <PlacedElement
+                key={placement.id}
+                placement={placement}
+                isSelected={selectedId === placement.id}
+                onSelect={handleSelect}
+                availability={availabilityMap[placement.metadata?.serviceListingId]}
+                snapIncrement={effectiveGrid.snapToGrid ? effectiveGrid.size || 1 : null}
+                onOrbitToggle={setOrbitEnabled}
+                onTransformCommit={handleTransformCommit}
+                allPlacements={placements}
+                removable={true}
+                onDelete={handleDeletePlacement}
+                onToggleLock={handleTogglePlacementLock}
+                onShowDetails={sceneOptions.onShowDetails}
+                onClose={handleCloseSelection}
+                venueBounds={venueBounds}
+              />
+            ))}
         </Suspense>
 
         <Environment preset="sunset" />

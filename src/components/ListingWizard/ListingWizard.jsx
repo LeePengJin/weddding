@@ -60,45 +60,45 @@ const AVAILABILITY_TYPES = {
 };
 
 const PRICING_POLICIES = {
-  flat: {
-    label: 'Flat Rate',
+  fixed_package: {
+    label: 'Fixed Package',
     description: 'One fixed price per booking, regardless of design size.',
-    when: 'Best for: Venues, photographers, videographers, DJs',
+    when: 'Best for: Venues, photographers, videographers',
   },
   per_table: {
     label: 'Per Table',
     description: 'Price multiplies by the number of tables in the 3D design.',
     when: 'Best for: Table decorations, centerpieces, tableware',
   },
-  per_set: {
-    label: 'Per Table Set',
-    description: 'Price multiplies by the number of complete table sets (table + chairs) in the design.',
+  per_unit: {
+    label: 'Per Unit',
+    description: 'Price multiplies by the number of items placed in the design (e.g., table sets, chairs).',
     when: 'Best for: Table and chair rentals, complete table setups',
   },
-  per_guest: {
-    label: 'Per Guest',
-    description: 'Price multiplies by the total guest count in the project.',
-    when: 'Best for: Catering, favors, place cards',
-  },
-  tiered: {
-    label: 'Tiered Pricing',
+  tiered_package: {
+    label: 'Tiered Package',
     description: 'Advanced volume-based pricing with different rates for different quantities.',
     when: 'Best for: Large-scale services with bulk discounts',
+  },
+  time_based: {
+    label: 'Time Based',
+    description: 'Price calculated based on event duration (hourly rate).',
+    when: 'Best for: DJs, entertainment, hourly services',
   },
 };
 
 // Filter pricing policies based on category
 const getAvailablePricingPolicies = (category, availabilityType) => {
-  // Venues should only have flat rate
+  // Venues should only have fixed_package
   if (category === 'Venue') {
-    return { flat: PRICING_POLICIES.flat };
+    return { fixed_package: PRICING_POLICIES.fixed_package };
   }
   
-  // For exclusive services, usually flat or per_guest
+  // For exclusive services, usually fixed_package or time_based
   if (availabilityType === 'exclusive') {
     return {
-      flat: PRICING_POLICIES.flat,
-      per_guest: PRICING_POLICIES.per_guest,
+      fixed_package: PRICING_POLICIES.fixed_package,
+      time_based: PRICING_POLICIES.time_based,
     };
   }
   
@@ -156,7 +156,9 @@ const ListingWizard = ({
     name: '',
     description: '',
     price: '',
-    pricingPolicy: 'flat',
+    pricingPolicy: 'fixed_package',
+    hourlyRate: '', // For time_based pricing
+    tieredPricing: [], // For tiered_package pricing
     
     // Step 3
     images: [],
@@ -175,6 +177,7 @@ const ListingWizard = ({
     
     // Bundle components (hidden for venues)
     components: [],
+    isBundle: false,
   });
 
   const [fieldErrors, setFieldErrors] = useState({});
@@ -190,7 +193,9 @@ const ListingWizard = ({
         name: initialData.name || '',
         description: initialData.description || '',
         price: initialData.price || '',
-        pricingPolicy: initialData.pricingPolicy || 'flat',
+        pricingPolicy: initialData.pricingPolicy || 'fixed_package',
+        hourlyRate: initialData.hourlyRate ? (typeof initialData.hourlyRate === 'string' ? initialData.hourlyRate : parseFloat(initialData.hourlyRate).toString()) : '',
+        tieredPricing: initialData.tieredPricing && Array.isArray(initialData.tieredPricing) ? initialData.tieredPricing : [],
         images: initialData.images || [],
         imagePreviews: initialData.images || [],
         model3DSource: initialData.model3DFile ? 'upload' : (initialData.designElementId ? 'existing' : 'upload'),
@@ -235,17 +240,47 @@ const ListingWizard = ({
       }
     } else if (step === 1) {
       // Step 2: Basic Information
-      if (!formData.name || formData.name.trim().length < 2) {
-        errors.name = 'Name must be at least 2 characters';
+      if (!formData.name || formData.name.trim().length < 10) {
+        errors.name = 'Name must be at least 10 characters';
+      }
+      if (formData.name && formData.name.trim().length > 100) {
+        errors.name = 'Name must be at most 100 characters';
       }
       if (formData.description && formData.description.length < 10) {
         errors.description = 'Description must be at least 10 characters if provided';
+      }
+      if (formData.description && formData.description.length > 2000) {
+        errors.description = 'Description must be at most 2000 characters';
       }
       if (!formData.price || parseFloat(formData.price) < 0) {
         errors.price = 'Please enter a valid price';
       }
       if (!formData.pricingPolicy) {
         errors.pricingPolicy = 'Please select a pricing policy';
+      }
+
+      // Validate time_based pricing
+      if (formData.pricingPolicy === 'time_based') {
+        if (!formData.hourlyRate || parseFloat(formData.hourlyRate) <= 0) {
+          errors.hourlyRate = 'Hourly rate is required and must be greater than 0';
+        }
+      }
+
+      // Validate tiered_package pricing
+      if (formData.pricingPolicy === 'tiered_package') {
+        if (!formData.tieredPricing || formData.tieredPricing.length === 0) {
+          errors.tieredPricing = 'At least one pricing tier is required';
+        } else {
+          // Validate each tier
+          formData.tieredPricing.forEach((tier, index) => {
+            if (!tier.name || tier.name.trim().length === 0) {
+              errors[`tier_${index}_name`] = 'Tier name is required';
+            }
+            if (!tier.price || parseFloat(tier.price) <= 0) {
+              errors[`tier_${index}_price`] = 'Tier price must be greater than 0';
+            }
+          });
+        }
       }
     }
     // Step 3 (Media) is optional, no validation needed
@@ -265,23 +300,115 @@ const ListingWizard = ({
   };
 
   const handleComplete = () => {
-    if (validateStep(activeStep)) {
-      // Merge all form data including media state from props
-      const completeData = {
-        ...formData,
-        images: imagePreviews || [],
-        model3DFile: model3DFile,
-        model3DPreview: model3DPreview,
-        selectedDesignElementId: selectedDesignElementId || '',
-        useExistingDesignElement: useExistingDesignElement || false,
-        model3DSource: model3DSource || 'upload',
-        modelDimensions: modelDimensions || { width: '', height: '', depth: '' },
-        isStackable: isStackable || false,
-        components: components || [],
-        floorplanData: floorplanData,
-      };
-      onComplete(completeData);
+    // Validate all steps before completing
+    let allValid = true;
+    const allErrors = {};
+
+    // Validate step 0 (Type & Availability)
+    const step0Errors = {};
+    if (!formData.category) {
+      step0Errors.category = 'Please select a category';
+      allValid = false;
     }
+    if (formData.category === 'Other' && !formData.customCategory) {
+      step0Errors.customCategory = 'Please enter a custom category name';
+      allValid = false;
+    }
+    if (formData.availabilityType === 'quantity_based' && (!formData.maxQuantity || parseFloat(formData.maxQuantity) <= 0)) {
+      step0Errors.maxQuantity = 'Please enter a valid maximum quantity';
+      allValid = false;
+    }
+    Object.assign(allErrors, step0Errors);
+
+    // Validate step 1 (Basic Information)
+    const step1Errors = {};
+    if (!formData.name || formData.name.trim().length < 10) {
+      step1Errors.name = 'Name must be at least 10 characters';
+      allValid = false;
+    }
+    if (formData.name && formData.name.trim().length > 100) {
+      step1Errors.name = 'Name must be at most 100 characters';
+      allValid = false;
+    }
+    if (formData.description && formData.description.length < 10) {
+      step1Errors.description = 'Description must be at least 10 characters if provided';
+      allValid = false;
+    }
+    if (formData.description && formData.description.length > 2000) {
+      step1Errors.description = 'Description must be at most 2000 characters';
+      allValid = false;
+    }
+    if (!formData.price || parseFloat(formData.price) < 0) {
+      step1Errors.price = 'Please enter a valid price';
+      allValid = false;
+    }
+    if (!formData.pricingPolicy) {
+      step1Errors.pricingPolicy = 'Please select a pricing policy';
+      allValid = false;
+    }
+
+    // Validate time_based pricing
+    if (formData.pricingPolicy === 'time_based') {
+      if (!formData.hourlyRate || parseFloat(formData.hourlyRate) <= 0) {
+        step1Errors.hourlyRate = 'Hourly rate is required and must be greater than 0';
+        allValid = false;
+      }
+    }
+
+    // Validate tiered_package pricing
+    if (formData.pricingPolicy === 'tiered_package') {
+      if (!formData.tieredPricing || formData.tieredPricing.length === 0) {
+        step1Errors.tieredPricing = 'At least one pricing tier is required';
+        allValid = false;
+      } else {
+        // Validate each tier
+        formData.tieredPricing.forEach((tier, index) => {
+          if (!tier.name || tier.name.trim().length === 0) {
+            step1Errors[`tier_${index}_name`] = 'Tier name is required';
+            allValid = false;
+          }
+          if (!tier.price || parseFloat(tier.price) <= 0) {
+            step1Errors[`tier_${index}_price`] = 'Tier price must be greater than 0';
+            allValid = false;
+          }
+        });
+      }
+    }
+    Object.assign(allErrors, step1Errors);
+
+    // Set all errors and navigate to first step with errors
+    setFieldErrors(allErrors);
+    
+    if (!allValid) {
+      // Navigate to the first step with errors
+      if (Object.keys(step0Errors).length > 0) {
+        setActiveStep(0);
+      } else if (Object.keys(step1Errors).length > 0) {
+        setActiveStep(1);
+      }
+      return;
+    }
+
+    // All valid, proceed with completion
+    const completeData = {
+      ...formData,
+      images: imagePreviews || [],
+      model3DFile: model3DFile,
+      model3DPreview: model3DPreview,
+      selectedDesignElementId: selectedDesignElementId || '',
+      useExistingDesignElement: useExistingDesignElement || false,
+      model3DSource: model3DSource || 'upload',
+      modelDimensions: modelDimensions || { width: '', height: '', depth: '' },
+      isStackable: isStackable || false,
+      components: components || [],
+      floorplanData: floorplanData,
+      // Include pricing-specific fields
+      hourlyRate: formData.pricingPolicy === 'time_based' ? formData.hourlyRate : undefined,
+      tieredPricing: formData.pricingPolicy === 'tiered_package' ? formData.tieredPricing : undefined,
+      // Include bundle flag
+      isBundle: formData.isBundle,
+    };
+    onComplete(completeData);
   };
 
   const availablePricingPolicies = getAvailablePricingPolicies(
@@ -291,8 +418,8 @@ const ListingWizard = ({
 
   // Auto-set pricing policy for venues
   useEffect(() => {
-    if (formData.category === 'Venue' && formData.pricingPolicy !== 'flat') {
-      handleInputChange('pricingPolicy', 'flat');
+    if (formData.category === 'Venue' && formData.pricingPolicy !== 'fixed_package') {
+      handleInputChange('pricingPolicy', 'fixed_package');
     }
   }, [formData.category]);
 
@@ -433,7 +560,7 @@ const ListingWizard = ({
               value={formData.name}
               onChange={(e) => handleInputChange('name', e.target.value)}
               error={!!fieldErrors.name}
-              helperText={fieldErrors.name || 'A clear, descriptive name for your service'}
+                  helperText={fieldErrors.name || 'A clear, descriptive name for your service (10-100 characters)'}
               required
               sx={{ mb: 3 }}
             />
@@ -521,6 +648,109 @@ const ListingWizard = ({
                   {fieldErrors.pricingPolicy}
                 </Typography>
               )}
+
+              {/* Hourly Rate Input for time_based pricing */}
+              {formData.pricingPolicy === 'time_based' && (
+                <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                  <TextField
+                    fullWidth
+                    label="Hourly Rate (RM)"
+                    type="number"
+                    value={formData.hourlyRate}
+                    onChange={(e) => handleInputChange('hourlyRate', e.target.value)}
+                    error={!!fieldErrors.hourlyRate}
+                    helperText={fieldErrors.hourlyRate || 'The hourly rate for this service'}
+                    required
+                    inputProps={{ min: 0, step: 0.01 }}
+                  />
+                </Box>
+              )}
+
+              {/* Tiered Pricing Configuration for tiered_package pricing */}
+              {formData.pricingPolicy === 'tiered_package' && (
+                <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                  <Typography variant="body2" sx={{ mb: 2, fontWeight: 600 }}>
+                    Pricing Tiers
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+                    Define different price tiers based on quantity ranges. Tiers are ordered from lowest to highest quantity.
+                  </Typography>
+
+                  {fieldErrors.tieredPricing && (
+                    <Alert severity="error" sx={{ mb: 2 }}>
+                      {fieldErrors.tieredPricing}
+                    </Alert>
+                  )}
+
+                  {formData.tieredPricing.map((tier, index) => (
+                    <Card key={index} sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                          Tier {index + 1}
+                        </Typography>
+                        {formData.tieredPricing.length > 1 && (
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              const newTiers = formData.tieredPricing.filter((_, i) => i !== index);
+                              setFormData(prev => ({ ...prev, tieredPricing: newTiers }));
+                            }}
+                            sx={{ color: 'error.main' }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                      </Box>
+                      <Stack spacing={2}>
+                        <TextField
+                          fullWidth
+                          label="Tier Name"
+                          value={tier.name || ''}
+                          onChange={(e) => {
+                            const newTiers = [...formData.tieredPricing];
+                            newTiers[index] = { ...newTiers[index], name: e.target.value };
+                            setFormData(prev => ({ ...prev, tieredPricing: newTiers }));
+                          }}
+                          error={!!fieldErrors[`tier_${index}_name`]}
+                          helperText={fieldErrors[`tier_${index}_name`] || 'e.g., "50-100 guests", "101-200 guests"'}
+                          required
+                          size="small"
+                        />
+                        <TextField
+                          fullWidth
+                          label="Price (RM)"
+                          type="number"
+                          value={tier.price || ''}
+                          onChange={(e) => {
+                            const newTiers = [...formData.tieredPricing];
+                            newTiers[index] = { ...newTiers[index], price: e.target.value };
+                            setFormData(prev => ({ ...prev, tieredPricing: newTiers }));
+                          }}
+                          error={!!fieldErrors[`tier_${index}_price`]}
+                          helperText={fieldErrors[`tier_${index}_price`] || 'Price for this tier'}
+                          required
+                          inputProps={{ min: 0, step: 0.01 }}
+                          size="small"
+                        />
+                      </Stack>
+                    </Card>
+                  ))}
+
+                  <Button
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        tieredPricing: [...prev.tieredPricing, { name: '', price: '' }],
+                      }));
+                    }}
+                    sx={{ mt: 1 }}
+                  >
+                    Add Tier
+                  </Button>
+                </Box>
+              )}
             </Box>
           </Box>
         );
@@ -532,7 +762,7 @@ const ListingWizard = ({
               Step 3: Media & 3D Model
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Add images and optionally a 3D model to help couples visualize your service.
+              Add images and optionally a 3D model to help couples visualize your service. <strong>3D models are optional</strong> - you can create listings without them.
             </Typography>
 
             {/* Images Upload */}
@@ -606,6 +836,8 @@ const ListingWizard = ({
             </Box>
 
             {/* 3D Model Upload - Only for non-venue or if venue, show floorplan option */}
+            {/* Hide 3D model section if bundle is enabled (components will have their own 3D models) */}
+            {!formData.isBundle && (
             <Box>
               <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
                 3D Model (Optional)
@@ -802,13 +1034,44 @@ const ListingWizard = ({
                 </>
               )}
             </Box>
+            )}
 
-            {/* Bundle Components - Hidden for Venues */}
+            {/* Bundle Toggle */}
             {formData.category !== 'Venue' && (
-              <Box sx={{ mt: 4, p: 2, border: '1px dashed #e0e0e0', borderRadius: 1, backgroundColor: '#fafafa' }}>
+              <Box sx={{ mt: 4, mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#fafafa' }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.isBundle}
+                      onChange={(e) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          isBundle: e.target.checked,
+                          components: e.target.checked ? prev.components : [],
+                        }));
+                      }}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                        This is a bundle service
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Enable this if your service consists of multiple components (e.g., "Table Set" = 1 table + 10 chairs)
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </Box>
+            )}
+
+            {/* Bundle Components - Only show when bundle is enabled */}
+            {formData.category !== 'Venue' && formData.isBundle && (
+              <Box sx={{ mt: 2, p: 2, border: '1px dashed #e0e0e0', borderRadius: 1, backgroundColor: '#fafafa' }}>
                 <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
                   <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                    Service Components (Optional - for bundle services)
+                    Service Components
                   </Typography>
                   <Button
                     variant="outlined"
@@ -828,13 +1091,201 @@ const ListingWizard = ({
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
                   Define what makes up 1 unit of this service (e.g., "Table Set" = 1 table + 10 chairs).
                 </Typography>
+                
                 {components && components.length > 0 ? (
-                  <Typography variant="body2" color="text.secondary">
-                    {components.length} component(s) added. Bundle component management will be available in the full form.
-                  </Typography>
+                  <Stack spacing={2}>
+                    {components.map((component, index) => {
+                      const componentKey = component.id || `component-${index}`;
+                      const physicalProps = componentPhysicalProps[componentKey] || { width: '', height: '', depth: '', isStackable: false };
+                      const componentPreview = component3DPreviews[componentKey];
+                      const hasPendingUpload = Boolean(component3DFiles[componentKey]);
+                      const shouldShowPhysicalConfig = hasPendingUpload || !component.designElementId;
+
+                      return (
+                        <Box
+                          key={componentKey}
+                          sx={{
+                            p: 2,
+                            border: '1px solid #e0e0e0',
+                            borderRadius: 2,
+                            backgroundColor: '#fff',
+                          }}
+                        >
+                          <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              Component {index + 1}
+                            </Typography>
+                            <IconButton
+                              size="small"
+                              onClick={() => onRemoveComponent && onRemoveComponent(index)}
+                              sx={{ color: '#d32f2f' }}
+                            >
+                              <CloseIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                          <Stack spacing={2}>
+                            <TextField
+                              fullWidth
+                              select
+                              label="Design Element"
+                              value={component.designElementId || ''}
+                              onChange={(e) => onComponentChange && onComponentChange(index, 'designElementId', e.target.value)}
+                              size="small"
+                              helperText="Select existing or upload new 3D model below"
+                            >
+                              <MenuItem value="">
+                                <em>None selected</em>
+                              </MenuItem>
+                              {designElements.map((element) => (
+                                <MenuItem key={element.id} value={element.id}>
+                                  {element.name || element.elementType || `Element ${element.id.slice(0, 8)}`}
+                                </MenuItem>
+                              ))}
+                            </TextField>
+                            
+                            {/* Per-component 3D model upload */}
+                            <Box>
+                              <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontWeight: 500 }}>
+                                Or upload new 3D model for this component:
+                              </Typography>
+                              <input
+                                type="file"
+                                accept=".glb"
+                                onChange={(e) => onComponent3DChange && onComponent3DChange(componentKey, e)}
+                                style={{ display: 'none' }}
+                                id={`wizard-component-3d-upload-${componentKey}`}
+                              />
+                              <label htmlFor={`wizard-component-3d-upload-${componentKey}`}>
+                                <Button
+                                  variant="outlined"
+                                  component="span"
+                                  size="small"
+                                  startIcon={<ThreeDIcon />}
+                                  sx={{
+                                    textTransform: 'none',
+                                    borderColor: '#e0e0e0',
+                                    color: '#666',
+                                    fontSize: '0.75rem',
+                                    '&:hover': { borderColor: '#e16789', color: '#e16789' },
+                                  }}
+                                >
+                                  Upload 3D Model
+                                </Button>
+                              </label>
+                              
+                              {componentPreview && (
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 1,
+                                    mt: 1,
+                                    p: 1,
+                                    backgroundColor: '#f5f5f5',
+                                    borderRadius: 1,
+                                  }}
+                                >
+                                  <ThreeDIcon sx={{ color: '#666', fontSize: '1rem' }} />
+                                  <Typography variant="caption" sx={{ flex: 1, color: '#666' }}>
+                                    {componentPreview.name} ({(componentPreview.size / 1024 / 1024).toFixed(2)} MB)
+                                  </Typography>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => onRemoveComponent3DModel && onRemoveComponent3DModel(componentKey)}
+                                    sx={{ color: '#d32f2f', padding: '4px' }}
+                                  >
+                                    <CloseIcon fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              )}
+                              
+                              {shouldShowPhysicalConfig && (
+                                <Box
+                                  sx={{
+                                    mt: 1.5,
+                                    p: 1.5,
+                                    borderRadius: 1,
+                                    border: '1px dashed #d3d3d3',
+                                    backgroundColor: '#fff',
+                                  }}
+                                >
+                                  <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
+                                    Physical Properties (required for scaling)
+                                  </Typography>
+                                  <Stack direction="row" spacing={1.5} sx={{ mb: 1.5 }}>
+                                    <TextField
+                                      label="Width (X)"
+                                      type="number"
+                                      size="small"
+                                      value={physicalProps.width}
+                                      onChange={(e) => onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { width: e.target.value })}
+                                      InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                                      inputProps={{ step: '0.01', min: '0' }}
+                                    />
+                                    <TextField
+                                      label="Height (Y)"
+                                      type="number"
+                                      size="small"
+                                      value={physicalProps.height}
+                                      onChange={(e) => onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { height: e.target.value })}
+                                      InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                                      inputProps={{ step: '0.01', min: '0' }}
+                                    />
+                                    <TextField
+                                      label="Depth (Z)"
+                                      type="number"
+                                      size="small"
+                                      value={physicalProps.depth}
+                                      onChange={(e) => onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { depth: e.target.value })}
+                                      InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                                      inputProps={{ step: '0.01', min: '0' }}
+                                    />
+                                  </Stack>
+                                  <FormControlLabel
+                                    control={
+                                      <Switch
+                                        size="small"
+                                        checked={Boolean(physicalProps.isStackable)}
+                                        onChange={(e) => onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { isStackable: e.target.checked })}
+                                      />
+                                    }
+                                    label={
+                                      <Typography variant="caption" color="text.secondary">
+                                        Stackable (can be placed on tables/surfaces)
+                                      </Typography>
+                                    }
+                                  />
+                                </Box>
+                              )}
+                            </Box>
+                            <Box display="flex" gap={2}>
+                              <TextField
+                                fullWidth
+                                label="Quantity Per Unit"
+                                type="number"
+                                value={component.quantityPerUnit || 1}
+                                onChange={(e) => onComponentChange && onComponentChange(index, 'quantityPerUnit', parseInt(e.target.value) || 1)}
+                                size="small"
+                                required
+                                inputProps={{ min: 1, step: 1 }}
+                              />
+                              <TextField
+                                fullWidth
+                                label="Role (Optional)"
+                                value={component.role || ''}
+                                onChange={(e) => onComponentChange && onComponentChange(index, 'role', e.target.value)}
+                                placeholder="e.g., table, chair"
+                                size="small"
+                              />
+                            </Box>
+                          </Stack>
+                        </Box>
+                      );
+                    })}
+                  </Stack>
                 ) : (
                   <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                    No components added. You can add bundle components after creating the listing.
+                    No components added. Click "Add Component" to define bundle composition.
                   </Typography>
                 )}
               </Box>
@@ -847,8 +1298,18 @@ const ListingWizard = ({
     }
   };
 
+  // Check if there are any errors to show error banner
+  const hasErrors = Object.keys(fieldErrors).length > 0;
+
   return (
     <Box sx={{ width: '100%', maxWidth: '800px', mx: 'auto', p: 3 }}>
+      {/* Error Banner */}
+      {hasErrors && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setFieldErrors({})}>
+          Please fix the errors before saving
+        </Alert>
+      )}
+
       <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
         {steps.map((label) => (
           <Step key={label}>

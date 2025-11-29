@@ -1,491 +1,441 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Menu as MenuIcon, Close as CloseIcon, Favorite as HeartHandshakeIcon } from '@mui/icons-material';
-import { Button } from '../Button/Button';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
+import {
+  Box,
+  Container,
+  IconButton,
+  Typography,
+  useMediaQuery,
+  useTheme,
+  Badge,
+} from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
+import CloseIcon from '@mui/icons-material/Close';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Button } from '../Button/Button';
 import { useAuth } from '../../context/AuthContext';
 import UserAvatar from '../UserAvatar/UserAvatar';
-import { IconButton, Box, useTheme, useMediaQuery, Typography, Badge } from '@mui/material';
 import { useWebSocket } from '../../context/WebSocketContext';
 import { apiFetch } from '../../lib/api';
 
+const navLinks = [
+  { name: 'Home', path: '/' },
+  { name: 'About Us', path: '/about' },
+  { name: 'Features', path: '/features' },
+  { name: 'FAQ', path: '/faq' },
+];
+
 export const Header = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, loading, logout } = useAuth();
-  let socket, isConnected;
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
+  const dropdownRef = useRef(null);
+  let socket;
+  let isConnected = false;
+
   try {
     const ws = useWebSocket();
     socket = ws.socket;
     isConnected = ws.isConnected;
   } catch (err) {
     socket = null;
-    isConnected = false;
   }
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [hoveredIndex, setHoveredIndex] = useState(null);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const dropdownRef = useRef(null);
 
-  const navLinks = [
-    { name: 'Home', href: '/' },
-    { name: 'Wedding Project', href: '/projects' },
-    { name: 'About Us', href: '/about' },
-  ];
-
-  // Lock body scroll when mobile menu is open
   useEffect(() => {
-    if (isMobileMenuOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
+    document.body.style.overflow = isMobileMenuOpen ? 'hidden' : 'unset';
+    return () => {
       document.body.style.overflow = 'unset';
-    }
+    };
   }, [isMobileMenuOpen]);
 
-  const handleGetStarted = () => {
-    if (user) {
-      navigate('/projects');
-    } else {
-      navigate('/login');
-    }
-  };
-
-  // Fetch unread message count
   useEffect(() => {
-    if (!user) {
-      setUnreadCount(0);
-      return;
-    }
-
-    const fetchUnreadCount = async () => {
+    const fetchUnread = async () => {
+      if (!user) {
+        setUnreadCount(0);
+        return;
+      }
       try {
         const data = await apiFetch('/conversations/unread-count');
         setUnreadCount(data.unreadCount || 0);
-      } catch (err) {
+      } catch {
         setUnreadCount(0);
       }
     };
 
-    fetchUnreadCount();
+    fetchUnread();
 
-    // Listen for WebSocket updates
     if (socket && isConnected) {
-      const handleConversationUpdate = () => {
-        fetchUnreadCount();
-      };
-
-      const handleNewMessageNotification = () => {
-        fetchUnreadCount();
-      };
-
-      socket.on('conversation-updated', handleConversationUpdate);
-      socket.on('new-message-notification', handleNewMessageNotification);
-
+      const handleUpdate = () => fetchUnread();
+      socket.on('conversation-updated', handleUpdate);
+      socket.on('new-message-notification', handleUpdate);
       return () => {
-        socket.off('conversation-updated', handleConversationUpdate);
-        socket.off('new-message-notification', handleNewMessageNotification);
+        socket.off('conversation-updated', handleUpdate);
+        socket.off('new-message-notification', handleUpdate);
       };
     }
   }, [user, socket, isConnected]);
 
-  // Listen for conversation-read events from Messages page
   useEffect(() => {
     const handleConversationRead = () => {
       if (user) {
         apiFetch('/conversations/unread-count')
-          .then((data) => {
-            setUnreadCount(data.unreadCount || 0);
-          })
+          .then((data) => setUnreadCount(data.unreadCount || 0))
           .catch(() => {});
       }
     };
 
     window.addEventListener('conversation-read', handleConversationRead);
-    return () => {
-      window.removeEventListener('conversation-read', handleConversationRead);
-    };
+    return () => window.removeEventListener('conversation-read', handleConversationRead);
   }, [user]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setDropdownOpen(false);
       }
     };
-
     if (dropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [dropdownOpen]);
 
-  const handleProfileClick = () => {
+  const handleNavClick = (path) => {
+    navigate(path);
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleGetStarted = () => {
+    navigate('/login');
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleMessages = () => {
+    navigate('/messages');
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleProfile = () => {
     setDropdownOpen(false);
     navigate('/profile');
   };
 
-  const handleLogoutClick = () => {
+  const handleLogout = () => {
     setDropdownOpen(false);
     logout();
   };
 
+  const isActive = (path) => {
+    if (path === '/') return location.pathname === '/';
+    return location.pathname.startsWith(path);
+  };
+
   return (
     <>
-      {/* Floating Card Nav Container */}
       <Box
+        component="header"
         sx={{
           position: 'fixed',
-          top: 24,
+          top: 0,
           left: 0,
           right: 0,
-          zIndex: 40,
-          display: 'flex',
-          justifyContent: 'center',
-          px: 2,
-          pointerEvents: 'none',
+          zIndex: 60,
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
+          borderBottom: '1px solid rgba(148,163,184,0.25)',
+          backgroundColor: 'rgba(255,255,255,0.92)',
+          boxShadow: '0 6px 18px rgba(15,23,42,0.12)',
         }}
       >
-        <motion.header 
-          initial={{ y: -100, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ type: "spring", stiffness: 100, damping: 20 }}
-          style={{
-            backgroundColor: 'rgba(255, 255, 255, 0.85)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            border: '1px solid rgba(255, 255, 255, 0.4)',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.05)',
-            borderRadius: '9999px',
-            padding: isMobile ? '8px 12px' : '12px 24px',
-            pointerEvents: 'auto',
+        <Container
+          maxWidth="lg"
+          sx={{
+            height: { xs: 68, md: 80 },
             display: 'flex',
             alignItems: 'center',
-            gap: isMobile ? 16 : 48,
-            maxWidth: '1280px',
-            width: '100%',
             justifyContent: 'space-between',
+            gap: 2,
+            py: 1,
           }}
         >
-            {/* Logo */}
-            <Link 
-              to="/" 
-              style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: 8, 
-                textDecoration: 'none',
-                paddingLeft: isMobile ? 8 : 0,
-                flexShrink: 0,
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              cursor: 'pointer',
+            }}
+              onClick={() => handleNavClick('/')}
+          >
+            <Box
+              sx={{
+                width: 38,
+                height: 38,
+                borderRadius: 12,
+                backgroundColor: '#f43f5e',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                boxShadow: '0 12px 24px rgba(244,63,94,0.25)',
+                transition: 'all 0.3s ease',
               }}
             >
-                <Box
-                  sx={{
-                    backgroundColor: '#f43f5e',
-                    padding: '6px',
-                    borderRadius: '50%',
-                    color: 'white',
-                    boxShadow: '0 4px 6px rgba(244, 63, 94, 0.2)',
-                    transition: 'transform 0.3s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    '&:hover': {
-                      transform: 'rotate(12deg)',
-                    },
-                  }}
-                >
-                    <HeartHandshakeIcon sx={{ width: 20, height: 20 }} />
-                </Box>
-                <Typography
-                  component="span"
-                  sx={{
-                    fontFamily: 'serif',
-                    fontSize: '1.25rem',
-                    fontWeight: 700,
-                    letterSpacing: '-0.025em',
-                    color: '#0f172a',
-                  }}
-                >
-                  Weddding
-                </Typography>
-            </Link>
-
-            {/* Desktop Nav with Sliding Indicator */}
-            {!isMobile && (
-              <Box
-                component="nav"
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.5,
-                  padding: '4px',
-                  backgroundColor: 'rgba(148, 163, 184, 0.5)',
-                  borderRadius: '9999px',
-                  border: '1px solid rgba(255, 255, 255, 0.5)',
-                }}
-              >
-                {navLinks.map((link, index) => (
-                  <Link
-                    key={link.name}
-                    to={link.href}
-                    style={{
-                      position: 'relative',
-                      padding: '8px 20px',
-                      fontSize: '0.875rem',
-                      fontWeight: 500,
-                      color: hoveredIndex === index ? '#0f172a' : '#475569',
-                      textDecoration: 'none',
-                      transition: 'color 0.2s',
-                      zIndex: 10,
-                      display: 'block',
-                    }}
-                    onMouseEnter={() => setHoveredIndex(index)}
-                    onMouseLeave={() => setHoveredIndex(null)}
-                  >
-                    <AnimatePresence mode="wait">
-                      {hoveredIndex === index && (
-                        <motion.div
-                          key="nav-hover"
-                          layoutId="nav-hover"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            backgroundColor: 'white',
-                            borderRadius: '9999px',
-                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-                            border: '1px solid rgba(148, 163, 184, 0.1)',
-                            zIndex: -1,
-                            pointerEvents: 'none',
-                          }}
-                          transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                        />
-                      )}
-                    </AnimatePresence>
-                    <span style={{ position: 'relative', zIndex: 1 }}>
-                      {link.name}
-                    </span>
-                  </Link>
-                ))}
-              </Box>
-            )}
-
-            {/* CTA & Mobile Toggle */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-                {!loading && !user && (
-                  <Box sx={{ display: { xs: 'none', md: 'block' } }}>
-                    <Button size="sm" onClick={handleGetStarted}>Get Started</Button>
-                  </Box>
-                )}
-                {!loading && user && (
-                  <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 1.5 }}>
-                    <IconButton
-                      onClick={() => navigate('/messages')}
-                      sx={{
-                        position: 'relative',
-                        padding: 1,
-                      }}
-                      title="Messages"
-                    >
-                      <Badge badgeContent={unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : 0} color="error">
-                        <Box
-                          component="i"
-                          className="fas fa-comment"
-                          sx={{
-                            fontSize: '1.2rem',
-                            color: '#0f172a',
-                          }}
-                        />
-                      </Badge>
-                    </IconButton>
-                    <Box sx={{ position: 'relative' }} ref={dropdownRef}>
-                      <IconButton
-                        onClick={() => setDropdownOpen(!dropdownOpen)}
-                        sx={{
-                          padding: 0.5,
-                        }}
-                      >
-                        <UserAvatar user={user} size={32} />
-                      </IconButton>
-                      {dropdownOpen && (
-                        <Box
-                          sx={{
-                            position: 'absolute',
-                            top: '100%',
-                            right: 0,
-                            mt: 1,
-                            backgroundColor: 'white',
-                            borderRadius: 2,
-                            boxShadow: 3,
-                            minWidth: 150,
-                            zIndex: 1000,
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <Box
-                            component="button"
-                            onClick={handleProfileClick}
-                            sx={{
-                              width: '100%',
-                              padding: 1.5,
-                              textAlign: 'left',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              cursor: 'pointer',
-                              '&:hover': {
-                                backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                              },
-                            }}
-                          >
-                            Profile
-                          </Box>
-                          <Box
-                            component="button"
-                            onClick={handleLogoutClick}
-                            sx={{
-                              width: '100%',
-                              padding: 1.5,
-                              textAlign: 'left',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              cursor: 'pointer',
-                              '&:hover': {
-                                backgroundColor: 'rgba(0, 0, 0, 0.04)',
-                              },
-                            }}
-                          >
-                            Logout
-                          </Box>
-                        </Box>
-                      )}
-                    </Box>
-                  </Box>
-                )}
-                
-                <IconButton 
-                    sx={{ 
-                      display: { xs: 'flex', md: 'none' },
-                      padding: 1.25,
-                      borderRadius: '50%',
-                      backgroundColor: 'rgba(148, 163, 184, 0.1)',
-                      '&:hover': { backgroundColor: 'rgba(148, 163, 184, 0.2)' }
-                    }}
-                    onClick={() => setIsMobileMenuOpen(true)}
-                    aria-label="Toggle menu"
-                >
-                    <MenuIcon sx={{ width: 20, height: 20, color: '#0f172a' }} />
-                </IconButton>
+              <FavoriteIcon fontSize="small" />
             </Box>
-        </motion.header>
-      </Box>
+            <Typography
+              variant="h5"
+              sx={{
+                fontFamily: "'Playfair Display', serif",
+                fontWeight: 700,
+                letterSpacing: '-0.02em',
+                color: '#0f172a',
+              }}
+            >
+              Weddding
+            </Typography>
+          </Box>
 
-      {/* Full Screen Mobile Menu */}
-      <AnimatePresence>
-        {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, clipPath: "circle(0% at 100% 0%)" }}
-            animate={{ opacity: 1, clipPath: "circle(150% at 100% 0%)" }}
-            exit={{ opacity: 0, clipPath: "circle(0% at 100% 0%)" }}
-            transition={{ type: "spring", damping: 25, stiffness: 100 }}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 50,
-              backgroundColor: '#FAFAFA',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <Box sx={{ p: 3, pt: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 4 }}>
-                 <Typography
-                   sx={{
-                     fontFamily: 'serif',
-                     fontSize: '1.5rem',
-                     fontWeight: 700,
-                     color: '#0f172a',
-                   }}
-                 >
-                   Menu
-                 </Typography>
-                 <IconButton 
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    sx={{ 
-                      padding: 1.5,
-                      borderRadius: '50%',
-                      backgroundColor: 'white',
-                      boxShadow: 2,
-                      '&:hover': { boxShadow: 4 }
-                    }}
-                >
-                    <CloseIcon sx={{ width: 24, height: 24, color: '#0f172a' }} />
-                </IconButton>
-            </Box>
-            
+          {isDesktop && (
             <Box
               component="nav"
               sx={{
                 display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                fontFamily: "'Literata', serif",
+              }}
+            >
+              {navLinks.map((link) => {
+                const active = isActive(link.path);
+                return (
+                  <Box
+                    key={link.name}
+                    component="button"
+                    onClick={() => handleNavClick(link.path)}
+                    sx={{
+                      position: 'relative',
+                      background: 'none',
+                      border: 'none',
+                      fontSize: '0.95rem',
+                      fontWeight: 500,
+                      color: active ? '#f43f5e' : '#475569',
+                      cursor: 'pointer',
+                      px: 1.5,
+                      pb: 1.2,
+                      transition: 'color 0.2s ease',
+                      '&:hover': { color: '#0f172a' },
+                      '&::after': {
+                        content: '""',
+                        position: 'absolute',
+                        left: '20%',
+                        right: '20%',
+                        bottom: 0,
+                        height: 3,
+                        borderRadius: 999,
+                        backgroundColor: '#f43f5e',
+                        transform: active ? 'scaleX(1)' : 'scaleX(0)',
+                        opacity: active ? 1 : 0,
+                        transition: 'transform 0.25s ease, opacity 0.25s ease',
+                      },
+                      '&:hover::after': {
+                        transform: 'scaleX(1)',
+                        opacity: 1,
+                      },
+                    }}
+                  >
+                    {link.name}
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            {isDesktop && !loading && !user && (
+              <Button size="sm" onClick={handleGetStarted}>
+                Get Started
+              </Button>
+            )}
+
+            {isDesktop && user && (
+              <Box
+                sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative' }}
+                ref={dropdownRef}
+              >
+                <IconButton onClick={handleMessages} sx={{ color: '#0f172a' }}>
+                  <Badge color="error" badgeContent={unreadCount > 99 ? '99+' : unreadCount || 0}>
+                    <ChatBubbleOutlineIcon />
+                  </Badge>
+                </IconButton>
+                <IconButton onClick={() => setDropdownOpen((prev) => !prev)}>
+                  <UserAvatar user={user} size={34} />
+                </IconButton>
+                <AnimatePresence>
+                  {dropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                      style={{
+                        position: 'absolute',
+                        top: '110%',
+                        right: 0,
+                        background: '#fff',
+                        borderRadius: 16,
+                        border: '1px solid rgba(148,163,184,0.2)',
+                        boxShadow: '0 25px 60px rgba(15,23,42,0.15)',
+                        overflow: 'hidden',
+                        minWidth: 180,
+                      }}
+                    >
+                      <button
+                        onClick={handleProfile}
+                        style={{
+                          width: '100%',
+                          padding: '12px 18px',
+                          background: 'none',
+                          border: 'none',
+                          textAlign: 'left',
+                          fontFamily: "'Literata', serif",
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Profile
+                      </button>
+                      <button
+                        onClick={handleLogout}
+                        style={{
+                          width: '100%',
+                          padding: '12px 18px',
+                          background: 'none',
+                          border: 'none',
+                          textAlign: 'left',
+                          fontFamily: "'Literata', serif",
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Logout
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </Box>
+            )}
+            <IconButton
+              onClick={() => setIsMobileMenuOpen(true)}
+              sx={{
+                display: { xs: 'flex', md: 'none' },
+                borderRadius: '50%',
+                backgroundColor: 'rgba(148,163,184,0.15)',
+              }}
+            >
+              <MenuIcon />
+            </IconButton>
+          </Box>
+        </Container>
+      </Box>
+
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 60,
+              backgroundColor: 'rgba(15, 23, 42, 0.85)',
+              backdropFilter: 'blur(6px)',
+              WebkitBackdropFilter: 'blur(6px)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: 3,
+                color: '#fff',
+              }}
+            >
+              <Typography
+                variant="h6"
+                sx={{ fontFamily: "'Playfair Display', serif", letterSpacing: '0.08em' }}
+              >
+                Menu
+              </Typography>
+              <IconButton
+                onClick={() => setIsMobileMenuOpen(false)}
+                sx={{ color: '#fff' }}
+              >
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            <Box
+              sx={{
+                flex: 1,
+                display: 'flex',
                 flexDirection: 'column',
-                gap: 3,
                 alignItems: 'center',
                 justifyContent: 'center',
-                flex: 1,
-                pb: 10,
+                gap: 3,
+                color: '#fff',
               }}
             >
               {navLinks.map((link, idx) => (
-                <motion.div
+                <motion.button
                   key={link.name}
-                  initial={{ opacity: 0, y: 30 }}
+                  onClick={() => handleNavClick(link.path)}
+                  initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 + idx * 0.1 }}
-                >
-                  <Link
-                    to={link.href}
-                    style={{
-                      fontSize: '2.25rem',
-                      fontFamily: 'serif',
-                      fontWeight: 500,
-                      color: '#0f172a',
-                      textDecoration: 'none',
-                      transition: 'color 0.2s',
-                    }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.color = '#f43f5e';
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.color = '#0f172a';
-                    }}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                  >
-                    {link.name}
-                  </Link>
-                </motion.div>
-              ))}
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
-                style={{ marginTop: 40, width: '100%', padding: '0 40px', maxWidth: '384px' }}
-              >
-                <Button 
-                  onClick={() => {
-                    handleGetStarted();
-                    setIsMobileMenuOpen(false);
+                  transition={{ delay: 0.1 + idx * 0.05 }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#fff',
+                    fontSize: '1.8rem',
+                    fontFamily: "'Playfair Display', serif",
+                    cursor: 'pointer',
                   }}
-                  style={{ width: '100%', fontSize: '1.125rem', padding: '16px 0' }}
                 >
-                  {user ? 'Go to Projects' : 'Start Planning Free'}
+                  {link.name}
+                </motion.button>
+              ))}
+              {!user && (
+                <Button
+                  size="md"
+                  onClick={handleGetStarted}
+                  style={{ width: '70%', marginTop: '1rem' }}
+                >
+                  Get Started
                 </Button>
-              </motion.div>
+              )}
+              {user && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: '70%' }}>
+                  <Button size="md" onClick={handleMessages}>
+                    Messages
+                  </Button>
+                  <Button size="md" onClick={() => handleNavClick('/profile')}>
+                    Profile
+                  </Button>
+                  <Button size="md" onClick={handleLogout}>
+                    Logout
+                  </Button>
+                </Box>
+              )}
             </Box>
           </motion.div>
         )}

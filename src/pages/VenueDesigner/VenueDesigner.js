@@ -80,7 +80,11 @@ const VenueDesigner = () => {
   const [threeDPreview, setThreeDPreview] = useState(null);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [weddingDate, setWeddingDate] = useState(null);
+  const [eventStartTime, setEventStartTime] = useState(null);
+  const [eventEndTime, setEventEndTime] = useState(null);
   const [venueInfo, setVenueInfo] = useState(null);
+  const [venueDesignId, setVenueDesignId] = useState(null);
+  const [projectServices, setProjectServices] = useState([]);
   const layoutAutosaveTimerRef = useRef(null);
   const skipNextLayoutSaveRef = useRef(true);
   const captureScreenshotRef = useRef(null);
@@ -124,6 +128,11 @@ const VenueDesigner = () => {
         lastSaved: data.design?.layoutData?.lastSavedAt || null,
       }));
 
+      // Store venue design ID for table tagging
+      if (data.design?.id) {
+        setVenueDesignId(data.design.id);
+      }
+
       if (designerMode === 'project') {
         setVenueInfo(data.venue || null);
         const backendBudget = data.project?.budget?.totalBudget;
@@ -133,6 +142,14 @@ const VenueDesigner = () => {
         if (data.project?.weddingDate) {
           setWeddingDate(data.project.weddingDate);
         }
+        if (data.project?.eventStartTime) {
+          setEventStartTime(data.project.eventStartTime);
+        }
+        if (data.project?.eventEndTime) {
+          setEventEndTime(data.project.eventEndTime);
+        }
+        // Non-3D services associated with this project
+        setProjectServices(data.projectServices || []);
       } else {
         // Package mode: set venue info if available
         setVenueInfo(data.venue || null);
@@ -331,13 +348,16 @@ const VenueDesigner = () => {
       mode: designerMode,
       resourceId,
       placements,
+      projectServices,
       isLoading,
       availabilityMap,
       venueInfo,
+      venueDesignId,
       refreshAvailability,
       onToggleLock: handleToggleLock,
       onRemovePlacement: handleRemovePlacement,
       onUpdatePlacement: handleUpdatePlacement,
+      onReloadDesign: loadDesign,
       savingState,
       designLayout,
       setDesignLayout,
@@ -349,13 +369,16 @@ const VenueDesigner = () => {
       designerMode,
       resourceId,
       placements,
+      projectServices,
       isLoading,
       availabilityMap,
       venueInfo,
+      venueDesignId,
       refreshAvailability,
       handleToggleLock,
       handleRemovePlacement,
       handleUpdatePlacement,
+      loadDesign,
       savingState,
       designLayout,
     ]
@@ -518,46 +541,63 @@ const VenueDesigner = () => {
           open={showCheckoutModal}
           onClose={() => setShowCheckoutModal(false)}
           groupedByVendor={(() => {
-          // Calculate groupedByVendor from placements (same logic as DesignSummary)
-          const itemGroups = new Map();
-          const bundleInstanceTracker = new Map();
+            // Calculate groupedByVendor from placements and projectServices (aligned with DesignSummary)
+            const itemGroups = new Map();
+            const bundleInstanceTracker = new Map();
 
-          placements.forEach((placement) => {
-            const bundleId = placement.metadata?.bundleId;
-            const serviceListingId = placement.metadata?.serviceListingId;
-            const designElementName = placement.designElement?.name || 'Design Element';
-            const groupKey = bundleId
-              ? `bundle_${serviceListingId}`
-              : `item_${placement.designElement?.id || designElementName}`;
+            // 3D placements
+            placements.forEach((placement) => {
+              const bundleId = placement.metadata?.bundleId;
+              const serviceListingId = placement.metadata?.serviceListingId;
+              const designElementName = placement.designElement?.name || placement.serviceListing?.name || 'Service Item';
+              const groupKey = bundleId
+                ? `bundle_${serviceListingId}`
+                : `item_${placement.designElement?.id || placement.id || serviceListingId}`;
 
-            if (!itemGroups.has(groupKey)) {
-              const isBundle = Boolean(bundleId);
-              const itemName = isBundle
-                ? (placement.serviceListing?.name || 'Bundle Item')
-                : designElementName;
+              if (!itemGroups.has(groupKey)) {
+                const isBundle = Boolean(bundleId);
+                const itemName = isBundle
+                  ? (placement.serviceListing?.name || 'Bundle Item')
+                  : designElementName;
 
-              itemGroups.set(groupKey, {
-                key: groupKey,
-                isBundle,
-                name: itemName,
-                quantity: 0,
-                price: 0,
-                placementIds: [],
-                bundleIds: new Set(),
-                serviceListingId: serviceListingId || null,
-                designElementId: placement.designElement?.id || null,
-                vendorId: placement.designElement?.vendorId,
-                vendorName: placement.designElement?.vendor?.name || placement.designElement?.vendor?.user?.name || 'Unknown Vendor',
-              });
-            }
+                itemGroups.set(groupKey, {
+                  key: groupKey,
+                  isBundle,
+                  name: itemName,
+                  quantity: 0,
+                  price: 0,
+                  placementIds: [],
+                  bundleIds: new Set(),
+                  serviceListingId: serviceListingId || null,
+                  designElementId: placement.designElement?.id || null,
+                  vendorId: placement.designElement?.vendorId || placement.serviceListing?.vendorId,
+                  vendorName:
+                    placement.designElement?.vendor?.name ||
+                    placement.designElement?.vendor?.user?.name ||
+                    placement.serviceListing?.vendor?.name ||
+                    placement.serviceListing?.vendor?.user?.name ||
+                    'Unknown Vendor',
+                  isNon3DService: false,
+                  isBooked: placement.isBooked || false,
+                });
+              }
 
-            const group = itemGroups.get(groupKey);
-            group.placementIds.push(placement.id);
+              const group = itemGroups.get(groupKey);
+              group.placementIds.push(placement.id);
 
-            if (bundleId) {
-              group.bundleIds.add(bundleId);
-              if (!bundleInstanceTracker.has(bundleId)) {
-                bundleInstanceTracker.set(bundleId, true);
+              if (bundleId) {
+                group.bundleIds.add(bundleId);
+                if (!bundleInstanceTracker.has(bundleId)) {
+                  bundleInstanceTracker.set(bundleId, true);
+                  group.quantity += 1;
+                  const price = placement.metadata?.unitPrice
+                    ? parseFloat(placement.metadata.unitPrice)
+                    : placement.serviceListing?.price
+                    ? parseFloat(placement.serviceListing.price)
+                    : 0;
+                  group.price += price;
+                }
+              } else {
                 group.quantity += 1;
                 const price = placement.metadata?.unitPrice
                   ? parseFloat(placement.metadata.unitPrice)
@@ -566,40 +606,66 @@ const VenueDesigner = () => {
                   : 0;
                 group.price += price;
               }
-            } else {
-              group.quantity += 1;
-              const price = placement.metadata?.unitPrice
-                ? parseFloat(placement.metadata.unitPrice)
-                : placement.serviceListing?.price
-                ? parseFloat(placement.serviceListing.price)
-                : 0;
-              group.price += price;
-            }
-          });
-
-          const vendorGroups = {};
-          Array.from(itemGroups.values()).forEach((item) => {
-            const vendorKey = item.vendorId || item.vendorName;
-            if (!vendorGroups[vendorKey]) {
-              vendorGroups[vendorKey] = {
-                vendorId: item.vendorId,
-                vendorName: item.vendorName,
-                items: [],
-                total: 0,
-              };
-            }
-            const displayName = item.quantity > 1 ? `${item.name} x ${item.quantity}` : item.name;
-            vendorGroups[vendorKey].items.push({
-              ...item,
-              displayName,
             });
-            vendorGroups[vendorKey].total += item.price;
-          });
+
+            // Non-3D project services
+            projectServices.forEach((ps) => {
+              const groupKey = `service_${ps.serviceListingId}`;
+              const listing = ps.serviceListing || {};
+
+              if (!itemGroups.has(groupKey)) {
+                itemGroups.set(groupKey, {
+                  key: groupKey,
+                  isBundle: false,
+                  name: listing.name || 'Service Item',
+                  quantity: 0,
+                  price: 0,
+                  placementIds: [],
+                  bundleIds: new Set(),
+                  serviceListingId: ps.serviceListingId,
+                  designElementId: null,
+                  vendorId: listing.vendor?.id,
+                  vendorName:
+                    listing.vendor?.name ||
+                    listing.vendor?.user?.name ||
+                    'Unknown Vendor',
+                  isNon3DService: true,
+                  isBooked: ps.isBooked,
+                });
+              }
+
+              const group = itemGroups.get(groupKey);
+              group.quantity += ps.quantity || 1;
+              const price = listing.price ? parseFloat(listing.price) : 0;
+              group.price += price * (ps.quantity || 1);
+            });
+
+            const vendorGroups = {};
+            Array.from(itemGroups.values()).forEach((item) => {
+              const vendorKey = item.vendorId || item.vendorName;
+              if (!vendorGroups[vendorKey]) {
+                vendorGroups[vendorKey] = {
+                  vendorId: item.vendorId,
+                  vendorName: item.vendorName,
+                  items: [],
+                  total: 0,
+                };
+              }
+              const displayName = item.quantity > 1 ? `${item.name} x ${item.quantity}` : item.name;
+              vendorGroups[vendorKey].items.push({
+                ...item,
+                displayName,
+              });
+              vendorGroups[vendorKey].total += item.price;
+            });
 
             return Object.values(vendorGroups);
           })()}
           projectId={projectId}
           weddingDate={weddingDate}
+          venueDesignId={venueDesignId}
+          eventStartTime={eventStartTime}
+          eventEndTime={eventEndTime}
           onSuccess={() => {
             loadDesign();
           }}

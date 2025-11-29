@@ -148,7 +148,7 @@ const ProjectDashboard = () => {
       description: 'Keep on top of your budget',
       progress: `${Math.round(budgetProgress)}% spent`,
       color: '#e16789',
-      link: '/budget',
+        link: `/budget?projectId=${projectData.id}`,
       stats: `RM${projectData.budget.spent.toLocaleString()} / RM${projectData.budget.total.toLocaleString()}`,
     },
     {

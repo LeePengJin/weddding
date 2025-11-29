@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import {
   Dialog,
@@ -21,8 +21,9 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { createBooking } from '../../lib/api';
+import { usePricingCalculation } from '../../hooks/usePricingCalculation';
 
-const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, weddingDate, onSuccess }) => {
+const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, weddingDate, venueDesignId, eventStartTime, eventEndTime, onSuccess }) => {
   // Track expanded vendors
   const [expandedVendors, setExpandedVendors] = useState(new Set());
   // Track selected listings by their key (item.key)
@@ -30,7 +31,32 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [calculatedPrices, setCalculatedPrices] = useState(new Map());
+  const [priceCalculationLoading, setPriceCalculationLoading] = useState(false);
   const hasInitialized = React.useRef(false);
+
+  // Get all items for price calculation
+  const allItems = useMemo(() => {
+    return groupedByVendor.flatMap((vendor) => vendor.items.filter((item) => item.serviceListingId));
+  }, [groupedByVendor]);
+
+  // Calculate prices using the pricing engine
+  const { prices: calculatedPricesFromHook, loading: pricesLoading } = usePricingCalculation(
+    allItems,
+    venueDesignId,
+    eventStartTime ? new Date(eventStartTime) : null,
+    eventEndTime ? new Date(eventEndTime) : null
+  );
+
+  // Update calculated prices when they're ready
+  useEffect(() => {
+    if (calculatedPricesFromHook.size > 0) {
+      setCalculatedPrices(calculatedPricesFromHook);
+      setPriceCalculationLoading(false);
+    } else if (pricesLoading) {
+      setPriceCalculationLoading(true);
+    }
+  }, [calculatedPricesFromHook, pricesLoading]);
 
   // Initialize: expand all vendors and select all listings when modal opens
   React.useEffect(() => {
@@ -106,11 +132,21 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
     }
   };
 
-  // Get selected listings grouped by vendor
+  // Get selected listings grouped by vendor with calculated prices
   const selectedVendorData = useMemo(() => {
     return groupedByVendor
       .map((vendor) => {
-        const selectedItems = vendor.items.filter((item) => selectedListings.has(item.key) && item.serviceListingId);
+        const selectedItems = vendor.items
+          .filter((item) => selectedListings.has(item.key) && item.serviceListingId)
+          .map((item) => {
+            // Use calculated price if available, otherwise fall back to item.price
+            const calculatedPrice = calculatedPrices.get(item.serviceListingId);
+            const price = calculatedPrice !== undefined ? calculatedPrice : item.price;
+            return {
+              ...item,
+              price, // Override with calculated price
+            };
+          });
         if (selectedItems.length === 0) return null;
 
         return {
@@ -120,7 +156,7 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
         };
       })
       .filter(Boolean);
-  }, [groupedByVendor, selectedListings]);
+  }, [groupedByVendor, selectedListings, calculatedPrices]);
 
   const grandTotal = useMemo(() => {
     return selectedVendorData.reduce((sum, vendor) => sum + vendor.total, 0);
@@ -506,7 +542,7 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
 CheckoutModal.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
-  groupedByVendor: PropTypes.arrayOf(
+          groupedByVendor: PropTypes.arrayOf(
     PropTypes.shape({
       vendorId: PropTypes.string,
       vendorName: PropTypes.string.isRequired,
@@ -516,6 +552,9 @@ CheckoutModal.propTypes = {
   ),
   projectId: PropTypes.string,
   weddingDate: PropTypes.string,
+  venueDesignId: PropTypes.string,
+  eventStartTime: PropTypes.string,
+  eventEndTime: PropTypes.string,
   onSuccess: PropTypes.func,
 };
 
