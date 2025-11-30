@@ -234,10 +234,15 @@ const ManageDesignElements = () => {
   // Update dimensions state when user drags dimension handles in 3D editor
   const handleDimensionsChange = useCallback((dims) => {
     // Update the form dimensions so they're saved when user clicks update
-    const newWidth = dims.x > 0 ? dims.x.toString() : '';
-    const newHeight = dims.y > 0 ? dims.y.toString() : '';
-    const newDepth = dims.z > 0 ? dims.z.toString() : '';
+    // The callback receives { x, y, z } where:
+    // x = width, y = height, z = depth
+    // Round to 2 decimal places
+    console.log('handleDimensionsChange called with:', dims);
+    const newWidth = dims.x > 0 ? Number(dims.x).toFixed(2) : '';
+    const newHeight = dims.y > 0 ? Number(dims.y).toFixed(2) : '';
+    const newDepth = dims.z > 0 ? Number(dims.z).toFixed(2) : '';
     
+    console.log('Setting dimensions:', { width: newWidth, height: newHeight, depth: newDepth });
     setDimensions({
       width: newWidth,
       height: newHeight,
@@ -253,7 +258,8 @@ const ManageDesignElements = () => {
       }
       const value = Number(raw);
       if (Number.isFinite(value) && value >= 0) {
-        acc[key] = value;
+        // Round to 2 decimal places
+        acc[key] = Math.round(value * 100) / 100;
       }
       return acc;
     }, {});
@@ -331,6 +337,28 @@ const ManageDesignElements = () => {
       }
 
       await fetchDesignElements();
+      // If editing, refresh the element data to show updated dimensions
+      if (editingElement) {
+        try {
+          const updated = await apiFetch(`/design-elements/${editingElement.id}`);
+          setEditingElement(updated);
+          // Update dimensions state with fresh data
+          const dims = updated.dimensions || {};
+          const newDims = {
+            width: dims.width ? String(dims.width) : '',
+            height: dims.height ? String(dims.height) : '',
+            depth: dims.depth ? String(dims.depth) : '',
+          };
+          setDimensions(newDims);
+          // Update live preview URL to force Viewer3D to reload with new dimensions
+          if (updated.modelFile) {
+            const modelUrl = getModelUrl(updated.modelFile);
+            setLivePreviewUrl(modelUrl);
+          }
+        } catch (err) {
+          console.error('Failed to refresh element data:', err);
+        }
+      }
       setTimeout(() => {
         handleCloseModal();
       }, 1000);
@@ -898,9 +926,14 @@ const ManageDesignElements = () => {
                   }}
                 >
                   <Viewer3D
+                    key={`${editingElement?.id || 'new'}-${editingElement?.dimensions?.width || 0}-${editingElement?.dimensions?.height || 0}-${editingElement?.dimensions?.depth || 0}`}
                     fileUrl={livePreviewUrl}
                     onDimensionsChange={handleDimensionsChange}
-                    targetDimensions={null}
+                    targetDimensions={editingElement?.dimensions || (dimensions.width || dimensions.height || dimensions.depth ? {
+                      width: Number(dimensions.width) || undefined,
+                      height: Number(dimensions.height) || undefined,
+                      depth: Number(dimensions.depth) || undefined,
+                    } : null)}
                     exportRef={dimensionExportRef}
                   />
                 </Box>

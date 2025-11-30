@@ -213,7 +213,14 @@ const ListingWizard = ({
   }, [initialData]);
 
   const handleInputChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData(prev => {
+      const updated = { ...prev, [field]: value };
+      // Auto-set availability type to exclusive for Venue category
+      if (field === 'category' && value === 'Venue') {
+        updated.availabilityType = 'exclusive';
+      }
+      return updated;
+    });
     // Clear errors when user starts typing
     if (fieldErrors[field]) {
       setFieldErrors(prev => {

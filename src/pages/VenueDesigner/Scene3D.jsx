@@ -7,6 +7,7 @@ import PlacedElement from './PlacedElement';
 import { useVenueDesigner } from './VenueDesignerContext';
 import { useWASDControls } from './useWASDControls';
 import BudgetTracker from '../../components/BudgetTracker/BudgetTracker';
+import TableTaggingModal from '../../components/TableTaggingModal/TableTaggingModal';
 import './Scene3D.css';
 
 const DEFAULT_GRID = {
@@ -154,9 +155,11 @@ const CaptureBridge = ({ onRegisterCapture, controlsRef }) => {
 
       camera.position.set(18, 14, 20);
       camera.lookAt(framingTarget);
-      if (controls && prevTarget) {
+      if (controls && controls.target && prevTarget) {
         controls.target.copy(framingTarget);
-        controls.update();
+        if (typeof controls.update === 'function') {
+          controls.update();
+        }
       }
 
       renderer.render(scene, camera);
@@ -164,9 +167,11 @@ const CaptureBridge = ({ onRegisterCapture, controlsRef }) => {
 
       camera.position.copy(prevPosition);
       camera.quaternion.copy(prevQuaternion);
-      if (controls && prevTarget) {
+      if (controls && controls.target && prevTarget) {
         controls.target.copy(prevTarget);
-        controls.update();
+        if (typeof controls.update === 'function') {
+          controls.update();
+        }
       }
 
       renderer.setPixelRatio(prevPixelRatio);
@@ -202,6 +207,9 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     onRemovePlacement,
     onToggleLock,
     venueInfo,
+    venueDesignId,
+    projectId,
+    onReloadDesign,
     sceneOptions = {},
   } = useVenueDesigner();
 
@@ -210,6 +218,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   const [viewMode, setViewMode] = useState('orbit'); // 'orbit' | 'walk'
   const [pointerLocked, setPointerLocked] = useState(false);
   const [venueBounds, setVenueBounds] = useState(null);
+  const [taggingModalPlacement, setTaggingModalPlacement] = useState(null);
   const venueModelUrl = useMemo(() => normalizeUrl(venueInfo?.modelFile), [venueInfo?.modelFile]);
   const orbitControlsRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -257,6 +266,31 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   const handleCloseSelection = useCallback(() => {
     setSelectedId(null);
   }, []);
+
+  const handleOpenTaggingModal = useCallback((placement) => {
+    setTaggingModalPlacement(placement);
+  }, []);
+
+  const handleCloseTaggingModal = useCallback(() => {
+    setTaggingModalPlacement(null);
+  }, []);
+
+  const handleTagUpdate = useCallback(async (placementId) => {
+    if (onReloadDesign) {
+      await onReloadDesign();
+    }
+  }, [onReloadDesign]);
+
+  // Update the placement object when placements change (after reload)
+  // This ensures the modal shows the correct checked state when reopened
+  useEffect(() => {
+    if (taggingModalPlacement?.id) {
+      const updatedPlacement = placements.find(p => p.id === taggingModalPlacement.id);
+      if (updatedPlacement && updatedPlacement.serviceListingIds !== taggingModalPlacement.serviceListingIds) {
+        setTaggingModalPlacement(updatedPlacement);
+      }
+    }
+  }, [placements, taggingModalPlacement]);
 
   const handleSelect = useCallback((placementId) => {
     setSelectedId(placementId);
@@ -345,6 +379,54 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     [handleCloseSelection, viewMode]
   );
 
+  const handleTopView = useCallback(() => {
+    // Switch to orbit mode if not already
+    if (viewMode !== 'orbit') {
+      handleViewModeChange('orbit');
+      // Wait a bit for mode to change before setting camera
+      setTimeout(() => {
+        if (orbitControlsRef.current) {
+          const controls = orbitControlsRef.current;
+          
+          // Calculate center of venue bounds or use default
+          const centerX = venueBounds ? (venueBounds.minX + venueBounds.maxX) / 2 : 0;
+          const centerZ = venueBounds ? (venueBounds.minZ + venueBounds.maxZ) / 2 : 0;
+          const centerY = venueBounds ? (venueBounds.minY + venueBounds.maxY) / 2 : 2;
+          
+          // Position camera high above, looking straight down
+          const height = venueBounds ? Math.max(venueBounds.maxY - venueBounds.minY, 20) + 10 : 30;
+          controls.object.position.set(centerX, centerY + height, centerZ);
+          
+          // Set target to center of venue
+          controls.target.set(centerX, centerY, centerZ);
+          
+          // Update controls to apply the changes
+          controls.update();
+        }
+      }, 100);
+    } else {
+      // Already in orbit mode, set camera immediately
+      if (orbitControlsRef.current) {
+        const controls = orbitControlsRef.current;
+        
+        // Calculate center of venue bounds or use default
+        const centerX = venueBounds ? (venueBounds.minX + venueBounds.maxX) / 2 : 0;
+        const centerZ = venueBounds ? (venueBounds.minZ + venueBounds.maxZ) / 2 : 0;
+        const centerY = venueBounds ? (venueBounds.minY + venueBounds.maxY) / 2 : 2;
+        
+        // Position camera high above, looking straight down
+        const height = venueBounds ? Math.max(venueBounds.maxY - venueBounds.minY, 20) + 10 : 30;
+        controls.object.position.set(centerX, centerY + height, centerZ);
+        
+        // Set target to center of venue
+        controls.target.set(centerX, centerY, centerZ);
+        
+        // Update controls to apply the changes
+        controls.update();
+      }
+    }
+  }, [viewMode, handleViewModeChange, venueBounds]);
+
   useEffect(() => {
     const handleGlobalPointerDown = (event) => {
       if (!wrapperRef.current) return;
@@ -430,6 +512,14 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
         >
           <i className="fas fa-walking"></i>
         </button>
+        <button
+          type="button"
+          className="scene3d-view-mode-btn"
+          onClick={handleTopView}
+          title="Top view (2D)"
+        >
+          <i className="fas fa-map"></i>
+        </button>
       </div>
       <div className="scene3d-meta">
         <span>Wedding Venue Space</span>
@@ -447,7 +537,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
 
       <Canvas
         shadows
-        camera={{ position: [14, 16, 18], fov: 42, near: 0.1, far: 500 }}
+        camera={{ position: [14, 22, 18], fov: 42, near: 0.1, far: 500 }}
         dpr={[1, 2]}
         onPointerMissed={handleCanvasPointerMiss}
       >
@@ -502,6 +592,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
                 onShowDetails={sceneOptions.onShowDetails}
                 onClose={handleCloseSelection}
                 venueBounds={venueBounds}
+                onOpenTaggingModal={handleOpenTaggingModal}
               />
             ))}
         </Suspense>
@@ -512,6 +603,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
 
         {viewMode === 'orbit' && (
           <OrbitControls
+            key="orbit-controls"
             ref={orbitControlsRef}
             makeDefault
             enabled={orbitEnabled}
@@ -527,6 +619,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
 
         {viewMode === 'walk' && (
           <PointerLockControls
+            key="pointer-lock-controls"
             makeDefault
             onLock={() => setPointerLocked(true)}
             onUnlock={() => {
@@ -537,14 +630,17 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
         )}
       </Canvas>
 
-      <div className="scene3d-meta">
-        <span>Wedding Venue Space</span>
-        {savingState?.lastSaved && (
-          <span className="scene3d-meta-muted">
-            Last saved {new Date(savingState.lastSaved).toLocaleTimeString()}
-          </span>
-        )}
-      </div>
+      {/* Table Tagging Modal - rendered outside Canvas to avoid R3F errors */}
+      {taggingModalPlacement && venueDesignId && projectId && (
+        <TableTaggingModal
+          open={Boolean(taggingModalPlacement)}
+          onClose={handleCloseTaggingModal}
+          placement={taggingModalPlacement}
+          venueDesignId={venueDesignId}
+          projectId={projectId}
+          onTagUpdate={handleTagUpdate}
+        />
+      )}
     </div>
   );
 };

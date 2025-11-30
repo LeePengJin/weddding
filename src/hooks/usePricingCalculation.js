@@ -39,14 +39,23 @@ export function usePricingCalculation(items, venueDesignId = null, eventStartTim
       setError(null);
 
       try {
-        // Fetch service listings to get pricing policy
+        // Try to get service listings from items first (if they already have the data)
+        // Otherwise fetch from API
         const serviceListings = await Promise.all(
           serviceListingIds.map(async (id) => {
+            // Check if we already have the service listing data in items
+            const itemWithListing = items.find(item => item.serviceListingId === id && item.serviceListing);
+            if (itemWithListing && itemWithListing.serviceListing) {
+              return itemWithListing.serviceListing;
+            }
+            
+            // Otherwise, try to fetch from API (may fail for couples, that's okay)
             try {
               const listing = await apiFetch(`/service-listings/${id}`);
               return listing;
             } catch (err) {
-              console.error(`Error fetching service listing ${id}:`, err);
+              // Silently fail - we'll use fallback pricing
+              console.warn(`Could not fetch service listing ${id} for pricing calculation:`, err.message);
               return null;
             }
           })
@@ -61,6 +70,8 @@ export function usePricingCalculation(items, venueDesignId = null, eventStartTim
           .map(async (serviceListing) => {
             try {
               // Build context based on item quantity
+              // For per_table services, tableCount will be fetched by calculateServicePrice
+              // For other services, use quantity from items
               const itemsForService = items.filter((item) => item.serviceListingId === serviceListing.id);
               const context = {
                 quantity: itemsForService.reduce((sum, item) => sum + (item.quantity || 1), 0),
@@ -77,7 +88,15 @@ export function usePricingCalculation(items, venueDesignId = null, eventStartTim
               return { id: serviceListing.id, price };
             } catch (err) {
               console.error(`Error calculating price for ${serviceListing.id}:`, err);
-              // Fallback to base price
+              // For per_table services with 0 tables, return 0 instead of base price
+              // This prevents validation errors in checkout
+              if (serviceListing.pricingPolicy === 'per_table') {
+                return {
+                  id: serviceListing.id,
+                  price: 0,
+                };
+              }
+              // Fallback to base price for other services
               return {
                 id: serviceListing.id,
                 price: parseFloat(serviceListing.price || 0),

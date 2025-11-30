@@ -31,32 +31,31 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [calculatedPrices, setCalculatedPrices] = useState(new Map());
-  const [priceCalculationLoading, setPriceCalculationLoading] = useState(false);
   const hasInitialized = React.useRef(false);
 
-  // Get all items for price calculation
+  // Get all items for price calculation, including serviceListing data from placements/projectServices
   const allItems = useMemo(() => {
-    return groupedByVendor.flatMap((vendor) => vendor.items.filter((item) => item.serviceListingId));
+    return groupedByVendor.flatMap((vendor) => 
+      vendor.items
+        .filter((item) => item.serviceListingId)
+        .map((item) => {
+          // Include serviceListing data if available from the item
+          // This data comes from the venue design response (placements.serviceListing or projectServices.serviceListing)
+          return {
+            ...item,
+            serviceListing: item.serviceListing || null, // Pass through serviceListing if available
+          };
+        })
+    );
   }, [groupedByVendor]);
 
   // Calculate prices using the pricing engine
-  const { prices: calculatedPricesFromHook, loading: pricesLoading } = usePricingCalculation(
+  const { prices: calculatedPrices } = usePricingCalculation(
     allItems,
     venueDesignId,
     eventStartTime ? new Date(eventStartTime) : null,
     eventEndTime ? new Date(eventEndTime) : null
   );
-
-  // Update calculated prices when they're ready
-  useEffect(() => {
-    if (calculatedPricesFromHook.size > 0) {
-      setCalculatedPrices(calculatedPricesFromHook);
-      setPriceCalculationLoading(false);
-    } else if (pricesLoading) {
-      setPriceCalculationLoading(true);
-    }
-  }, [calculatedPricesFromHook, pricesLoading]);
 
   // Initialize: expand all vendors and select all listings when modal opens
   React.useEffect(() => {
@@ -139,12 +138,26 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
         const selectedItems = vendor.items
           .filter((item) => selectedListings.has(item.key) && item.serviceListingId)
           .map((item) => {
-            // Use calculated price if available, otherwise fall back to item.price
+            // Use calculated price if available and > 0, otherwise fall back to item.price
+            // For non-3D services, item.price is the total price (unitPrice * quantity)
             const calculatedPrice = calculatedPrices.get(item.serviceListingId);
-            const price = calculatedPrice !== undefined ? calculatedPrice : item.price;
+            let price = item.price || 0; // Start with total price from item
+            
+            // Only use calculated price if it's valid (> 0)
+            // The calculated price is the total price for the service
+            if (calculatedPrice !== undefined && calculatedPrice > 0) {
+              price = calculatedPrice;
+            } else if (price === 0 && item.serviceListing?.price) {
+              // Fallback: if price is 0, try to get it from serviceListing and multiply by quantity
+              const unitPrice = typeof item.serviceListing.price === 'string' 
+                ? parseFloat(item.serviceListing.price) 
+                : (item.serviceListing.price || 0);
+              price = unitPrice * (item.quantity || 1);
+            }
+            
             return {
               ...item,
-              price, // Override with calculated price
+              price,
             };
           });
         if (selectedItems.length === 0) return null;
@@ -190,15 +203,40 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
       // Create booking requests for each selected vendor
       const bookingPromises = selectedVendorData.map((vendor) => {
         const selectedServices = vendor.items
-          .filter((item) => item.serviceListingId) // Only include items with serviceListingId
-          .map((item) => ({
-            serviceListingId: item.serviceListingId,
-            quantity: item.quantity,
-            totalPrice: item.price,
-          }));
+          .filter((item) => {
+            if (!item.serviceListingId || item.quantity <= 0) {
+              return false;
+            }
+            // For price, use calculated price if available, otherwise use item.price
+            // Only filter out if both are 0 or invalid
+            const calculatedPrice = calculatedPrices.get(item.serviceListingId);
+            const finalPrice = calculatedPrice !== undefined && calculatedPrice > 0 
+              ? calculatedPrice 
+              : (item.price || 0);
+            
+            return finalPrice > 0;
+          })
+          .map((item) => {
+            // Use calculated price if available and > 0, otherwise use item.price
+            const calculatedPrice = calculatedPrices.get(item.serviceListingId);
+            const finalPrice = calculatedPrice !== undefined && calculatedPrice > 0 
+              ? calculatedPrice 
+              : (item.price || 0);
+            
+            return {
+              serviceListingId: item.serviceListingId,
+              quantity: item.quantity,
+              totalPrice: finalPrice,
+            };
+          });
 
         if (selectedServices.length === 0) {
-          throw new Error(`No valid services found for ${vendor.vendorName}`);
+          // Skip vendors with no valid services (e.g., per_table services with 0 tables tagged)
+          return Promise.resolve(null);
+        }
+
+        if (!vendor.vendorId) {
+          throw new Error(`Vendor "${vendor.vendorName}" is missing vendor ID`);
         }
 
         return createBooking({
@@ -209,7 +247,16 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
         });
       });
 
-      await Promise.all(bookingPromises);
+      // Filter out null results (vendors with no valid services)
+      const validPromises = bookingPromises.filter(p => p !== null);
+      
+      if (validPromises.length === 0) {
+        setSubmitError('No services with valid pricing to book. Please ensure services are properly tagged or configured.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      await Promise.all(validPromises);
 
       setIsSubmitted(true);
       setTimeout(() => {

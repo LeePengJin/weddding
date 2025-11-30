@@ -239,12 +239,52 @@ const ModelViewer = ({ url, onDimensionsChange, setSceneRef, setInteracting, tar
     onDimensionsChangeRef.current = onDimensionsChange;
   }, [onDimensionsChange]);
 
-  // Reset scale when URL changes to prevent inheriting scale from previous model
+  // Create a stable key from targetDimensions to detect actual changes
+  const targetDimensionsKey = useMemo(() => {
+    if (!targetDimensions) return 'none';
+    const w = targetDimensions.width || 0;
+    const h = targetDimensions.height || 0;
+    const d = targetDimensions.depth || 0;
+    return `${w.toFixed(2)}_${h.toFixed(2)}_${d.toFixed(2)}`;
+  }, [targetDimensions?.width, targetDimensions?.height, targetDimensions?.depth]);
+
+  // Reset scale when URL or targetDimensions changes to prevent inheriting scale from previous model
   useEffect(() => {
     setScale(new THREE.Vector3(1, 1, 1));
     isInitializedRef.current = false;
-  }, [url]);
+  }, [url, targetDimensionsKey]);
 
+  // Update scale when targetDimensions changes (e.g., when reopening with saved dimensions)
+  // Only update if model is already initialized and targetDimensions are provided
+  useEffect(() => {
+    if (!isInitializedRef.current || !targetDimensions || !originalSize || 
+        originalSize.x <= 0 || originalSize.y <= 0 || originalSize.z <= 0) {
+      return;
+    }
+    
+    const targetWidth = targetDimensions.width;
+    const targetHeight = targetDimensions.height;
+    const targetDepth = targetDimensions.depth;
+    
+    // Calculate new scale values
+    const newScaleX = targetWidth && isFinite(targetWidth) && targetWidth > 0 
+      ? targetWidth / originalSize.x 
+      : scale.x;
+    const newScaleY = targetHeight && isFinite(targetHeight) && targetHeight > 0 
+      ? targetHeight / originalSize.y 
+      : scale.y;
+    const newScaleZ = targetDepth && isFinite(targetDepth) && targetDepth > 0 
+      ? targetDepth / originalSize.z 
+      : scale.z;
+    
+    // Only update if values are valid and different
+    if (isFinite(newScaleX) && isFinite(newScaleY) && isFinite(newScaleZ) &&
+        newScaleX > 0 && newScaleY > 0 && newScaleZ > 0) {
+      setScale(new THREE.Vector3(newScaleX, newScaleY, newScaleZ));
+    }
+  }, [targetDimensions, originalSize]);
+
+  // Calculate bounding box and original size (only when scene changes)
   useLayoutEffect(() => {
     if (scene) {
       scene.scale.set(1, 1, 1);
@@ -292,13 +332,42 @@ const ModelViewer = ({ url, onDimensionsChange, setSceneRef, setInteracting, tar
       
       setOriginalSize(sz);
       setModelCenter(ctr);
-      // Only notify on initial load, not on every scene change
+      
       if (!isInitializedRef.current) {
         isInitializedRef.current = true;
-        onDimensionsChangeRef.current({ x: sz.x, y: sz.y, z: sz.z });
+        if (!targetDimensions || !targetDimensions.width || !targetDimensions.height || !targetDimensions.depth) {
+          // No target dimensions, use original size
+          onDimensionsChangeRef.current({ x: sz.x, y: sz.y, z: sz.z });
+        }
       }
     }
   }, [scene]);
+
+  // Apply targetDimensions when they change (after originalSize is calculated)
+  useEffect(() => {
+    if (!originalSize || originalSize.x <= 0 || originalSize.y <= 0 || originalSize.z <= 0) {
+      return;
+    }
+    
+    if (targetDimensions && targetDimensions.width && targetDimensions.height && targetDimensions.depth) {
+      // Calculate scale based on target dimensions
+      const scaleX = originalSize.x > 0 ? targetDimensions.width / originalSize.x : 1;
+      const scaleY = originalSize.y > 0 ? targetDimensions.height / originalSize.y : 1;
+      const scaleZ = originalSize.z > 0 ? targetDimensions.depth / originalSize.z : 1;
+      
+      // Only set scale if all values are valid
+      if (isFinite(scaleX) && isFinite(scaleY) && isFinite(scaleZ) &&
+          scaleX > 0 && scaleY > 0 && scaleZ > 0) {
+        setScale(new THREE.Vector3(scaleX, scaleY, scaleZ));
+        // Notify parent of the target dimensions
+        onDimensionsChangeRef.current({
+          x: targetDimensions.width,
+          y: targetDimensions.height,
+          z: targetDimensions.depth
+        });
+      }
+    }
+  }, [targetDimensions, originalSize]);
 
   useEffect(() => {
      if (groupRef.current) setSceneRef(groupRef.current);
@@ -322,11 +391,16 @@ const ModelViewer = ({ url, onDimensionsChange, setSceneRef, setInteracting, tar
       if (!isFinite(currentDimX) || !isFinite(currentDimY) || !isFinite(currentDimZ)) return;
       
       // Always notify parent of dimension changes (matching TypeScript version)
-      onDimensionsChangeRef.current({
-          x: currentDimX,
-          y: currentDimY,
-          z: currentDimZ
-      });
+      // x = width, y = height, z = depth
+      const dimensions = {
+          x: currentDimX,  // width
+          y: currentDimY,  // height
+          z: currentDimZ   // depth
+      };
+      console.log('Viewer3D: Notifying dimension change:', dimensions);
+      if (onDimensionsChangeRef.current) {
+        onDimensionsChangeRef.current(dimensions);
+      }
   }, [scale, originalSize]);
 
   const handleResize = (axis, delta) => {
@@ -345,6 +419,18 @@ const ModelViewer = ({ url, onDimensionsChange, setSceneRef, setInteracting, tar
         }
         
         next[axis] = newScale;
+        
+        // Immediately notify parent of dimension change during drag
+        const newDims = {
+          x: axis === 'x' ? newDim : (originalSize.x * next.x),
+          y: axis === 'y' ? newDim : (originalSize.y * next.y),
+          z: axis === 'z' ? newDim : (originalSize.z * next.z),
+        };
+        console.log('Viewer3D: handleResize - notifying dimension change:', newDims);
+        if (onDimensionsChangeRef.current) {
+          onDimensionsChangeRef.current(newDims);
+        }
+        
         return next;
     });
   };
@@ -376,13 +462,16 @@ const ModelViewer = ({ url, onDimensionsChange, setSceneRef, setInteracting, tar
            scale.x < 1000 && scale.y < 1000 && scale.z < 1000;
   }, [scale]);
 
+  // Force re-render when scale changes by using scale values directly
+  const scaleArray = useMemo(() => [scale.x, scale.y, scale.z], [scale.x, scale.y, scale.z]);
+
   if (!isValidScale || !scene) {
     return null;
   }
-
+  
   return (
     <group ref={groupRef}>
-        <group scale={scale}>
+        <group scale={scaleArray}>
             <primitive object={scene} position={modelCenter.clone().negate()} />
         </group>
 

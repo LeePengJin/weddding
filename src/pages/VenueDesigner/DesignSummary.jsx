@@ -33,6 +33,10 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
     projectServices = [],
     availabilityMap = {},
     onRemovePlacement,
+    onRemoveProjectService,
+    onReloadDesign,
+    projectId,
+    venueInfo,
   } = useVenueDesigner();
   const [expandedVendors, setExpandedVendors] = useState(new Set());
 
@@ -74,6 +78,7 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
           bundleInstanceRefs: new Map(),
           singlePlacementQueue: [],
           serviceListingId: serviceListingId || null,
+          serviceListing: placement.serviceListing || null, // Include full serviceListing data
           designElementId: placement.designElement?.id || null,
           isUnavailable: false,
           vendorId: placement.designElement?.vendorId || placement.serviceListing?.vendorId,
@@ -132,6 +137,7 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
           bundleInstanceRefs: new Map(),
           singlePlacementQueue: [],
           serviceListingId: ps.serviceListingId,
+          serviceListing: listing || null, // Include full serviceListing data
           designElementId: null,
           isUnavailable: false,
           vendorId: listing.vendor?.id,
@@ -145,14 +151,72 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
       }
 
       const group = groups.get(groupKey);
-      group.quantity += ps.quantity || 1;
+      
+      // For per_table services, count the number of tables tagged with this service
+      // For other services, use the ProjectService quantity
+      let quantity = ps.quantity || 1;
+      const isPerTable = listing.pricingPolicy === 'per_table';
+      
+      if (isPerTable) {
+        // Count placements (tables) that have this service in their serviceListingIds
+        const tableCount = placements.filter((placement) => {
+          const isTable = 
+            placement?.designElement?.elementType === 'table' ||
+            placement?.elementType === 'table' ||
+            placement?.designElement?.name?.toLowerCase().includes('table');
+          
+          if (!isTable) return false;
+          
+          const serviceListingIds = placement.serviceListingIds || [];
+          return serviceListingIds.includes(ps.serviceListingId);
+        }).length;
+        
+        quantity = tableCount || 0; // Use table count, default to 0 if no tables tagged
+        group.isPerTableService = true; // Mark as per_table service
+      }
+      
+      group.quantity += quantity;
       const price = listing.price ? parseFloat(listing.price) : 0;
-      group.price += price * (ps.quantity || 1);
+      group.price += price * quantity;
 
       if (ps.serviceListingId && availabilityMap[ps.serviceListingId]?.available === false) {
         group.isUnavailable = true;
       }
     });
+
+    // Add venue as a separate item if it exists
+    // Handle both id and listingId for backward compatibility
+    const venueId = venueInfo?.id || venueInfo?.listingId;
+    if (venueInfo && venueId) {
+      const venueKey = `venue_${venueId}`;
+      if (!groups.has(venueKey)) {
+        groups.set(venueKey, {
+          key: venueKey,
+          isBundle: false,
+          name: venueInfo.name || 'Venue',
+          quantity: 1, // Venue is always quantity 1
+          price: venueInfo.price ? parseFloat(venueInfo.price) : 0,
+          placementIds: [],
+          bundleInstanceRefs: new Map(),
+          singlePlacementQueue: [],
+          serviceListingId: venueId,
+          serviceListing: {
+            ...venueInfo,
+            id: venueId, // Ensure id is set
+          }, // Include full venue serviceListing data
+          designElementId: venueInfo.designElement?.id || null,
+          isUnavailable: false,
+          vendorId: venueInfo.vendor?.userId || venueInfo.vendor?.id || venueInfo.vendorId,
+          vendorName:
+            venueInfo.vendor?.name ||
+            venueInfo.vendor?.user?.name ||
+            'Unknown Vendor',
+          isNon3DService: false,
+          isVenue: true, // Mark as venue
+          isBooked: false, // Venue booking status would need to be checked separately
+        });
+      }
+    }
 
     return Array.from(groups.values()).map((group) => ({
       ...group,
@@ -161,7 +225,7 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
         placementId,
       })),
     }));
-  }, [placements, availabilityMap]);
+  }, [placements, projectServices, availabilityMap, venueInfo]);
 
   // Group items by vendor
   const groupedByVendor = useMemo(() => {
@@ -202,13 +266,50 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
   const totalItems = itemGroups.reduce((sum, item) => sum + item.quantity, 0);
   const totalVendors = groupedByVendor.length;
 
-  const handleRemove = (item) => {
-    if (!onRemovePlacement) return;
-    // Non-3D services should be removed via project service API (not yet wired here)
-    if (item.isNon3DService) {
-      window.alert('Please remove this non-3D service from the project summary view (UI to be added).');
+  const handleRemove = async (item) => {
+    // Prevent removal of venue
+    if (item.isVenue) {
+      window.alert('The venue cannot be removed from the design summary. To change the venue, please update your project settings.');
       return;
     }
+    
+    // Handle non-3D services (ProjectService entries)
+    if (item.isNon3DService) {
+      // For per_table services, warn that tables need to be untagged first
+      if (item.isPerTableService && item.quantity > 0) {
+        window.alert(
+          'This service uses per-table pricing and has tables tagged.\n\n' +
+          'Please untag all tables first by clicking on each table in the 3D design and unchecking this service.\n\n' +
+          'Once all tables are untagged, you can remove the service from the project.'
+        );
+        return;
+      }
+      
+      if (!onRemoveProjectService || !projectId || !item.serviceListingId) {
+        window.alert('Unable to remove this service. Please try again.');
+        return;
+      }
+      
+      if (item.isBooked) {
+        window.alert('This service is linked to a booking and cannot be removed.');
+        return;
+      }
+      
+      const confirmed = window.confirm(
+        `Remove "${item.name}" from your project? This will remove it from the design summary.`
+      );
+      if (!confirmed) return;
+      
+      try {
+        await onRemoveProjectService(item.serviceListingId);
+      } catch (err) {
+        window.alert(err.message || 'Failed to remove service from project');
+      }
+      return;
+    }
+    
+    // Handle 3D placements
+    if (!onRemovePlacement) return;
     const confirmed = window.confirm('Remove this service from your 3D design?');
     if (!confirmed) return;
 
@@ -225,7 +326,53 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
     }
   };
 
-  const handleDecreaseQuantity = (item) => {
+  const handleDecreaseQuantity = async (item) => {
+    // Handle non-3D services (ProjectService entries)
+    if (item.isNon3DService) {
+      // For per_table services, quantity is controlled by table tagging
+      // Users cannot manually change the quantity
+      if (item.isPerTableService) {
+        window.alert(
+          'This service uses per-table pricing. Quantity is automatically calculated from the number of tagged tables.\n\n' +
+          'To change the quantity, tag or untag tables in the 3D design by clicking on a table and selecting "Tag Services".'
+        );
+        return;
+      }
+      
+      if (!projectId || !item.serviceListingId) {
+        window.alert('Unable to modify this service. Please try again.');
+        return;
+      }
+      
+      if (item.isBooked) {
+        window.alert('This service is linked to a booking and cannot be modified.');
+        return;
+      }
+      
+      const isFinalUnit = item.quantity <= 1;
+      const message = isFinalUnit
+        ? 'Reducing this item will remove it entirely from your project. Continue?'
+        : 'Remove one unit of this service from your project?';
+      if (!window.confirm(message)) return;
+      
+      try {
+        const { updateProjectServiceQuantity, deleteProjectService } = await import('../../lib/api');
+        if (isFinalUnit) {
+          await deleteProjectService(projectId, item.serviceListingId);
+        } else {
+          await updateProjectServiceQuantity(projectId, item.serviceListingId, item.quantity - 1);
+        }
+        // Reload design to refresh the summary
+        if (onReloadDesign) {
+          await onReloadDesign();
+        }
+      } catch (err) {
+        window.alert(err.message || 'Failed to update service quantity');
+      }
+      return;
+    }
+    
+    // Handle 3D placements
     if (!onRemovePlacement || item.quantity <= 0) return;
 
     const isFinalUnit = item.quantity <= 1;
@@ -363,13 +510,27 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                           >
                             <ListItemText
                               primary={
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                   <Typography variant="body2">{item.displayName}</Typography>
                                   {item.isUnavailable && (
                                     <Chip label="Unavailable" size="small" color="warning" variant="outlined" />
                                   )}
+                                  {item.isVenue && (
+                                    <Chip label="Venue" size="small" color="primary" variant="outlined" />
+                                  )}
                                   {item.isNon3DService && (
                                     <Chip label="No 3D model" size="small" color="default" variant="outlined" />
+                                  )}
+                                  {item.isPerTableService && item.quantity === 0 && (
+                                    <Tooltip title="No tables tagged yet. Click on tables in the 3D design and select 'Tag Services' to tag this service.">
+                                      <Chip 
+                                        label="No tables tagged" 
+                                        size="small" 
+                                        color="warning" 
+                                        variant="outlined"
+                                        sx={{ borderStyle: 'dashed' }}
+                                      />
+                                    </Tooltip>
                                   )}
                                   {item.isBooked && (
                                     <Tooltip title="This item is linked to a booking and cannot be removed">
@@ -383,7 +544,7 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                               }
                               secondary={
                                 <Typography variant="caption" color="text.secondary">
-                                  {item.isBundle ? 'Bundle' : 'Individual Item'}
+                                  {item.isVenue ? 'Venue' : item.isBundle ? 'Bundle' : 'Individual Item'}
                                 </Typography>
                               }
                             />
@@ -395,12 +556,23 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                               }}
                             >
                               <Stack direction="row" alignItems="center" spacing={0.5}>
-                                <Tooltip title="Reduce quantity">
+                                <Tooltip 
+                                  title={
+                                    item.isPerTableService 
+                                      ? "Quantity is automatically calculated from tagged tables. Tag or untag tables in the 3D design to change quantity."
+                                      : "Reduce quantity"
+                                  }
+                                >
                                   <span>
                                     <IconButton
                                       size="small"
                                       onClick={() => handleDecreaseQuantity(item)}
-                                      disabled={item.quantity === 0 || item.isBooked}
+                                      disabled={
+                                        item.quantity === 0 || 
+                                        item.isBooked || 
+                                        item.isPerTableService || // Disable for per_table services
+                                        item.isVenue // Disable for venue
+                                      }
                                       sx={{ color: 'text.secondary' }}
                                     >
                                       <RemoveCircleOutlineIcon fontSize="small" />
@@ -410,6 +582,19 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                                 <Typography variant="body2" sx={{ minWidth: 24, textAlign: 'center', fontWeight: 600 }}>
                                   {item.quantity}
                                 </Typography>
+                                {item.isPerTableService && (
+                                  <Tooltip title="Quantity based on tagged tables">
+                                    <Chip 
+                                      label="per table" 
+                                      size="small" 
+                                      sx={{ 
+                                        height: 18, 
+                                        fontSize: '0.65rem',
+                                        ml: 0.5 
+                                      }} 
+                                    />
+                                  </Tooltip>
+                                )}
                               </Stack>
                               <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.main' }}>
                                 RM {item.price.toLocaleString()}
@@ -420,7 +605,7 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                                 size="small"
                                 aria-label="Remove item"
                                 sx={{ color: 'error.main' }}
-                                disabled={item.isBooked}
+                                disabled={item.isBooked || item.isVenue}
                               >
                                 <DeleteIcon fontSize="small" />
                               </IconButton>

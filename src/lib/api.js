@@ -184,6 +184,20 @@ export function uploadPackagePreview(packageId, imageData) {
   });
 }
 
+// Project service APIs (for non-3D services)
+export function updateProjectServiceQuantity(projectId, serviceListingId, quantity) {
+  return apiFetch(`/projects/${projectId}/services/${serviceListingId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ quantity }),
+  });
+}
+
+export function deleteProjectService(projectId, serviceListingId) {
+  return apiFetch(`/projects/${projectId}/services/${serviceListingId}`, {
+    method: 'DELETE',
+  });
+}
+
 // Booking APIs
 export function createBooking(payload) {
   return apiFetch('/bookings', {

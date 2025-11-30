@@ -102,18 +102,54 @@ async function tagTables(venueDesignId, placedElementIds, serviceListingIds) {
   }
 
   // Verify all placed elements exist and belong to the venue design
-  const placedElements = await prisma.placedElement.findMany({
+  // First, get all placed elements to check what we have
+  const allPlacedElements = await prisma.placedElement.findMany({
     where: {
       id: { in: placedElementIds },
       venueDesignId,
+    },
+    include: {
       designElement: {
-        elementType: 'table', // Only allow tagging tables
+        select: {
+          elementType: true,
+          name: true,
+        },
       },
     },
   });
 
+  if (allPlacedElements.length !== placedElementIds.length) {
+    const foundIds = allPlacedElements.map(pe => pe.id);
+    const missingIds = placedElementIds.filter(id => !foundIds.includes(id));
+    throw new Error(`Some placed elements not found: ${missingIds.join(', ')}`);
+  }
+
+  // Filter to only tables - check both PlacedElement.elementType and DesignElement.elementType
+  // Also check if name contains "table" as a fallback (matching frontend logic)
+  const placedElements = allPlacedElements.filter(pe => {
+    const isTableByElementType = pe.elementType === 'table' || pe.designElement?.elementType === 'table';
+    const isTableByName = pe.designElement?.name?.toLowerCase().includes('table');
+    return isTableByElementType || isTableByName;
+  });
+
   if (placedElements.length !== placedElementIds.length) {
-    throw new Error('Some placed elements not found or are not tables');
+    const nonTableIds = allPlacedElements
+      .filter(pe => {
+        const isTableByElementType = pe.elementType === 'table' || pe.designElement?.elementType === 'table';
+        const isTableByName = pe.designElement?.name?.toLowerCase().includes('table');
+        return !(isTableByElementType || isTableByName);
+      })
+      .map(pe => pe.id);
+    console.error('Non-table elements:', nonTableIds.map(id => {
+      const pe = allPlacedElements.find(p => p.id === id);
+      return {
+        id,
+        elementType: pe?.elementType,
+        designElementType: pe?.designElement?.elementType,
+        designElementName: pe?.designElement?.name,
+      };
+    }));
+    throw new Error(`Some placed elements are not tables: ${nonTableIds.join(', ')}`);
   }
 
   // Verify all service listings exist
@@ -129,17 +165,22 @@ async function tagTables(venueDesignId, placedElementIds, serviceListingIds) {
   }
 
   // Update each placed element to add service listing IDs to tags
-  // Note: This adds to existing tags, doesn't replace them
-  const updatePromises = placedElementIds.map((elementId) =>
-    prisma.placedElement.update({
-      where: { id: elementId },
-      data: {
-        serviceListingIds: {
-          set: serviceListingIds, // Replace existing tags with new ones
+  // Note: This replaces existing tags with new ones
+  const updatePromises = placedElementIds.map(async (elementId) => {
+    try {
+      return await prisma.placedElement.update({
+        where: { id: elementId },
+        data: {
+          serviceListingIds: {
+            set: serviceListingIds, // Replace existing tags with new ones
+          },
         },
-      },
-    })
-  );
+      });
+    } catch (error) {
+      console.error(`Error updating placed element ${elementId}:`, error);
+      throw new Error(`Failed to update placed element ${elementId}: ${error.message}`);
+    }
+  });
 
   await Promise.all(updatePromises);
 

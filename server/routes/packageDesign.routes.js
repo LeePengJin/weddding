@@ -195,6 +195,7 @@ const serializeListingForCatalog = (listing) => ({
         id: listing.designElement.id,
         name: listing.designElement.name,
         modelFile: listing.designElement.modelFile,
+        dimensions: listing.designElement.dimensions, // Include dimensions for 3D preview
       }
     : null,
   components: listing.components
@@ -207,6 +208,7 @@ const serializeListingForCatalog = (listing) => ({
               id: component.designElement.id,
               name: component.designElement.name,
               modelFile: component.designElement.modelFile,
+              dimensions: component.designElement.dimensions, // Include dimensions for component 3D preview
             }
           : null,
       }))

@@ -96,80 +96,125 @@ function Model({ url, onError, targetDimensions }) {
   const { scene, error } = useGLTF(url);
   const modelRef = useRef();
   const parsedTargetDimensions = useMemo(() => parseDimensions(targetDimensions), [targetDimensions]);
-  const clonedScene = useMemo(() => {
-    if (!scene) return null;
-    const copy = scene.clone(true);
-    copy.traverse((child) => {
-      if (child.isMesh && child.material) {
-        child.material = child.material.clone();
-      }
-    });
-    return copy;
-  }, [scene]);
-
-  // Calculate bounding box to center and scale the model
+  
+  // Debug: log when dimensions change
   useEffect(() => {
-    if (clonedScene) {
-      try {
-        const box = new THREE.Box3().setFromObject(clonedScene);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-
-        let scaleX = 1;
-        let scaleY = 1;
-        let scaleZ = 1;
-
-        if (parsedTargetDimensions) {
-          const ratioX =
-            parsedTargetDimensions.width && size.x > 0
-              ? parsedTargetDimensions.width / size.x
-              : null;
-          const ratioY =
-            parsedTargetDimensions.height && size.y > 0
-              ? parsedTargetDimensions.height / size.y
-              : null;
-          const ratioZ =
-            parsedTargetDimensions.depth && size.z > 0
-              ? parsedTargetDimensions.depth / size.z
-              : null;
-
-          const ratios = [ratioX, ratioY, ratioZ].filter((value) => Number.isFinite(value));
-
-          if (ratios.length === 1) {
-            const uniformScale = ratios[0] || 1;
-            scaleX = scaleY = scaleZ = uniformScale;
-          } else if (ratios.length > 1) {
-            scaleX = ratioX || ratios[0];
-            scaleY = ratioY || ratios[0];
-            scaleZ = ratioZ || ratios[0];
-          } else if (maxDim > 0) {
-            const fitScale = 2 / maxDim;
-            scaleX = scaleY = scaleZ = fitScale;
-          }
-        } else if (maxDim > 0) {
-          const fitScale = 2 / maxDim;
-          scaleX = scaleY = scaleZ = fitScale;
-        }
-
-        // Prevent zero/NaN
-        const safeScale = (value) => (Number.isFinite(value) && value > 0 ? value : 1);
-        scaleX = safeScale(scaleX);
-        scaleY = safeScale(scaleY);
-        scaleZ = safeScale(scaleZ);
-
-        clonedScene.position.set(
-          -center.x * scaleX,
-          -center.y * scaleY,
-          -center.z * scaleZ
-        );
-        clonedScene.scale.set(scaleX, scaleY, scaleZ);
-      } catch (err) {
-        console.error('Error processing 3D model:', err);
-        if (onError) onError(err.message);
-      }
+    if (parsedTargetDimensions) {
+      console.log('[Model3DViewer] Parsed target dimensions:', parsedTargetDimensions);
+    } else if (targetDimensions) {
+      console.log('[Model3DViewer] Target dimensions provided but not parsed:', targetDimensions);
     }
-  }, [clonedScene, onError, parsedTargetDimensions]);
+  }, [parsedTargetDimensions, targetDimensions]);
+
+  // Calculate scale separately so React Three Fiber can detect changes
+  const scaleArray = useMemo(() => {
+    if (!scene) {
+      return [1, 1, 1];
+    }
+    
+    if (!parsedTargetDimensions) {
+      // Default scale for fitting
+      const box = new THREE.Box3().setFromObject(scene);
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      if (maxDim > 0) {
+        const fitScale = 2 / maxDim;
+        return [fitScale, fitScale, fitScale];
+      }
+      return [1, 1, 1];
+    }
+
+    const box = new THREE.Box3().setFromObject(scene);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    let scaleX = 1;
+    let scaleY = 1;
+    let scaleZ = 1;
+
+    const ratioX =
+      parsedTargetDimensions.width && size.x > 0
+        ? parsedTargetDimensions.width / size.x
+        : null;
+    const ratioY =
+      parsedTargetDimensions.height && size.y > 0
+        ? parsedTargetDimensions.height / size.y
+        : null;
+    const ratioZ =
+      parsedTargetDimensions.depth && size.z > 0
+        ? parsedTargetDimensions.depth / size.z
+        : null;
+
+    const ratios = [ratioX, ratioY, ratioZ].filter((value) => Number.isFinite(value));
+
+    if (ratios.length === 1) {
+      const uniformScale = ratios[0] || 1;
+      scaleX = scaleY = scaleZ = uniformScale;
+    } else if (ratios.length > 1) {
+      scaleX = ratioX || ratios[0] || 1;
+      scaleY = ratioY || ratios[0] || 1;
+      scaleZ = ratioZ || ratios[0] || 1;
+    } else if (maxDim > 0) {
+      const fitScale = 2 / maxDim;
+      scaleX = scaleY = scaleZ = fitScale;
+    }
+
+    // Prevent zero/NaN
+    const safeScale = (value) => (Number.isFinite(value) && value > 0 ? value : 1);
+    scaleX = safeScale(scaleX);
+    scaleY = safeScale(scaleY);
+    scaleZ = safeScale(scaleZ);
+
+    const result = [scaleX, scaleY, scaleZ];
+    if (parsedTargetDimensions) {
+      console.log('[Model3DViewer] Calculated scale:', result, 'for dimensions:', parsedTargetDimensions);
+    }
+    return result;
+  }, [scene, parsedTargetDimensions]);
+
+  // Clone and prepare the scene
+  // Note: We don't need to include parsedTargetDimensions here because scale is applied via group
+  const processedScene = useMemo(() => {
+    if (!scene) return null;
+    
+    try {
+      const copy = scene.clone(true);
+      copy.traverse((child) => {
+        if (child.isMesh && child.material) {
+          child.material = child.material.clone();
+        }
+      });
+
+      const box = new THREE.Box3().setFromObject(copy);
+      const center = box.getCenter(new THREE.Vector3());
+      copy.position.sub(center);
+
+      // Align to ground (y=0) - will be done after scaling
+      return copy;
+    } catch (err) {
+      console.error('Error processing 3D model:', err);
+      if (onError) onError(err.message);
+      return null;
+    }
+  }, [scene, onError]);
+
+  // Apply alignment in a separate effect (scale is applied via group prop)
+  // Recalculate alignment when scene or scale changes
+  useEffect(() => {
+    if (!processedScene) return;
+    
+    // Reset position to center first
+    const box = new THREE.Box3().setFromObject(processedScene);
+    const center = box.getCenter(new THREE.Vector3());
+    processedScene.position.sub(center);
+    
+    // Align to ground (y=0) - calculate based on original size before scaling
+    const alignedBox = new THREE.Box3().setFromObject(processedScene);
+    processedScene.position.y -= alignedBox.min.y;
+    
+    // Force update
+    processedScene.updateMatrixWorld(true);
+  }, [processedScene, scaleArray]);
 
   useEffect(() => {
     if (error) {
@@ -178,11 +223,17 @@ function Model({ url, onError, targetDimensions }) {
     }
   }, [error, onError]);
 
-  if (error || !clonedScene) {
+  if (error || !processedScene) {
     return null;
   }
 
-  return <primitive object={clonedScene} ref={modelRef} />;
+  // Use group with scale prop so React Three Fiber detects changes
+  // The scale array changes when dimensions change, forcing a re-render
+  return (
+    <group ref={modelRef} scale={scaleArray}>
+      <primitive object={processedScene} />
+    </group>
+  );
 }
 
 const Model3DViewer = ({

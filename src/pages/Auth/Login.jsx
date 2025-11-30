@@ -19,18 +19,22 @@ export default function Login() {
     setSubmitting(true);
     try {
       const user = await login(email, password);
-      // Redirect to the page the user was trying to access, or default based on role
-      const from = location.state?.from?.pathname;
-      if (from) {
-        navigate(from, { replace: true });
-      } else {
-        // Default redirect based on user role
-        if (user.role === 'vendor') {
-          navigate('/vendor/dashboard', { replace: true });
+      // Always redirect based on user role, ignoring stale location state
+      // This ensures vendors go to vendor dashboard and couples go to their dashboard
+      if (user.role === 'vendor') {
+        navigate('/vendor/dashboard', { replace: true });
+      } else if (user.role === 'couple') {
+        // For couples, check if there's a valid from location that matches their role
+        const from = location.state?.from?.pathname;
+        // Only use 'from' if it's not a vendor/admin route
+        if (from && !from.startsWith('/vendor') && !from.startsWith('/admin')) {
+          navigate(from, { replace: true });
         } else {
-          // Default to homepage for couple
-          navigate('/', { replace: true });
+          navigate('/project-dashboard', { replace: true });
         }
+      } else {
+        // Default to homepage
+        navigate('/', { replace: true });
       }
     } catch (err) {
       setError(err.message || 'Login failed');

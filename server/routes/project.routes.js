@@ -440,6 +440,89 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
 });
 
 /**
+ * PATCH /projects/:projectId/services/:serviceListingId
+ * Update quantity of a non-3D service (ProjectService) in a project, only if not booked.
+ */
+router.patch('/:projectId/services/:serviceListingId', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'couple') {
+      return res.status(403).json({ error: 'Couple access required' });
+    }
+
+    const { projectId, serviceListingId } = req.params;
+    const { quantity } = req.body;
+
+    if (typeof quantity !== 'number' || quantity < 1) {
+      return res.status(400).json({ error: 'Quantity must be a positive integer' });
+    }
+
+    // Ensure project belongs to this couple
+    const project = await prisma.weddingProject.findFirst({
+      where: {
+        id: projectId,
+        coupleId: req.user.sub,
+      },
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const projectService = await prisma.projectService.findUnique({
+      where: {
+        projectId_serviceListingId: {
+          projectId,
+          serviceListingId,
+        },
+      },
+    });
+
+    if (!projectService) {
+      return res.status(404).json({ error: 'Service not found in this project' });
+    }
+
+    if (projectService.isBooked) {
+      return res.status(400).json({
+        error:
+          'This service is part of a booking and cannot be modified. Please contact your vendor if you need to change a booked service.',
+      });
+    }
+
+    const updated = await prisma.projectService.update({
+      where: {
+        projectId_serviceListingId: {
+          projectId,
+          serviceListingId,
+        },
+      },
+      data: {
+        quantity,
+      },
+      include: {
+        serviceListing: {
+          include: {
+            vendor: {
+              include: {
+                user: {
+                  select: {
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * DELETE /projects/:projectId/services/:serviceListingId
  * Remove a non-3D service (ProjectService) from a project, only if not booked.
  */

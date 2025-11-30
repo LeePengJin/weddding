@@ -23,7 +23,11 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
     const list = [];
     const primary = item.designElement?.modelFile || item.modelFile;
     if (primary) {
-      list.push({ src: primary, label: item.designElement?.name || item.name || '3D Model' });
+      list.push({ 
+        src: primary, 
+        label: item.designElement?.name || item.name || '3D Model',
+        dimensions: item.designElement?.dimensions || item.dimensions,
+      });
     }
     if (Array.isArray(item.components)) {
       item.components.forEach((component, index) => {
@@ -32,6 +36,7 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
           list.push({
             src: file,
             label: component?.designElement?.name || component?.name || `Component ${index + 1}`,
+            dimensions: component?.designElement?.dimensions,
           });
         }
       });
@@ -153,7 +158,14 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
             </>
           ) : viewMode === 'models' && activeModel ? (
             <>
-              <Model3DViewer modelUrl={activeModel.src} height="100%" width="100%" borderless />
+              <Model3DViewer 
+                key={`${activeModel.src}-${JSON.stringify(activeModel.dimensions)}`}
+                modelUrl={activeModel.src} 
+                height="100%" 
+                width="100%" 
+                borderless 
+                targetDimensions={activeModel.dimensions}
+              />
               {modelSources.length > 1 && (
                 <>
                   <IconButton className="carousel-btn left" onClick={handlePrevModel} aria-label="Previous model">
@@ -192,6 +204,18 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
           <Typography variant="subtitle2" color="text.secondary">
             RM {Number(item.price).toLocaleString()}
           </Typography>
+          {item.pricingPolicy && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+              <strong>Pricing:</strong> {
+                item.pricingPolicy === 'fixed_package' ? 'Fixed Package' :
+                item.pricingPolicy === 'per_table' ? 'Per Table' :
+                item.pricingPolicy === 'per_unit' ? 'Per Unit' :
+                item.pricingPolicy === 'tiered_package' ? 'Tiered Package' :
+                item.pricingPolicy === 'time_based' ? `Time Based (RM${Number(item.hourlyRate || 0).toLocaleString()}/hr)` :
+                item.pricingPolicy
+              }
+            </Typography>
+          )}
           {item.description && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               {item.description}

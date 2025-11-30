@@ -4,7 +4,6 @@ import { Html, useGLTF } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useVenueDesigner } from './VenueDesignerContext';
-import TableTaggingModal from '../../components/TableTaggingModal/TableTaggingModal';
 
 const PLACEHOLDER_COLOR = '#e5dcd2';
 const HIGHLIGHT_COLOR = '#e76f93';
@@ -103,7 +102,7 @@ const GltfInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0, targetDime
     }
 
     return copy;
-  }, [scene, scaleMultiplier, verticalOffset]);
+  }, [scene, scaleMultiplier, verticalOffset, parsedTargetDimensions]);
 
   if (!cloned) {
     return null;
@@ -145,7 +144,7 @@ const ModelInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0, targetDim
   );
 };
 
-const COLLISION_RADIUS_DEFAULT = 0.9;
+const COLLISION_RADIUS_DEFAULT = 0.4; // Reduced further to allow very close placement
 
 const getFootprintRadius = (placement) => {
   const metaRadius = parseFloat(placement.metadata?.footprintRadius);
@@ -194,6 +193,7 @@ const PlacedElement = ({
   allPlacements = [],
   removable = false,
   venueBounds,
+  onOpenTaggingModal,
 }) => {
   const { scene, camera, raycaster } = useThree();
   const groupRef = useRef();
@@ -211,8 +211,7 @@ const PlacedElement = ({
   });
   const [isLockedLocal, setIsLockedLocal] = useState(Boolean(placement.isLocked));
   const [interactionMode, setInteractionMode] = useState('translate'); // 'translate' | 'rotate'
-  const [showTaggingModal, setShowTaggingModal] = useState(false);
-  const { venueDesignId, projectId, onReloadDesign } = useVenueDesigner();
+  const { venueDesignId, projectId } = useVenueDesigner();
 
   const footprintRadius = useMemo(() => getFootprintRadius(placement), [placement]);
 
@@ -238,16 +237,6 @@ const PlacedElement = ({
     );
   }, [placement]);
 
-  // Handle tag updates - reload design to get updated placement data
-  const handleTagUpdate = useCallback(
-    async (placementId) => {
-      // Reload the design to get updated placement data with serviceListingIds
-      if (onReloadDesign) {
-        await onReloadDesign();
-      }
-    },
-    [onReloadDesign]
-  );
 
   useEffect(() => {
     setIsLockedLocal(Boolean(placement.isLocked));
@@ -383,7 +372,7 @@ const PlacedElement = ({
             const distance = Math.sqrt(dx * dx + dz * dz);
             const otherRadius = getFootprintRadius(other);
             
-            const clearance = 0.1;
+            const clearance = 0.02; // Reduced further to allow very close placement
             const threshold = Math.max(0.1, footprintRadius + otherRadius - clearance);
             const isIntersecting = distance < threshold;
 
@@ -559,11 +548,12 @@ const PlacedElement = ({
                   Lock
                 </button>
                 {onShowDetails && <button onClick={(e) => { e.stopPropagation(); onShowDetails?.(placement); }}>Details</button>}
-                {isTable && projectId && venueDesignId && (
+                {isTable && projectId && venueDesignId && onOpenTaggingModal && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setShowTaggingModal(true);
+                      onOpenTaggingModal(placement);
+                      onClose?.(); // Close the tooltip when opening tag modal
                     }}
                   >
                     Tag Services
@@ -581,16 +571,6 @@ const PlacedElement = ({
         </Html>
       )}
 
-      {isTable && projectId && venueDesignId && (
-        <TableTaggingModal
-          open={showTaggingModal}
-          onClose={() => setShowTaggingModal(false)}
-          placement={placement}
-          venueDesignId={venueDesignId}
-          projectId={projectId}
-          onTagUpdate={handleTagUpdate}
-        />
-      )}
     </group>
   );
 };
@@ -631,6 +611,7 @@ PlacedElement.propTypes = {
     minZ: PropTypes.number,
     maxZ: PropTypes.number,
   }),
+  onOpenTaggingModal: PropTypes.func,
 };
 
 export default PlacedElement;

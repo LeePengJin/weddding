@@ -49,16 +49,50 @@ export function useWASDControls({ mode = 'orbit', bounds, firstPersonHeight = 1.
   useFrame((_, delta) => {
     if (mode === 'disabled') return;
     const keys = keysRef.current;
-    const isMoving =
-      keys['w'] ||
-      keys['a'] ||
-      keys['s'] ||
-      keys['d'] ||
-      keys['arrowup'] ||
-      keys['arrowdown'] ||
-      keys['arrowleft'] ||
-      keys['arrowright'];
+    
+    // WASD keys control camera position (movement)
+    const isMoving = keys['w'] || keys['a'] || keys['s'] || keys['d'];
+    
+    // Arrow keys control camera rotation (only in walk/first-person mode)
+    const isRotating = mode === 'walk' && (
+      keys['arrowup'] || keys['arrowdown'] || keys['arrowleft'] || keys['arrowright']
+    );
 
+    // Handle rotation with arrow keys - rotate camera itself, not around origin
+    if (isRotating) {
+      const ROTATION_SPEED = 2.0; // radians per second
+      const rotationDelta = ROTATION_SPEED * delta;
+      
+      // Get current Euler angles from camera quaternion (using YXZ order for FPS-style rotation)
+      const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+      
+      // Apply rotation based on arrow keys
+      if (keys['arrowleft']) {
+        // Rotate left (yaw around Y axis)
+        euler.y += rotationDelta;
+      }
+      if (keys['arrowright']) {
+        // Rotate right (yaw around Y axis)
+        euler.y -= rotationDelta;
+      }
+      if (keys['arrowup']) {
+        // Rotate up (pitch around X axis)
+        euler.x += rotationDelta;
+        // Clamp pitch to avoid flipping (limit to ~85 degrees up/down)
+        euler.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, euler.x));
+      }
+      if (keys['arrowdown']) {
+        // Rotate down (pitch around X axis)
+        euler.x -= rotationDelta;
+        // Clamp pitch to avoid flipping
+        euler.x = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, euler.x));
+      }
+      
+      // Apply rotation back to camera
+      camera.quaternion.setFromEuler(euler);
+    }
+
+    // Handle movement with WASD keys
     if (!isMoving) {
       return;
     }
@@ -78,16 +112,16 @@ export function useWASDControls({ mode = 'orbit', bounds, firstPersonHeight = 1.
     const moveDirection = moveRef.current;
     moveDirection.set(0, 0, 0);
 
-    if (keys['w'] || keys['arrowup']) {
+    if (keys['w']) {
       moveDirection.add(forward);
     }
-    if (keys['s'] || keys['arrowdown']) {
+    if (keys['s']) {
       moveDirection.sub(forward);
     }
-    if (keys['a'] || keys['arrowleft']) {
+    if (keys['a']) {
       moveDirection.sub(right);
     }
-    if (keys['d'] || keys['arrowright']) {
+    if (keys['d']) {
       moveDirection.add(right);
     }
 
@@ -115,7 +149,9 @@ export function useWASDControls({ mode = 'orbit', bounds, firstPersonHeight = 1.
 
     camera.position.copy(nextPosition);
 
-    if (controls?.target) {
+    // Only update controls.target in orbit mode
+    // In walk mode, PointerLockControls manages rotation independently
+    if (mode === 'orbit' && controls && controls.target) {
       const nextTarget = controls.target.clone().add(moveDirection);
       if (bounds) {
         nextTarget.x = clamp(nextTarget.x, bounds.minX, bounds.maxX);
@@ -123,7 +159,9 @@ export function useWASDControls({ mode = 'orbit', bounds, firstPersonHeight = 1.
         nextTarget.y = clamp(nextTarget.y, bounds.minY, bounds.maxY);
       }
       controls.target.copy(nextTarget);
-      controls.update?.();
+      if (typeof controls.update === 'function') {
+        controls.update();
+      }
     }
   });
 }

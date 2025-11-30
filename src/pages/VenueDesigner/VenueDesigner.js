@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Snackbar, Alert, CircularProgress, Typography } from '@mui/material';
 import './VenueDesigner.styles.css';
 import DesignSummary from './DesignSummary.jsx';
 import CheckoutModal from './CheckoutModal.jsx';
@@ -18,6 +19,7 @@ import {
   savePackageDesign,
   getPackageCatalog,
   uploadPackagePreview,
+  deleteProjectService,
   apiFetch,
 } from '../../lib/api';
 import BudgetTracker from '../../components/BudgetTracker/BudgetTracker';
@@ -85,6 +87,7 @@ const VenueDesigner = () => {
   const [venueInfo, setVenueInfo] = useState(null);
   const [venueDesignId, setVenueDesignId] = useState(null);
   const [projectServices, setProjectServices] = useState([]);
+  const [toastNotification, setToastNotification] = useState({ open: false, message: '', severity: 'info' });
   const layoutAutosaveTimerRef = useRef(null);
   const skipNextLayoutSaveRef = useRef(true);
   const captureScreenshotRef = useRef(null);
@@ -256,13 +259,42 @@ const VenueDesigner = () => {
           designerMode === 'package'
             ? await addPackageDesignElement(packageId, { serviceListingId: item.id })
             : await addDesignElement(projectId, { serviceListingId: item.id });
-        setPlacements((prev) => [...prev, ...(response.placements || [])]);
+        
+        // If non-3D service was added (projectService: true), reload the design to get updated projectServices
+        if (response.projectService) {
+          await loadDesign();
+          
+          // Show helpful toast notification for per_table services
+          if (response.isPerTable) {
+            // Use a timeout to ensure the toast appears after the design reloads
+            setTimeout(() => {
+              setToastNotification({
+                open: true,
+                message: 'Service added! This service uses per-table pricing. Please tag tables in the 3D design by clicking on a table and selecting "Tag Services" to set the quantity.',
+                severity: 'info',
+              });
+            }, 500);
+          } else {
+            setToastNotification({
+              open: true,
+              message: 'Service added to project successfully!',
+              severity: 'success',
+            });
+          }
+        } else {
+          setPlacements((prev) => [...prev, ...(response.placements || [])]);
+          setToastNotification({
+            open: true,
+            message: 'Item added to design successfully!',
+            severity: 'success',
+          });
+        }
         setErrorMessage('');
       } catch (err) {
         setErrorMessage(err.message || 'Unable to add item to design');
       }
     },
-    [resourceId, designerMode, packageId, projectId]
+    [resourceId, designerMode, packageId, projectId, loadDesign]
   );
 
   const handleRemovePlacement = useCallback(
@@ -277,10 +309,53 @@ const VenueDesigner = () => {
         setPlacements((prev) => prev.filter((placement) => !removedIds.includes(placement.id)));
         setErrorMessage('');
       } catch (err) {
-        setErrorMessage(err.message || 'Unable to remove item');
+        // Use toast notification instead of error message
+        const errorMsg = err.message || 'Unable to remove item';
+        if (errorMsg.includes('booking') || errorMsg.includes('cannot be removed')) {
+          setToastNotification({
+            open: true,
+            message: errorMsg,
+            severity: 'warning',
+          });
+        } else {
+          setToastNotification({
+            open: true,
+            message: errorMsg,
+            severity: 'error',
+          });
+        }
       }
     },
     [resourceId, designerMode, packageId, projectId]
+  );
+
+  const handleRemoveProjectService = useCallback(
+    async (serviceListingId) => {
+      if (!projectId) return;
+      try {
+        await deleteProjectService(projectId, serviceListingId);
+        // Reload design to get updated projectServices
+        await loadDesign();
+        setErrorMessage('');
+      } catch (err) {
+        // Use toast notification instead of error message
+        const errorMsg = err.message || 'Unable to remove service from project';
+        if (errorMsg.includes('booking') || errorMsg.includes('cannot be removed')) {
+          setToastNotification({
+            open: true,
+            message: errorMsg,
+            severity: 'warning',
+          });
+        } else {
+          setToastNotification({
+            open: true,
+            message: errorMsg,
+            severity: 'error',
+          });
+        }
+      }
+    },
+    [projectId, loadDesign]
   );
 
   const handleToggleLock = useCallback(async (placement) => {
@@ -341,6 +416,197 @@ const VenueDesigner = () => {
     setThreeDPreview({ item, modelSrc });
   };
 
+  // Calculate groupedByVendor for checkout (memoized to prevent unnecessary recalculations)
+  const checkoutGroupedByVendor = useMemo(() => {
+    if (designerMode !== 'project') return [];
+    
+    // Calculate groupedByVendor from placements and projectServices (aligned with DesignSummary)
+    const itemGroups = new Map();
+    const bundleInstanceTracker = new Map();
+
+    // 3D placements
+    placements.forEach((placement) => {
+      const bundleId = placement.metadata?.bundleId;
+      const serviceListingId = placement.metadata?.serviceListingId;
+      const designElementName = placement.designElement?.name || placement.serviceListing?.name || 'Service Item';
+      const groupKey = bundleId
+        ? `bundle_${serviceListingId}`
+        : `item_${placement.designElement?.id || placement.id || serviceListingId}`;
+
+      if (!itemGroups.has(groupKey)) {
+        const isBundle = Boolean(bundleId);
+        const itemName = isBundle
+          ? (placement.serviceListing?.name || 'Bundle Item')
+          : designElementName;
+
+        itemGroups.set(groupKey, {
+          key: groupKey,
+          isBundle,
+          name: itemName,
+          quantity: 0,
+          price: 0,
+          placementIds: [],
+          serviceListingId: serviceListingId || null,
+          serviceListing: placement.serviceListing || null, // Include full serviceListing data
+          designElementId: placement.designElement?.id || null,
+          vendorId: placement.designElement?.vendorId || placement.serviceListing?.vendorId,
+          vendorName:
+            placement.designElement?.vendor?.name ||
+            placement.designElement?.vendor?.user?.name ||
+            placement.serviceListing?.vendor?.name ||
+            placement.serviceListing?.vendor?.user?.name ||
+            'Unknown Vendor',
+          isNon3DService: false,
+          isBooked: placement.isBooked || false,
+        });
+      }
+
+      const group = itemGroups.get(groupKey);
+      group.placementIds.push(placement.id);
+
+      if (bundleId) {
+        if (!bundleInstanceTracker.has(bundleId)) {
+          bundleInstanceTracker.set(bundleId, true);
+          group.quantity += 1;
+          const price = placement.metadata?.unitPrice
+            ? parseFloat(placement.metadata.unitPrice)
+            : placement.serviceListing?.price
+            ? parseFloat(placement.serviceListing.price)
+            : 0;
+          group.price += price;
+        }
+      } else {
+        group.quantity += 1;
+        const price = placement.metadata?.unitPrice
+          ? parseFloat(placement.metadata.unitPrice)
+          : placement.serviceListing?.price
+          ? parseFloat(placement.serviceListing.price)
+          : 0;
+        group.price += price;
+      }
+    });
+
+    // Non-3D project services
+    projectServices.forEach((ps) => {
+      const groupKey = `service_${ps.serviceListingId}`;
+      const listing = ps.serviceListing || {};
+
+      if (!itemGroups.has(groupKey)) {
+        // Extract vendorId - backend returns vendor.id which is the userId
+        const vendorId = listing.vendor?.id;
+
+        itemGroups.set(groupKey, {
+          key: groupKey,
+          isBundle: false,
+          name: listing.name || 'Service Item',
+          quantity: 0,
+          price: 0,
+          placementIds: [],
+          serviceListingId: ps.serviceListingId,
+          serviceListing: listing || null, // Include full serviceListing data
+          designElementId: null,
+          vendorId: vendorId, // Backend returns vendor.id as userId
+          vendorName:
+            listing.vendor?.name ||
+            listing.vendor?.user?.name ||
+            'Unknown Vendor',
+          isNon3DService: true,
+          isBooked: ps.isBooked,
+        });
+      }
+
+      const group = itemGroups.get(groupKey);
+      
+      // For per_table services, count the number of tables tagged with this service
+      // For other services, use the ProjectService quantity
+      let quantity = ps.quantity || 1;
+      const isPerTable = listing.pricingPolicy === 'per_table';
+      
+      if (isPerTable) {
+        // Count placements (tables) that have this service in their serviceListingIds
+        const tableCount = placements.filter((placement) => {
+          const isTable = 
+            placement?.designElement?.elementType === 'table' ||
+            placement?.elementType === 'table' ||
+            placement?.designElement?.name?.toLowerCase().includes('table');
+          
+          if (!isTable) return false;
+          
+          const serviceListingIds = placement.serviceListingIds || [];
+          return serviceListingIds.includes(ps.serviceListingId);
+        }).length;
+        
+        quantity = tableCount || 0; // Use table count, default to 0 if no tables tagged
+        group.isPerTableService = true; // Mark as per_table service
+      }
+      
+              group.quantity += quantity;
+              // Parse price - handle both string and number formats
+              let price = 0;
+              if (listing.price) {
+                if (typeof listing.price === 'string') {
+                  price = parseFloat(listing.price) || 0;
+                } else if (typeof listing.price === 'number') {
+                  price = listing.price;
+                }
+              }
+              group.price += price * quantity;
+    });
+
+    // Add venue as a separate item if it exists
+    // Handle both id and listingId for backward compatibility
+    const venueId = venueInfo?.id || venueInfo?.listingId;
+    if (venueInfo && venueId) {
+      const venueKey = `venue_${venueId}`;
+      if (!itemGroups.has(venueKey)) {
+        itemGroups.set(venueKey, {
+          key: venueKey,
+          isBundle: false,
+          name: venueInfo.name || 'Venue',
+          quantity: 1, // Venue is always quantity 1
+          price: venueInfo.price ? parseFloat(venueInfo.price) : 0,
+          placementIds: [],
+          serviceListingId: venueId,
+          serviceListing: {
+            ...venueInfo,
+            id: venueId, // Ensure id is set
+          }, // Include full venue serviceListing data
+          designElementId: venueInfo.designElement?.id || null,
+          vendorId: venueInfo.vendor?.userId || venueInfo.vendor?.id || venueInfo.vendorId,
+          vendorName:
+            venueInfo.vendor?.name ||
+            venueInfo.vendor?.user?.name ||
+            'Unknown Vendor',
+          isNon3DService: false,
+          isVenue: true, // Mark as venue
+          isBooked: false, // Venue booking status would need to be checked separately
+        });
+      }
+    }
+
+    const vendorGroups = {};
+    Array.from(itemGroups.values()).forEach((item) => {
+      // Use vendorId as primary key, fallback to vendorName if vendorId is missing
+      const vendorKey = item.vendorId || item.vendorName;
+      if (!vendorGroups[vendorKey]) {
+        vendorGroups[vendorKey] = {
+          vendorId: item.vendorId, // This is the userId from backend
+          vendorName: item.vendorName,
+          items: [],
+          total: 0,
+        };
+      }
+      const displayName = item.quantity > 1 ? `${item.name} x ${item.quantity}` : item.name;
+      vendorGroups[vendorKey].items.push({
+        ...item,
+        displayName,
+      });
+      vendorGroups[vendorKey].total += item.price;
+    });
+
+    return Object.values(vendorGroups);
+  }, [designerMode, placements, projectServices, venueInfo]);
+
   const contextValue = useMemo(
     () => ({
       projectId,
@@ -356,6 +622,7 @@ const VenueDesigner = () => {
       refreshAvailability,
       onToggleLock: handleToggleLock,
       onRemovePlacement: handleRemovePlacement,
+      onRemoveProjectService: handleRemoveProjectService,
       onUpdatePlacement: handleUpdatePlacement,
       onReloadDesign: loadDesign,
       savingState,
@@ -377,6 +644,7 @@ const VenueDesigner = () => {
       refreshAvailability,
       handleToggleLock,
       handleRemovePlacement,
+      handleRemoveProjectService,
       handleUpdatePlacement,
       loadDesign,
       savingState,
@@ -505,23 +773,38 @@ const VenueDesigner = () => {
         />
 
         <div className="canvas-column">
-          <Scene3D
-            designerMode={designerMode}
-            onSaveDesign={handleManualSave}
-            onOpenSummary={designerMode === 'project' ? () => setShowCheckout(true) : undefined}
-            onProceedCheckout={designerMode === 'project' ? () => setShowCheckout(true) : undefined}
-            onRegisterCapture={handleRegisterCapture}
-            budgetData={
-              designerMode === 'project'
-                ? {
-                    total: totalBudget,
-                    planned: plannedSpend,
-                    remaining: remainingBudget,
-                    progress: budgetProgress,
-                  }
-                : null
-            }
-          />
+          {isLoading ? (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              height: '100%',
+              gap: '16px',
+              color: '#666'
+            }}>
+              <CircularProgress size={48} />
+              <Typography variant="h6">Loading venue design...</Typography>
+            </div>
+          ) : (
+            <Scene3D
+              designerMode={designerMode}
+              onSaveDesign={handleManualSave}
+              onOpenSummary={designerMode === 'project' ? () => setShowCheckout(true) : undefined}
+              onProceedCheckout={designerMode === 'project' ? () => setShowCheckout(true) : undefined}
+              onRegisterCapture={handleRegisterCapture}
+              budgetData={
+                designerMode === 'project'
+                  ? {
+                      total: totalBudget,
+                      planned: plannedSpend,
+                      remaining: remainingBudget,
+                      progress: budgetProgress,
+                    }
+                  : null
+              }
+            />
+          )}
         </div>
       </div>
 
@@ -540,127 +823,7 @@ const VenueDesigner = () => {
         <CheckoutModal
           open={showCheckoutModal}
           onClose={() => setShowCheckoutModal(false)}
-          groupedByVendor={(() => {
-            // Calculate groupedByVendor from placements and projectServices (aligned with DesignSummary)
-            const itemGroups = new Map();
-            const bundleInstanceTracker = new Map();
-
-            // 3D placements
-            placements.forEach((placement) => {
-              const bundleId = placement.metadata?.bundleId;
-              const serviceListingId = placement.metadata?.serviceListingId;
-              const designElementName = placement.designElement?.name || placement.serviceListing?.name || 'Service Item';
-              const groupKey = bundleId
-                ? `bundle_${serviceListingId}`
-                : `item_${placement.designElement?.id || placement.id || serviceListingId}`;
-
-              if (!itemGroups.has(groupKey)) {
-                const isBundle = Boolean(bundleId);
-                const itemName = isBundle
-                  ? (placement.serviceListing?.name || 'Bundle Item')
-                  : designElementName;
-
-                itemGroups.set(groupKey, {
-                  key: groupKey,
-                  isBundle,
-                  name: itemName,
-                  quantity: 0,
-                  price: 0,
-                  placementIds: [],
-                  bundleIds: new Set(),
-                  serviceListingId: serviceListingId || null,
-                  designElementId: placement.designElement?.id || null,
-                  vendorId: placement.designElement?.vendorId || placement.serviceListing?.vendorId,
-                  vendorName:
-                    placement.designElement?.vendor?.name ||
-                    placement.designElement?.vendor?.user?.name ||
-                    placement.serviceListing?.vendor?.name ||
-                    placement.serviceListing?.vendor?.user?.name ||
-                    'Unknown Vendor',
-                  isNon3DService: false,
-                  isBooked: placement.isBooked || false,
-                });
-              }
-
-              const group = itemGroups.get(groupKey);
-              group.placementIds.push(placement.id);
-
-              if (bundleId) {
-                group.bundleIds.add(bundleId);
-                if (!bundleInstanceTracker.has(bundleId)) {
-                  bundleInstanceTracker.set(bundleId, true);
-                  group.quantity += 1;
-                  const price = placement.metadata?.unitPrice
-                    ? parseFloat(placement.metadata.unitPrice)
-                    : placement.serviceListing?.price
-                    ? parseFloat(placement.serviceListing.price)
-                    : 0;
-                  group.price += price;
-                }
-              } else {
-                group.quantity += 1;
-                const price = placement.metadata?.unitPrice
-                  ? parseFloat(placement.metadata.unitPrice)
-                  : placement.serviceListing?.price
-                  ? parseFloat(placement.serviceListing.price)
-                  : 0;
-                group.price += price;
-              }
-            });
-
-            // Non-3D project services
-            projectServices.forEach((ps) => {
-              const groupKey = `service_${ps.serviceListingId}`;
-              const listing = ps.serviceListing || {};
-
-              if (!itemGroups.has(groupKey)) {
-                itemGroups.set(groupKey, {
-                  key: groupKey,
-                  isBundle: false,
-                  name: listing.name || 'Service Item',
-                  quantity: 0,
-                  price: 0,
-                  placementIds: [],
-                  bundleIds: new Set(),
-                  serviceListingId: ps.serviceListingId,
-                  designElementId: null,
-                  vendorId: listing.vendor?.id,
-                  vendorName:
-                    listing.vendor?.name ||
-                    listing.vendor?.user?.name ||
-                    'Unknown Vendor',
-                  isNon3DService: true,
-                  isBooked: ps.isBooked,
-                });
-              }
-
-              const group = itemGroups.get(groupKey);
-              group.quantity += ps.quantity || 1;
-              const price = listing.price ? parseFloat(listing.price) : 0;
-              group.price += price * (ps.quantity || 1);
-            });
-
-            const vendorGroups = {};
-            Array.from(itemGroups.values()).forEach((item) => {
-              const vendorKey = item.vendorId || item.vendorName;
-              if (!vendorGroups[vendorKey]) {
-                vendorGroups[vendorKey] = {
-                  vendorId: item.vendorId,
-                  vendorName: item.vendorName,
-                  items: [],
-                  total: 0,
-                };
-              }
-              const displayName = item.quantity > 1 ? `${item.name} x ${item.quantity}` : item.name;
-              vendorGroups[vendorKey].items.push({
-                ...item,
-                displayName,
-              });
-              vendorGroups[vendorKey].total += item.price;
-            });
-
-            return Object.values(vendorGroups);
-          })()}
+          groupedByVendor={checkoutGroupedByVendor}
           projectId={projectId}
           weddingDate={weddingDate}
           venueDesignId={venueDesignId}
@@ -678,8 +841,26 @@ const VenueDesigner = () => {
           item={threeDPreview.item}
           modelSrc={threeDPreview.modelSrc}
           onClose={() => setThreeDPreview(null)}
-          />
-        )}
+          onRefreshCatalog={loadCatalog}
+          catalogItems={catalogItems}
+        />
+      )}
+
+      {/* Toast Notification */}
+      <Snackbar
+        open={toastNotification.open}
+        autoHideDuration={6000}
+        onClose={() => setToastNotification({ ...toastNotification, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setToastNotification({ ...toastNotification, open: false })}
+          severity={toastNotification.severity}
+          sx={{ width: '100%' }}
+        >
+          {toastNotification.message}
+        </Alert>
+      </Snackbar>
       </div>
     </VenueDesignerProvider>
   );

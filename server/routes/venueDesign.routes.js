@@ -181,6 +181,8 @@ function serializePlacement(placement, meta, serviceMap) {
       y: safePosition.y,
       z: safePosition.z,
     },
+    serviceListingIds: placement.serviceListingIds || [], // Include service listing IDs for table tagging
+    elementType: placement.elementType || null, // Include element type
     designElement: placement.designElement
       ? {
           id: placement.designElement.id,
@@ -189,6 +191,7 @@ function serializePlacement(placement, meta, serviceMap) {
           vendorId: placement.designElement.vendorId,
           isStackable: placement.designElement.isStackable,
           dimensions: placement.designElement.dimensions,
+          elementType: placement.designElement.elementType || null, // Include element type from design element
           vendor: placement.designElement.vendor
             ? {
                 id: placement.designElement.vendor.userId,
@@ -398,6 +401,8 @@ function serializeListingForCatalog(listing, availability) {
     category: listing.category,
     customCategory: listing.customCategory,
     price: listing.price.toString(),
+    pricingPolicy: listing.pricingPolicy,
+    isActive: listing.isActive,
     averageRating: listing.averageRating ? listing.averageRating.toString() : null,
     has3DModel: listing.has3DModel,
     availabilityType: listing.availabilityType,
@@ -414,6 +419,7 @@ function serializeListingForCatalog(listing, availability) {
           id: listing.designElement.id,
           name: listing.designElement.name,
           modelFile: listing.designElement.modelFile,
+          dimensions: listing.designElement.dimensions, // Include dimensions for 3D preview
         }
       : null,
     components: listing.components
@@ -426,6 +432,7 @@ function serializeListingForCatalog(listing, availability) {
                 id: component.designElement.id,
                 name: component.designElement.name,
                 modelFile: component.designElement.modelFile,
+                dimensions: component.designElement.dimensions, // Include dimensions for component 3D preview
               }
             : null,
         }))
@@ -578,6 +585,8 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
             name: ps.serviceListing.name,
             category: ps.serviceListing.category,
             price: ps.serviceListing.price?.toString() ?? null,
+            pricingPolicy: ps.serviceListing.pricingPolicy,
+            isActive: ps.serviceListing.isActive,
             images: ps.serviceListing.images || [],
             vendor: ps.serviceListing.vendor
               ? {
@@ -601,14 +610,37 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
       },
       venue: venueListing
         ? {
-            listingId: venueListing.id,
+            id: venueListing.id,
+            listingId: venueListing.id, // Keep for backward compatibility
             name: venueListing.name,
+            description: venueListing.description,
+            category: venueListing.category,
+            price: venueListing.price?.toString() ?? null,
+            pricingPolicy: venueListing.pricingPolicy,
+            hourlyRate: venueListing.hourlyRate?.toString() ?? null,
+            isActive: venueListing.isActive,
+            images: venueListing.images || [],
             modelFile: venueListing.designElement?.modelFile ?? null,
+            designElement: venueListing.designElement
+              ? {
+                  id: venueListing.designElement.id,
+                  name: venueListing.designElement.name,
+                  modelFile: venueListing.designElement.modelFile,
+                  dimensions: venueListing.designElement.dimensions,
+                }
+              : null,
             vendor: venueListing.vendor
               ? {
                   id: venueListing.vendor.userId,
+                  userId: venueListing.vendor.userId,
                   name: venueListing.vendor.user?.name ?? null,
                   email: venueListing.vendor.user?.email ?? null,
+                  user: venueListing.vendor.user
+                    ? {
+                        name: venueListing.vendor.user.name,
+                        email: venueListing.vendor.user.email,
+                      }
+                    : null,
                 }
               : null,
           }
@@ -707,6 +739,11 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
 
     // If no 3D models, add to ProjectService instead of PlacedElement
     if (elementDescriptors.length === 0) {
+      // For per_table services, initial quantity should be 0 (until tables are tagged)
+      // For other services, use quantity 1
+      const isPerTable = serviceListing.pricingPolicy === 'per_table';
+      const initialQuantity = isPerTable ? 0 : 1;
+      
       // Add to ProjectService table (for non-3D services)
       await prisma.projectService.upsert({
         where: {
@@ -716,19 +753,23 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
           },
         },
         update: {
-          quantity: { increment: 1 }, // Increment if already exists
+          // Only increment if not per_table (per_table quantity is managed by table tags)
+          ...(isPerTable ? {} : { quantity: { increment: 1 } }),
         },
         create: {
           projectId: project.id,
           serviceListingId: serviceListing.id,
-          quantity: 1,
+          quantity: initialQuantity,
         },
       });
 
       return res.status(200).json({
-        message: 'Service added to project (no 3D model available)',
+        message: isPerTable 
+          ? 'Service added to project. Please tag tables in the 3D design to set the quantity.'
+          : 'Service added to project (no 3D model available)',
         placements: [], // No placements for non-3D services
         projectService: true,
+        isPerTable: isPerTable, // Include flag for frontend
       });
     }
 
@@ -738,16 +779,114 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
     const metadataEntries = {};
     const createdPlacements = [];
 
+    // Get existing placements to check for collisions
+    const existingPlacements = venueDesign.placedElements || [];
+    
+      // Helper function to check if a position collides with existing placements
+      const findNonOverlappingPosition = (desiredPos, existingPlacements, designElement) => {
+        const COLLISION_RADIUS_DEFAULT = 0.4;
+        const CLEARANCE = 0.02;
+      
+      // Get footprint radius for the new element
+      let footprintRadius = COLLISION_RADIUS_DEFAULT;
+      if (designElement?.dimensions) {
+        const width = Number(designElement.dimensions.width) || 0;
+        const depth = Number(designElement.dimensions.depth) || 0;
+        const derived = Math.max(width, depth) / 2;
+        if (derived > 0) footprintRadius = derived;
+      }
+      
+      // Try the desired position first
+      let testPos = { ...desiredPos };
+      let attempts = 0;
+      const maxAttempts = 100;
+      const searchRadius = 20; // Maximum search radius
+      const angleStep = Math.PI / 4; // 45 degrees
+      
+      while (attempts < maxAttempts) {
+        let hasCollision = false;
+        
+        // Check collision with all existing placements
+        for (const existing of existingPlacements) {
+          if (!existing.position) continue;
+          
+          const existingPos = existing.position;
+          const dx = testPos.x - existingPos.x;
+          const dz = testPos.z - existingPos.z;
+          const distance = Math.sqrt(dx * dx + dz * dz);
+          
+          // Get footprint radius for existing element
+          let existingRadius = COLLISION_RADIUS_DEFAULT;
+          if (existing.designElement?.dimensions) {
+            const width = Number(existing.designElement.dimensions.width) || 0;
+            const depth = Number(existing.designElement.dimensions.depth) || 0;
+            const derived = Math.max(width, depth) / 2;
+            if (derived > 0) existingRadius = derived;
+          }
+          
+          const threshold = Math.max(0.1, footprintRadius + existingRadius - CLEARANCE);
+          if (distance < threshold) {
+            hasCollision = true;
+            break;
+          }
+        }
+        
+        if (!hasCollision) {
+          return testPos;
+        }
+        
+        // Try next position in a spiral pattern
+        attempts++;
+        const ring = Math.floor(Math.sqrt(attempts));
+        const angle = (attempts - ring * ring) * angleStep;
+        const radius = ring * (footprintRadius * 2 + CLEARANCE);
+        testPos = {
+          x: desiredPos.x + radius * Math.cos(angle),
+          y: desiredPos.y,
+          z: desiredPos.z + radius * Math.sin(angle),
+        };
+        
+        // Check if we've gone too far
+        const distanceFromOrigin = Math.sqrt(testPos.x * testPos.x + testPos.z * testPos.z);
+        if (distanceFromOrigin > searchRadius) {
+          // Reset to a closer position
+          testPos = {
+            x: desiredPos.x + (ring % 4) * (footprintRadius * 2 + CLEARANCE),
+            y: desiredPos.y,
+            z: desiredPos.z + Math.floor(ring / 4) * (footprintRadius * 2 + CLEARANCE),
+          };
+        }
+      }
+      
+      // If we couldn't find a position, return the original (user can manually adjust)
+      return desiredPos;
+    };
+
     await prisma.$transaction(async (tx) => {
       let offsetIndex = 0;
       for (const descriptor of elementDescriptors) {
+        // Get design element for collision detection
+        const designElement = await tx.designElement.findUnique({
+          where: { id: descriptor.designElementId },
+        });
+        
         for (let i = 0; i < descriptor.quantity; i += 1) {
+          // Calculate position with offset
+          const desiredPos = {
+            x: basePosition.x + offsetIndex * 0.5,
+            y: basePosition.y,
+            z: basePosition.z,
+          };
+          
+          // Find non-overlapping position
+          const finalPos = findNonOverlappingPosition(desiredPos, existingPlacements, designElement);
+          
           const positionRecord = await tx.coordinates.create({
             data: {
               id: prefixedUlid('pos'),
-              x: basePosition.x + offsetIndex * 0.5,
-              y: basePosition.y,
-              z: basePosition.z,
+              x: finalPos.x,
+              y: finalPos.y,
+              z: finalPos.z,
             },
           });
 
@@ -763,6 +902,13 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
           });
 
           createdPlacements.push(placement);
+          
+          // Add to existingPlacements for collision detection of next items
+          existingPlacements.push({
+            ...placement,
+            position: finalPos,
+            designElement: designElement,
+          });
 
           metadataEntries[placement.id] = {
             serviceListingId: serviceListing.id,
@@ -1399,7 +1545,7 @@ router.post('/:venueDesignId/tag-tables', requireAuth, async (req, res, next) =>
     const { tagTables } = require('../services/tableCountService');
 
     const tagSchema = z.object({
-      placedElementIds: z.array(z.string().uuid()).min(1, 'At least one placed element ID is required'),
+      placedElementIds: z.array(z.string().min(1)).min(1, 'At least one placed element ID is required'),
       serviceListingIds: z.array(z.string().uuid()).min(1, 'At least one service listing ID is required'),
     });
 
@@ -1439,6 +1585,7 @@ router.post('/:venueDesignId/tag-tables', requireAuth, async (req, res, next) =>
       updatedCount,
     });
   } catch (err) {
+    console.error('Error in tag-tables endpoint:', err);
     if (err instanceof z.ZodError) {
       const issues = err.issues.map((issue) => ({
         field: issue.path?.join('.') ?? 'unknown',
@@ -1452,7 +1599,16 @@ router.post('/:venueDesignId/tag-tables', requireAuth, async (req, res, next) =>
     if (err.statusCode) {
       return res.status(err.statusCode).json({ error: err.message });
     }
-    next(err);
+    // Log full error details for debugging
+    console.error('Full error details:', {
+      message: err.message,
+      stack: err.stack,
+      name: err.name,
+    });
+    return res.status(500).json({ 
+      error: err.message || 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    });
   }
 });
 
@@ -1462,7 +1618,7 @@ router.post('/:venueDesignId/untag-tables', requireAuth, async (req, res, next) 
     const { untagTables } = require('../services/tableCountService');
 
     const untagSchema = z.object({
-      placedElementIds: z.array(z.string().uuid()).min(1, 'At least one placed element ID is required'),
+      placedElementIds: z.array(z.string().min(1)).min(1, 'At least one placed element ID is required'), // ULIDs, not UUIDs
       serviceListingIds: z.array(z.string().uuid()).min(1, 'At least one service listing ID is required'),
     });
 

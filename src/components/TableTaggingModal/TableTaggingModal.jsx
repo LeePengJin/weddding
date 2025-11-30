@@ -24,7 +24,7 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
   const [selectedServiceIds, setSelectedServiceIds] = useState([]);
   const [currentTags, setCurrentTags] = useState([]);
 
-  // Load available services with per_table pricing
+  // Load available services with per_table pricing (only from project)
   useEffect(() => {
     if (!open || !projectId) return;
 
@@ -32,16 +32,65 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
       setLoading(true);
       setError('');
       try {
-        // Fetch catalog items and filter for per_table pricing
-        const response = await apiFetch(`/venue-designs/${projectId}/catalog`);
-        const services = (response.listings || []).filter(
-          (service) => service.pricingPolicy === 'per_table' && service.isActive
-        );
-        setAvailableServices(services);
+        // Fetch services already added to the project
+        const designResponse = await apiFetch(`/venue-designs/${projectId}`);
+
+        // Get services from project (from ProjectService entries)
+        const projectServices = [];
+        if (designResponse.projectServices) {
+          designResponse.projectServices.forEach((ps) => {
+            if (ps.serviceListing && 
+                ps.serviceListing.pricingPolicy === 'per_table' && 
+                ps.serviceListing.isActive) {
+              // Ensure ID is a string and valid
+              const serviceId = String(ps.serviceListing.id || '').trim();
+              if (serviceId) {
+                projectServices.push({
+                  id: serviceId,
+                  name: ps.serviceListing.name,
+                  price: ps.serviceListing.price,
+                  pricingPolicy: ps.serviceListing.pricingPolicy,
+                  isActive: ps.serviceListing.isActive,
+                  vendor: ps.serviceListing.vendor,
+                  isBooked: ps.isBooked || false, // Include booked status
+                });
+              }
+            }
+          });
+        }
+
+        // Also check placements for services with per_table pricing
+        // Extract serviceListingIds from placements metadata
+        const placementServiceIds = new Set();
+        if (designResponse.design?.placedElements) {
+          designResponse.design.placedElements.forEach((placement) => {
+            if (placement.serviceListingId) {
+              placementServiceIds.add(placement.serviceListingId);
+            }
+          });
+        }
+
+        // Filtering is done after loading current tags (see above)
 
         // Load current tags from placement
         const tags = placement?.serviceListingIds || [];
         setCurrentTags(tags);
+        
+        // Filter services: 
+        // - Hide booked services that are NOT currently tagged (can't add new booked services)
+        // - Show booked services that ARE currently tagged (but disable unchecking)
+        const currentTagIds = new Set(tags.map(id => String(id).trim()));
+        const filteredServices = projectServices.filter((service) => {
+          const serviceId = String(service.id).trim();
+          // If booked and not currently tagged, hide it
+          if (service.isBooked && !currentTagIds.has(serviceId)) {
+            return false;
+          }
+          // Otherwise, show it
+          return true;
+        });
+        
+        setAvailableServices(filteredServices);
         setSelectedServiceIds(tags);
       } catch (err) {
         setError(err.message || 'Failed to load services');
@@ -53,7 +102,15 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
     loadServices();
   }, [open, projectId, placement]);
 
-  const handleServiceToggle = (serviceId) => {
+  const handleServiceToggle = (serviceId, isBooked, isCurrentlyTagged) => {
+    // Prevent unchecking if service is booked and currently tagged
+    if (isBooked && isCurrentlyTagged) {
+      // If trying to uncheck a booked service that's currently tagged, prevent it
+      if (selectedServiceIds.includes(serviceId)) {
+        return; // Cannot uncheck booked services that are already tagged
+      }
+    }
+    
     setSelectedServiceIds((prev) => {
       if (prev.includes(serviceId)) {
         return prev.filter((id) => id !== serviceId);
@@ -72,18 +129,43 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
     try {
       const { tagTables, untagTables } = require('../../lib/api');
 
-      // Determine which services to add and which to remove
-      const toAdd = selectedServiceIds.filter((id) => !currentTags.includes(id));
-      const toRemove = currentTags.filter((id) => !selectedServiceIds.includes(id));
-
-      // Tag new services
-      if (toAdd.length > 0) {
-        await tagTables(venueDesignId, [placement.id], toAdd);
+      // Validate that all selected service IDs are valid UUIDs
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      
+      // Convert all selected IDs to strings and trim, then validate
+      const validatedSelectedIds = selectedServiceIds
+        .map(id => String(id || '').trim())
+        .filter(id => id && uuidRegex.test(id));
+      
+      const invalidIds = selectedServiceIds
+        .map(id => String(id || '').trim())
+        .filter(id => id && !uuidRegex.test(id));
+      
+      if (invalidIds.length > 0) {
+        console.error('Invalid service IDs:', { 
+          invalidIds,
+          selectedServiceIds,
+          availableServices: availableServices.map(s => ({ id: s.id, idType: typeof s.id, name: s.name }))
+        });
+        throw new Error(`Invalid service ID format: ${invalidIds.join(', ')}. Please refresh and try again.`);
       }
 
-      // Untag removed services
-      if (toRemove.length > 0) {
-        await untagTables(venueDesignId, [placement.id], toRemove);
+      // IMPORTANT: tagTables REPLACES all existing tags with the provided list
+      // So we need to send ALL selected services, not just the ones to add
+      // This ensures existing tags are preserved and new ones are added
+      if (validatedSelectedIds.length > 0) {
+        await tagTables(venueDesignId, [placement.id], validatedSelectedIds);
+      } else {
+        // If no services are selected, we need to clear all tags
+        // Get current tags and untag them all
+        if (currentTags.length > 0) {
+          const validatedCurrentTags = currentTags
+            .map(id => String(id || '').trim())
+            .filter(id => id && uuidRegex.test(id));
+          if (validatedCurrentTags.length > 0) {
+            await untagTables(venueDesignId, [placement.id], validatedCurrentTags);
+          }
+        }
       }
 
       // Tags are saved on the backend
@@ -146,37 +228,62 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
               Available Services ({availableServices.length})
             </Typography>
             <Box sx={{ maxHeight: 400, overflowY: 'auto' }}>
-              {availableServices.map((service) => (
-                <FormControlLabel
-                  key={service.id}
-                  control={
-                    <Checkbox
-                      checked={selectedServiceIds.includes(service.id)}
-                      onChange={() => handleServiceToggle(service.id)}
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                        {service.name}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {service.vendor?.user?.name || service.vendor?.name || 'Vendor'} • 
-                        RM{parseFloat(service.price || 0).toFixed(2)} per table
-                      </Typography>
-                    </Box>
-                  }
-                  sx={{ 
-                    display: 'flex', 
-                    alignItems: 'flex-start',
-                    mb: 1,
-                    width: '100%',
-                    '& .MuiFormControlLabel-label': {
-                      flex: 1,
-                    },
-                  }}
-                />
-              ))}
+              {availableServices.map((service) => {
+                const serviceId = String(service.id).trim();
+                const isChecked = selectedServiceIds.includes(serviceId);
+                const isCurrentlyTagged = currentTags.includes(serviceId);
+                const isBooked = service.isBooked || false;
+                const isDisabled = isBooked && isCurrentlyTagged; // Disable unchecking booked services that are tagged
+                
+                return (
+                  <FormControlLabel
+                    key={service.id}
+                    control={
+                      <Checkbox
+                        checked={isChecked}
+                        onChange={() => handleServiceToggle(serviceId, isBooked, isCurrentlyTagged)}
+                        disabled={isDisabled}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                            {service.name}
+                          </Typography>
+                          {isBooked && isCurrentlyTagged && (
+                            <Chip 
+                              label="Booked" 
+                              size="small" 
+                              color="warning" 
+                              sx={{ height: 20, fontSize: '0.65rem' }}
+                            />
+                          )}
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                          {service.vendor?.user?.name || service.vendor?.name || 'Vendor'} • 
+                          RM{parseFloat(service.price || 0).toFixed(2)} per table
+                          {isDisabled && (
+                            <span style={{ display: 'block', color: '#d32f2f', marginTop: 2 }}>
+                              This service is booked and cannot be untagged
+                            </span>
+                          )}
+                        </Typography>
+                      </Box>
+                    }
+                    sx={{ 
+                      display: 'flex', 
+                      alignItems: 'flex-start',
+                      mb: 1,
+                      width: '100%',
+                      opacity: isDisabled ? 0.7 : 1,
+                      '& .MuiFormControlLabel-label': {
+                        flex: 1,
+                      },
+                    }}
+                  />
+                );
+              })}
             </Box>
           </Box>
         )}

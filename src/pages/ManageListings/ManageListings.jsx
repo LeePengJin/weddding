@@ -215,7 +215,7 @@ const ManageListings = () => {
     };
   }, []);
 
-  // Smart defaults for stackable based on category
+  // Smart defaults for stackable and availability type based on category
   useEffect(() => {
     if (!editingListing && formData.category) {
       const stackableCategories = ['Florist', 'Caterer'];
@@ -223,6 +223,11 @@ const ManageListings = () => {
         setIsStackable(true);
       } else {
         setIsStackable(false);
+      }
+      
+      // Auto-set availability type to exclusive for Venue category
+      if (formData.category === 'Venue') {
+        setFormData((prev) => ({ ...prev, availabilityType: 'exclusive' }));
       }
     }
   }, [formData.category, editingListing]);
@@ -1826,6 +1831,7 @@ const ManageListings = () => {
                           modelUrl={getModelUrl(designElement.modelFile)}
                           width="100%"
                           height="400px"
+                          targetDimensions={designElement.dimensions}
                         />
                       </Box>
                     );
@@ -1901,6 +1907,7 @@ const ManageListings = () => {
                               modelUrl={getModelUrl(element.modelFile)}
                               width="100%"
                               height="400px"
+                              targetDimensions={element.dimensions}
                             />
                           );
                         }
