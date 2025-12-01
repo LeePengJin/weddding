@@ -159,6 +159,13 @@ const ListingWizard = ({
     pricingPolicy: 'fixed_package',
     hourlyRate: '', // For time_based pricing
     tieredPricing: [], // For tiered_package pricing
+    cancellationPolicy: '', // Cancellation policy text
+    cancellationFeeTiers: { // Cancellation fee percentages
+      '>90': 0,
+      '30-90': 0.10,
+      '7-30': 0.25,
+      '<7': 0.50,
+    },
     
     // Step 3
     images: [],
@@ -196,6 +203,17 @@ const ListingWizard = ({
         pricingPolicy: initialData.pricingPolicy || 'fixed_package',
         hourlyRate: initialData.hourlyRate ? (typeof initialData.hourlyRate === 'string' ? initialData.hourlyRate : parseFloat(initialData.hourlyRate).toString()) : '',
         tieredPricing: initialData.tieredPricing && Array.isArray(initialData.tieredPricing) ? initialData.tieredPricing : [],
+        cancellationPolicy: initialData.cancellationPolicy || '',
+        cancellationFeeTiers: initialData.cancellationFeeTiers ? (
+          typeof initialData.cancellationFeeTiers === 'string'
+            ? JSON.parse(initialData.cancellationFeeTiers)
+            : initialData.cancellationFeeTiers
+        ) : {
+          '>90': 0,
+          '30-90': 0.10,
+          '7-30': 0.25,
+          '<7': 0.50,
+        },
         images: initialData.images || [],
         imagePreviews: initialData.images || [],
         model3DSource: initialData.model3DFile ? 'upload' : (initialData.designElementId ? 'existing' : 'upload'),
@@ -412,6 +430,9 @@ const ListingWizard = ({
       // Include pricing-specific fields
       hourlyRate: formData.pricingPolicy === 'time_based' ? formData.hourlyRate : undefined,
       tieredPricing: formData.pricingPolicy === 'tiered_package' ? formData.tieredPricing : undefined,
+      // Include cancellation policy fields
+      cancellationPolicy: formData.cancellationPolicy || null,
+      cancellationFeeTiers: formData.cancellationFeeTiers || null,
       // Include bundle flag
       isBundle: formData.isBundle,
     };
@@ -758,6 +779,129 @@ const ListingWizard = ({
                   </Button>
                 </Box>
               )}
+            </Box>
+
+            {/* Cancellation Policy Section */}
+            <Divider sx={{ my: 4 }} />
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="body2" sx={{ mb: 2, fontWeight: 600 }}>
+                Cancellation Policy (Optional)
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+                Define your cancellation policy and fee structure. This will be displayed to couples when they view your service.
+              </Typography>
+
+              {/* Cancellation Policy Text */}
+              <TextField
+                fullWidth
+                label="Cancellation Policy Description"
+                value={formData.cancellationPolicy}
+                onChange={(e) => handleInputChange('cancellationPolicy', e.target.value)}
+                helperText="Describe your cancellation policy in plain text (e.g., 'Free cancellation up to 90 days before the wedding')"
+                multiline
+                rows={3}
+                sx={{ mb: 3 }}
+              />
+
+              {/* Cancellation Fee Tiers */}
+              <Typography variant="body2" sx={{ mb: 2, fontWeight: 500 }}>
+                Cancellation Fee Schedule (as percentage of total booking amount)
+              </Typography>
+              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                <Stack spacing={2}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Typography variant="body2" sx={{ minWidth: 120 }}>
+                      More than 90 days:
+                    </Typography>
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={formData.cancellationFeeTiers['>90'] * 100}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        handleInputChange('cancellationFeeTiers', {
+                          ...formData.cancellationFeeTiers,
+                          '>90': Math.max(0, Math.min(100, value)) / 100,
+                        });
+                      }}
+                      InputProps={{
+                        endAdornment: <Typography variant="caption">%</Typography>,
+                      }}
+                      inputProps={{ min: 0, max: 100, step: 1 }}
+                      sx={{ width: 120 }}
+                    />
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Typography variant="body2" sx={{ minWidth: 120 }}>
+                      30-90 days:
+                    </Typography>
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={formData.cancellationFeeTiers['30-90'] * 100}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        handleInputChange('cancellationFeeTiers', {
+                          ...formData.cancellationFeeTiers,
+                          '30-90': Math.max(0, Math.min(100, value)) / 100,
+                        });
+                      }}
+                      InputProps={{
+                        endAdornment: <Typography variant="caption">%</Typography>,
+                      }}
+                      inputProps={{ min: 0, max: 100, step: 1 }}
+                      sx={{ width: 120 }}
+                    />
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Typography variant="body2" sx={{ minWidth: 120 }}>
+                      7-30 days:
+                    </Typography>
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={formData.cancellationFeeTiers['7-30'] * 100}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        handleInputChange('cancellationFeeTiers', {
+                          ...formData.cancellationFeeTiers,
+                          '7-30': Math.max(0, Math.min(100, value)) / 100,
+                        });
+                      }}
+                      InputProps={{
+                        endAdornment: <Typography variant="caption">%</Typography>,
+                      }}
+                      inputProps={{ min: 0, max: 100, step: 1 }}
+                      sx={{ width: 120 }}
+                    />
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Typography variant="body2" sx={{ minWidth: 120 }}>
+                      Less than 7 days:
+                    </Typography>
+                    <TextField
+                      type="number"
+                      size="small"
+                      value={formData.cancellationFeeTiers['<7'] * 100}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        handleInputChange('cancellationFeeTiers', {
+                          ...formData.cancellationFeeTiers,
+                          '<7': Math.max(0, Math.min(100, value)) / 100,
+                        });
+                      }}
+                      InputProps={{
+                        endAdornment: <Typography variant="caption">%</Typography>,
+                      }}
+                      inputProps={{ min: 0, max: 100, step: 1 }}
+                      sx={{ width: 120 }}
+                    />
+                  </Box>
+                </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+                  Default values: 0% (&gt;90 days), 10% (30-90 days), 25% (7-30 days), 50% (&lt;7 days)
+                </Typography>
+              </Box>
             </Box>
           </Box>
         );

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Button, IconButton, Stack, Typography, Dialog, Box } from '@mui/material';
+import { Button, IconButton, Stack, Typography, Dialog, Box, Rating, Divider, Chip } from '@mui/material';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -8,9 +8,73 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import AddIcon from '@mui/icons-material/Add';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import CloseIcon from '@mui/icons-material/Close';
+import StarIcon from '@mui/icons-material/Star';
 import { formatImageUrl } from '../../utils/image';
+import { anonymizeName } from '../../utils/anonymizeName';
 import Model3DViewer from '../Model3DViewer/Model3DViewer';
 import './ServiceListingDetailsModal.css';
+
+const INITIAL_REVIEWS_TO_SHOW = 3;
+
+const ReviewsList = ({ reviews, totalCount }) => {
+  const [showAll, setShowAll] = useState(false);
+  const reviewsToShow = showAll ? reviews : reviews.slice(0, INITIAL_REVIEWS_TO_SHOW);
+  const hasMore = reviews.length > INITIAL_REVIEWS_TO_SHOW;
+
+  return (
+    <>
+      <Stack spacing={2}>
+        {reviewsToShow.map((review) => (
+          <Box key={review.id} sx={{ p: 1.5, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+              <Box>
+                <Typography variant="body2" fontWeight="medium">
+                  {anonymizeName(review.reviewer?.name)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {new Date(review.reviewDate).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </Typography>
+              </Box>
+              <Rating value={review.rating} readOnly size="small" />
+            </Box>
+            {review.comment && (
+              <Typography variant="body2" color="text.secondary">
+                {review.comment}
+              </Typography>
+            )}
+          </Box>
+        ))}
+      </Stack>
+      {hasMore && !showAll && (
+        <Button
+          variant="text"
+          onClick={() => setShowAll(true)}
+          sx={{ mt: 1, textTransform: 'none' }}
+        >
+          Load More Reviews ({reviews.length - INITIAL_REVIEWS_TO_SHOW} more)
+        </Button>
+      )}
+      {showAll && hasMore && (
+        <Button
+          variant="text"
+          onClick={() => setShowAll(false)}
+          sx={{ mt: 1, textTransform: 'none' }}
+        >
+          Show Less
+        </Button>
+      )}
+    </>
+  );
+};
+
+ReviewsList.propTypes = {
+  reviews: PropTypes.array.isRequired,
+  totalCount: PropTypes.number,
+};
 
 const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) => {
   const imageSources = useMemo(() => {
@@ -201,9 +265,24 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
 
         <div className="detail-info">
           <Typography variant="h6">{item.name}</Typography>
-          <Typography variant="subtitle2" color="text.secondary">
-            RM {Number(item.price).toLocaleString()}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <Typography variant="subtitle2" color="text.secondary">
+              RM {Number(item.price).toLocaleString()}
+            </Typography>
+            {item.averageRating && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <StarIcon sx={{ fontSize: '1rem', color: '#ffc107' }} />
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {parseFloat(item.averageRating).toFixed(1)}
+                </Typography>
+                {item.reviewCount > 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    ({item.reviewCount} {item.reviewCount === 1 ? 'review' : 'reviews'})
+                  </Typography>
+                )}
+              </Box>
+            )}
+          </Box>
           {item.pricingPolicy && (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
               <strong>Pricing:</strong> {
@@ -222,6 +301,7 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
             </Typography>
           )}
         </div>
+
 
         <div className="vendor-info">
           <Typography variant="subtitle2">Vendor Information</Typography>
@@ -242,6 +322,60 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
             </Typography>
           )}
         </div>
+
+        {item.cancellationPolicy && (
+          <Box sx={{ mt: 2 }}>
+            <Divider sx={{ mb: 2 }} />
+            <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+              Cancellation Policy
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
+              {item.cancellationPolicy}
+            </Typography>
+            {item.cancellationFeeTiers && (
+              <Box sx={{ mt: 1.5, p: 1.5, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                <Typography variant="caption" fontWeight="medium" sx={{ display: 'block', mb: 1 }}>
+                  Cancellation Fee Schedule:
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  {(() => {
+                    try {
+                      const tiers = typeof item.cancellationFeeTiers === 'string' 
+                        ? JSON.parse(item.cancellationFeeTiers) 
+                        : item.cancellationFeeTiers;
+                      return Object.entries(tiers).map(([period, percentage]) => (
+                        <Box key={period} sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="caption" color="text.secondary">
+                            {period === '>90' ? 'More than 90 days' :
+                             period === '30-90' ? '30-90 days' :
+                             period === '7-30' ? '7-30 days' :
+                             period === '<7' ? 'Less than 7 days' :
+                             period} before wedding:
+                          </Typography>
+                          <Typography variant="caption" fontWeight="medium">
+                            {(percentage * 100).toFixed(0)}%
+                          </Typography>
+                        </Box>
+                      ));
+                    } catch (e) {
+                      return null;
+                    }
+                  })()}
+                </Box>
+              </Box>
+            )}
+          </Box>
+        )}
+
+        {item.reviews && item.reviews.length > 0 && (
+          <Box sx={{ mt: 2 }}>
+            <Divider sx={{ mb: 2 }} />
+            <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+              Reviews ({item.reviewCount || item.reviews.length})
+            </Typography>
+            <ReviewsList reviews={item.reviews} totalCount={item.reviewCount || item.reviews.length} />
+          </Box>
+        )}
       </div>
 
       <Stack spacing={1} className="detail-actions">

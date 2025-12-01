@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiFetch } from '../../lib/api';
+import Model3DViewer from '../../components/Model3DViewer/Model3DViewer';
 import './CreateProject.styles.css';
 
 const normalizeVenueImages = (venue) => {
@@ -37,6 +38,40 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
   const { weddingDate } = formData;
   const venueImages = useMemo(() => normalizeVenueImages(detailsVenue), [detailsVenue]);
   const hasMultipleImages = venueImages.length > 1;
+
+  // 3D model sources for the details modal
+  const modelSources = useMemo(() => {
+    if (!detailsVenue) return [];
+    const list = [];
+
+    const primary = detailsVenue.designElement?.modelFile || detailsVenue.modelFile;
+    if (primary) {
+      list.push({
+        src: primary,
+        label: detailsVenue.designElement?.name || detailsVenue.name || '3D Model',
+        dimensions: detailsVenue.designElement?.dimensions || detailsVenue.dimensions || null,
+      });
+    }
+
+    if (Array.isArray(detailsVenue.components)) {
+      detailsVenue.components.forEach((component, index) => {
+        const file = component?.designElement?.modelFile;
+        if (file) {
+          list.push({
+            src: file,
+            label: component?.designElement?.name || component?.name || `Component ${index + 1}`,
+            dimensions: component?.designElement?.dimensions || null,
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [detailsVenue]);
+
+  const hasModels = modelSources.length > 0;
+  const [activeModelIndex, setActiveModelIndex] = useState(0);
+  const activeModel = modelSources[activeModelIndex] || null;
 
   useEffect(() => {
     let isActive = true;
@@ -98,12 +133,14 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
     if (!detailsVenue) {
       setIsImageFullscreen(false);
       setCurrentImageIndex(0);
+      setActiveModelIndex(0);
       return;
     }
 
     setCurrentImageIndex(0);
     setIsImageFullscreen(false);
-  }, [detailsVenue]);
+    setActiveModelIndex(0);
+  }, [detailsVenue, modelSources.length]);
 
   useEffect(() => {
     if (currentImageIndex > 0 && currentImageIndex >= venueImages.length) {
@@ -192,13 +229,31 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
     }
   };
 
-  const openVenueDetails = (venue, e) => {
+  const openVenueDetails = async (venue, e) => {
     if (e) {
       e.stopPropagation();
     }
+
+    // Show basic details immediately
     setDetailsVenue(venue);
     setCurrentImageIndex(0);
     setIsImageFullscreen(false);
+
+    // Then load full venue details (including 3D model info) in the background
+    try {
+      const endpoint = weddingDate
+        ? `/venues/${venue.id}?date=${encodeURIComponent(weddingDate)}`
+        : `/venues/${venue.id}`;
+      const fullDetails = await apiFetch(endpoint);
+
+      // Only update if we're still viewing this venue
+      setDetailsVenue((current) => {
+        if (!current || current.id !== venue.id) return current;
+        return { ...current, ...fullDetails };
+      });
+    } catch (err) {
+      console.error('Failed to load venue details', err);
+    }
   };
 
   const closeVenueDetails = () => {
@@ -483,7 +538,7 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
                   </>
                 )}
                 <img
-                  src={getImageUrl(activeImage)}
+                  src={getImageUrl(activeImage || '/placeholder-venue.jpg')}
                   alt={detailsVenue.name}
                   onClick={openImageFullscreen}
                   role={venueImages.length ? 'button' : undefined}
@@ -576,6 +631,50 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
                   <div className="venue-details-section">
                     <h4>Additional Details</h4>
                     <p>{detailsVenue.extraDetails}</p>
+                  </div>
+                )}
+
+                {hasModels && activeModel && (
+                  <div className="venue-details-section">
+                    <h4>3D Preview</h4>
+                    <div className="venue-3d-preview">
+                      <Model3DViewer
+                        key={`${activeModel.src}-${JSON.stringify(activeModel.dimensions || {})}`}
+                        modelUrl={activeModel.src}
+                        height="320px"
+                        width="100%"
+                        borderless
+                        autoRotate
+                        targetDimensions={activeModel.dimensions || null}
+                      />
+                      {modelSources.length > 1 && (
+                        <div className="venue-3d-controls">
+                          <button
+                            type="button"
+                            className="venue-3d-nav"
+                            onClick={() =>
+                              setActiveModelIndex((prev) =>
+                                (prev - 1 + modelSources.length) % modelSources.length
+                              )
+                            }
+                          >
+                            ‹ Prev
+                          </button>
+                          <span className="venue-3d-label">{activeModel.label}</span>
+                          <button
+                            type="button"
+                            className="venue-3d-nav"
+                            onClick={() =>
+                              setActiveModelIndex((prev) =>
+                                (prev + 1) % modelSources.length
+                              )
+                            }
+                          >
+                            Next ›
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 

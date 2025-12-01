@@ -302,7 +302,7 @@ async function checkServiceAvailabilityForDate(serviceListingId, isoDate) {
           lte: endOfDay,
         },
         status: {
-          notIn: ['cancelled', 'rejected'],
+          notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
         },
         selectedServices: {
           some: {
@@ -394,6 +394,13 @@ async function checkServiceAvailabilityForDate(serviceListingId, isoDate) {
 }
 
 function serializeListingForCatalog(listing, availability) {
+  // Calculate average rating from reviews if not already set
+  let averageRating = listing.averageRating ? parseFloat(listing.averageRating.toString()) : null;
+  if (!averageRating && listing.reviews && listing.reviews.length > 0) {
+    const sum = listing.reviews.reduce((acc, review) => acc + review.rating, 0);
+    averageRating = sum / listing.reviews.length;
+  }
+
   return {
     id: listing.id,
     name: listing.name,
@@ -403,7 +410,22 @@ function serializeListingForCatalog(listing, availability) {
     price: listing.price.toString(),
     pricingPolicy: listing.pricingPolicy,
     isActive: listing.isActive,
-    averageRating: listing.averageRating ? listing.averageRating.toString() : null,
+    averageRating: averageRating ? averageRating.toFixed(2) : null,
+    reviewCount: listing.reviews ? listing.reviews.length : 0,
+    reviews: listing.reviews
+      ? listing.reviews.map((review) => ({
+          id: review.id,
+          rating: review.rating,
+          comment: review.comment,
+          reviewDate: review.reviewDate,
+          reviewer: review.reviewer
+            ? {
+                id: review.reviewer.id,
+                name: review.reviewer.name,
+              }
+            : null,
+        }))
+      : [],
     has3DModel: listing.has3DModel,
     availabilityType: listing.availabilityType,
     images: listing.images,
@@ -1396,6 +1418,20 @@ router.get('/:projectId/catalog', requireAuth, async (req, res, next) => {
             include: {
               designElement: true,
             },
+          },
+          reviews: {
+            include: {
+              reviewer: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+            orderBy: {
+              reviewDate: 'desc',
+            },
+            take: 10, // Limit to latest 10 reviews for catalog
           },
         },
       }),

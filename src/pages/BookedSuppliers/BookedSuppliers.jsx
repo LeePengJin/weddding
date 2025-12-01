@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -19,6 +19,10 @@ import {
   Rating,
   TextField,
   IconButton,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -36,25 +40,30 @@ import './BookedSuppliers.styles.css';
 
 const BookedSuppliers = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('projectId');
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [reviewData, setReviewData] = useState({
+    serviceListingId: '',
     rating: 5,
     comment: '',
   });
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   useEffect(() => {
     fetchBookings();
-  }, []);
+  }, [projectId]);
 
   const fetchBookings = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiFetch('/bookings');
+      const url = projectId ? `/bookings?projectId=${projectId}` : '/bookings';
+      const data = await apiFetch(url);
       // Only show confirmed, pending_final_payment, and completed bookings
       const confirmedBookings = data.filter(
         (booking) =>
@@ -90,7 +99,15 @@ const BookedSuppliers = () => {
 
   const handleLeaveReview = (booking) => {
     setSelectedBooking(booking);
+    // Find the first unreviewed service, or empty string if all are reviewed
+    const reviewedServiceIds = booking.reviews?.map((review) => review.serviceListingId) || [];
+    const firstUnreviewedService = booking.selectedServices?.find(
+      (service) => !reviewedServiceIds.includes(service.serviceListingId)
+    );
+    const defaultServiceId = firstUnreviewedService?.serviceListingId || '';
+    
     setReviewData({
+      serviceListingId: defaultServiceId,
       rating: 5,
       comment: '',
     });
@@ -98,23 +115,36 @@ const BookedSuppliers = () => {
   };
 
   const handleSubmitReview = async () => {
+    if (!reviewData.serviceListingId) {
+      setError('Please select a service to review');
+      return;
+    }
+
+    if (!reviewData.rating || reviewData.rating < 1 || reviewData.rating > 5) {
+      setError('Please provide a valid rating (1-5 stars)');
+      return;
+    }
+
     try {
       setError(null);
-      // TODO: Implement review API endpoint
-      // await apiFetch(`/bookings/${selectedBooking.id}/reviews`, {
-      //   method: 'POST',
-      //   body: JSON.stringify({
-      //     serviceListingId: selectedBooking.selectedServices[0].serviceListingId,
-      //     rating: reviewData.rating,
-      //     comment: reviewData.comment,
-      //   }),
-      // });
+      setSubmittingReview(true);
+      await apiFetch(`/bookings/${selectedBooking.id}/reviews`, {
+        method: 'POST',
+        body: JSON.stringify({
+          serviceListingId: reviewData.serviceListingId,
+          rating: reviewData.rating,
+          comment: reviewData.comment || null,
+        }),
+      });
       setShowReviewDialog(false);
-      setSelectedBooking(null);
-      // await fetchBookings();
-      alert('Review functionality will be implemented soon');
+      // Refresh the selected booking to show the new review
+      const updatedBooking = await apiFetch(`/bookings/${selectedBooking.id}`);
+      setSelectedBooking(updatedBooking);
+      await fetchBookings();
     } catch (err) {
       setError(err.message || 'Failed to submit review');
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -181,7 +211,22 @@ const BookedSuppliers = () => {
           <Stack spacing={3}>
             {bookings.map((booking) => {
               const total = calculateTotal(booking);
+              // Check if all services have been reviewed
+              // For single-service bookings, check if that service has a review
+              // For multi-service bookings, check if all services have reviews
+              const allServicesReviewed =
+                booking.selectedServices &&
+                booking.selectedServices.length > 0 &&
+                booking.reviews &&
+                booking.selectedServices.every((service) =>
+                  booking.reviews.some((review) => review.serviceListingId === service.serviceListingId)
+                );
               const hasReview = booking.reviews && booking.reviews.length > 0;
+              
+              // Check if there are any services without reviews
+              const hasUnreviewedServices = booking.selectedServices && booking.selectedServices.some(
+                (service) => !booking.reviews?.some((review) => review.serviceListingId === service.serviceListingId)
+              );
 
               return (
                 <Card key={booking.id} elevation={2}>
@@ -263,7 +308,22 @@ const BookedSuppliers = () => {
                         <Typography variant="body2" fontWeight="medium">
                           {formatDate(booking.reservedDate)}
                         </Typography>
+                        {booking.project?.eventStartTime && (
+                          <Typography variant="caption" color="text.secondary">
+                            Time: {new Date(booking.project.eventStartTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        )}
                       </Box>
+                      {booking.project?.venueServiceListing && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Venue
+                          </Typography>
+                          <Typography variant="body2" fontWeight="medium">
+                            {booking.project.venueServiceListing.name || 'Venue'}
+                          </Typography>
+                        </Box>
+                      )}
                       {booking.project && (
                         <Box>
                           <Typography variant="caption" color="text.secondary" display="block">
@@ -277,14 +337,31 @@ const BookedSuppliers = () => {
                     </Box>
 
                     {hasReview && (
-                      <Box sx={{ mt: 2, p: 2, backgroundColor: '#f0f7ff', borderRadius: 1 }}>
+                      <Box sx={{ mt: 2 }}>
                         <Typography variant="subtitle2" gutterBottom>
-                          Your Review
+                          Your Reviews
                         </Typography>
-                        <Rating value={booking.reviews[0].rating} readOnly size="small" sx={{ mb: 1 }} />
-                        {booking.reviews[0].comment && (
-                          <Typography variant="body2">{booking.reviews[0].comment}</Typography>
-                        )}
+                        <Stack spacing={1}>
+                          {booking.reviews.map((review, index) => {
+                            const service = booking.selectedServices.find(
+                              (s) => s.serviceListingId === review.serviceListingId
+                            );
+                            return (
+                              <Box
+                                key={review.id || index}
+                                sx={{ p: 2, backgroundColor: '#f0f7ff', borderRadius: 1 }}
+                              >
+                                <Typography variant="body2" fontWeight="medium" gutterBottom>
+                                  {service?.serviceListing?.name || 'Service'}
+                                </Typography>
+                                <Rating value={review.rating} readOnly size="small" sx={{ mb: 1 }} />
+                                {review.comment && (
+                                  <Typography variant="body2">{review.comment}</Typography>
+                                )}
+                              </Box>
+                            );
+                          })}
+                        </Stack>
                       </Box>
                     )}
                   </CardContent>
@@ -296,13 +373,13 @@ const BookedSuppliers = () => {
                     >
                       Message Vendor
                     </Button>
-                    {booking.status === 'completed' && !hasReview && (
+                    {booking.status === 'completed' && hasUnreviewedServices && (
                       <Button
                         variant="contained"
                         startIcon={<Star />}
                         onClick={() => handleLeaveReview(booking)}
                       >
-                        Leave Review
+                        {hasReview ? 'Add Review' : 'Leave Review'}
                       </Button>
                     )}
                     <Button
@@ -340,16 +417,56 @@ const BookedSuppliers = () => {
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2 }}>
+            {error && (
+              <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
             <Typography variant="subtitle2" gutterBottom>
               Vendor: {selectedBooking?.vendor?.user?.name || 'Vendor'}
             </Typography>
+            
+            {selectedBooking?.selectedServices && selectedBooking.selectedServices.length > 1 && (
+              <FormControl fullWidth sx={{ mb: 3 }}>
+                <InputLabel>Service to Review</InputLabel>
+                <Select
+                  value={reviewData.serviceListingId}
+                  onChange={(e) => setReviewData({ ...reviewData, serviceListingId: e.target.value })}
+                  label="Service to Review"
+                >
+                  {selectedBooking.selectedServices.map((service) => {
+                    // Check if review already exists for this service
+                    const hasReview = selectedBooking.reviews?.some(
+                      (review) => review.serviceListingId === service.serviceListingId
+                    );
+                    return (
+                      <MenuItem
+                        key={service.serviceListingId}
+                        value={service.serviceListingId}
+                        disabled={hasReview}
+                      >
+                        {service.serviceListing.name}
+                        {hasReview && ' (Already reviewed)'}
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            )}
+            
+            {selectedBooking?.selectedServices && selectedBooking.selectedServices.length === 1 && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Service: {selectedBooking.selectedServices[0].serviceListing.name}
+              </Typography>
+            )}
+
             <Box sx={{ mb: 3 }}>
               <Typography variant="subtitle2" gutterBottom>
                 Rating
               </Typography>
               <Rating
                 value={reviewData.rating}
-                onChange={(e, newValue) => setReviewData({ ...reviewData, rating: newValue })}
+                onChange={(e, newValue) => setReviewData({ ...reviewData, rating: newValue || 5 })}
                 size="large"
               />
             </Box>
@@ -365,9 +482,15 @@ const BookedSuppliers = () => {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShowReviewDialog(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleSubmitReview}>
-            Submit Review
+          <Button onClick={() => setShowReviewDialog(false)} disabled={submittingReview}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmitReview}
+            disabled={submittingReview || !reviewData.serviceListingId}
+          >
+            {submittingReview ? 'Submitting...' : 'Submit Review'}
           </Button>
         </DialogActions>
       </Dialog>

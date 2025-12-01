@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -31,6 +31,8 @@ import './PaymentCenter.styles.css';
 
 const PaymentCenter = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('projectId');
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -38,13 +40,14 @@ const PaymentCenter = () => {
 
   useEffect(() => {
     fetchBookings();
-  }, []);
+  }, [projectId]);
 
   const fetchBookings = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiFetch('/bookings');
+      const url = projectId ? `/bookings?projectId=${projectId}` : '/bookings';
+      const data = await apiFetch(url);
       setBookings(data || []);
     } catch (err) {
       setError(err.message || 'Failed to fetch bookings');

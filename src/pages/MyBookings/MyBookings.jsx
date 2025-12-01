@@ -21,6 +21,12 @@ import {
   Divider,
   IconButton,
   LinearProgress,
+  Rating,
+  TextField,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -61,11 +67,17 @@ const STATUS_CONFIG = {
     icon: PaymentIcon,
     description: 'Please pay the final payment after your wedding',
   },
-  cancelled: {
-    label: 'Cancelled',
+  cancelled_by_couple: {
+    label: 'Cancelled by You',
     color: 'default',
     icon: Cancel,
-    description: 'This booking has been cancelled',
+    description: 'This booking has been cancelled by you',
+  },
+  cancelled_by_vendor: {
+    label: 'Cancelled by Vendor',
+    color: 'error',
+    icon: Cancel,
+    description: 'This booking has been cancelled by the vendor',
   },
   rejected: {
     label: 'Rejected',
@@ -77,29 +89,44 @@ const STATUS_CONFIG = {
     label: 'Completed',
     color: 'success',
     icon: CheckCircle,
-    description: 'Booking completed. You can now leave a review',
+    description: 'Booking completed',
   },
 };
 
 const MyBookings = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('projectId');
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedTab, setSelectedTab] = useState(0);
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [reviewData, setReviewData] = useState({
+    serviceListingId: '',
+    rating: 5,
+    comment: '',
+  });
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancellationFeePreview, setCancellationFeePreview] = useState(null);
+  const [loadingFeePreview, setLoadingFeePreview] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [selectedReasonPreset, setSelectedReasonPreset] = useState('');
 
   useEffect(() => {
     fetchBookings();
-  }, []);
+  }, [projectId]);
 
   const fetchBookings = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiFetch('/bookings');
+      const url = projectId ? `/bookings?projectId=${projectId}` : '/bookings';
+      const data = await apiFetch(url);
       setBookings(data || []);
     } catch (err) {
       setError(err.message || 'Failed to fetch bookings');
@@ -122,8 +149,54 @@ const MyBookings = () => {
   };
 
   const handleLeaveReview = (booking) => {
-    // Navigate to review page (to be implemented)
-    navigate(`/bookings/${booking.id}/review`);
+    setSelectedBooking(booking);
+    // Find the first unreviewed service, or empty string if all are reviewed
+    const reviewedServiceIds = booking.reviews?.map((review) => review.serviceListingId) || [];
+    const firstUnreviewedService = booking.selectedServices?.find(
+      (service) => !reviewedServiceIds.includes(service.serviceListingId)
+    );
+    const defaultServiceId = firstUnreviewedService?.serviceListingId || '';
+    
+    setReviewData({
+      serviceListingId: defaultServiceId,
+      rating: 5,
+      comment: '',
+    });
+    setShowReviewDialog(true);
+  };
+
+  const handleSubmitReview = async () => {
+    if (!reviewData.serviceListingId) {
+      setError('Please select a service to review');
+      return;
+    }
+
+    if (!reviewData.rating || reviewData.rating < 1 || reviewData.rating > 5) {
+      setError('Please provide a valid rating (1-5 stars)');
+      return;
+    }
+
+    try {
+      setError(null);
+      setSubmittingReview(true);
+      await apiFetch(`/bookings/${selectedBooking.id}/reviews`, {
+        method: 'POST',
+        body: JSON.stringify({
+          serviceListingId: reviewData.serviceListingId,
+          rating: reviewData.rating,
+          comment: reviewData.comment || null,
+        }),
+      });
+      setShowReviewDialog(false);
+      // Refresh the selected booking to show the new review
+      const updatedBooking = await apiFetch(`/bookings/${selectedBooking.id}`);
+      setSelectedBooking(updatedBooking);
+      await fetchBookings();
+    } catch (err) {
+      setError(err.message || 'Failed to submit review');
+    } finally {
+      setSubmittingReview(false);
+    }
   };
 
   const handleMessageVendor = async (booking) => {
@@ -141,6 +214,78 @@ const MyBookings = () => {
       navigate(`/messages?conversationId=${conversation.id}`);
     } catch (err) {
       setError(err.message || 'Failed to start conversation');
+    }
+  };
+
+  const normalizeFeePreview = (preview) => ({
+    ...preview,
+    feeAmount: Number(preview?.feeAmount) || 0,
+    amountPaid: Number(preview?.amountPaid) || 0,
+    feeDifference: Number(preview?.feeDifference) || 0,
+  });
+
+  const handleCancelBooking = async (booking) => {
+    if (!booking) return;
+
+    setSelectedBooking(booking);
+    setShowCancelDialog(true);
+    setError(null);
+    setCancellationFeePreview(null);
+    setLoadingFeePreview(true);
+    setCancellationReason('');
+    setSelectedReasonPreset('');
+
+    try {
+      const preview = await apiFetch(`/bookings/${booking.id}/cancellation-fee`);
+      setCancellationFeePreview(normalizeFeePreview(preview));
+    } catch (err) {
+      setError(err.message || 'Failed to load cancellation fee information');
+      setShowCancelDialog(false);
+    } finally {
+      setLoadingFeePreview(false);
+    }
+  };
+
+  const handleConfirmCancellation = async () => {
+    if (!selectedBooking) return;
+
+    try {
+      setCancelling(true);
+      setError(null);
+
+      const trimmedReason = (cancellationReason || '').trim();
+      if (!trimmedReason) {
+        setError('Please provide a reason for cancellation.');
+        setCancelling(false);
+        return;
+      }
+
+      if (cancellationFeePreview?.requiresPayment && cancellationFeePreview.feeDifference > 0) {
+        await apiFetch(`/bookings/${selectedBooking.id}/cancellation-fee-payment`, {
+          method: 'POST',
+          body: JSON.stringify({
+            amount: Number(cancellationFeePreview.feeDifference.toFixed(2)),
+            paymentMethod: 'bank_transfer',
+            receipt: null,
+            reason: trimmedReason,
+          }),
+        });
+      } else {
+        await apiFetch(`/bookings/${selectedBooking.id}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify({ reason: trimmedReason }),
+        });
+      }
+
+      setShowCancelDialog(false);
+      setCancellationFeePreview(null);
+      const updatedBooking = await apiFetch(`/bookings/${selectedBooking.id}`);
+      setSelectedBooking(updatedBooking);
+      await fetchBookings();
+    } catch (err) {
+      setError(err.message || 'Failed to cancel booking');
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -177,7 +322,14 @@ const MyBookings = () => {
       case 'pending_final_payment':
         return { label: 'Pay Final Payment', action: () => handlePayFinal(booking) };
       case 'completed':
-        return { label: 'Leave Review', action: () => handleLeaveReview(booking) };
+        // Check if there are any services without reviews
+        const hasUnreviewedServices = booking.selectedServices && booking.selectedServices.some(
+          (service) => !booking.reviews?.some((review) => review.serviceListingId === service.serviceListingId)
+        );
+        if (hasUnreviewedServices) {
+          return { label: 'Leave Review', action: () => handleLeaveReview(booking) };
+        }
+        return { label: null, action: null };
       default:
         return { label: null, action: null };
     }
@@ -189,6 +341,7 @@ const MyBookings = () => {
     if (selectedTab === 2) return ['pending_deposit_payment', 'pending_final_payment'].includes(booking.status);
     if (selectedTab === 3) return ['confirmed', 'pending_final_payment'].includes(booking.status);
     if (selectedTab === 4) return booking.status === 'completed';
+    if (selectedTab === 5) return ['cancelled_by_couple', 'cancelled_by_vendor'].includes(booking.status);
     return true;
   });
 
@@ -238,6 +391,7 @@ const MyBookings = () => {
             <Tab label="Payment Due" />
             <Tab label="Confirmed" />
             <Tab label="Completed" />
+            <Tab label="Cancelled" />
           </Tabs>
         </Paper>
 
@@ -291,7 +445,22 @@ const MyBookings = () => {
                         <Typography variant="body2" fontWeight="medium">
                           {formatDate(booking.reservedDate)}
                         </Typography>
+                        {booking.project?.eventStartTime && (
+                          <Typography variant="caption" color="text.secondary">
+                            Time: {new Date(booking.project.eventStartTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        )}
                       </Box>
+                      {booking.project?.venueServiceListing && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Venue
+                          </Typography>
+                          <Typography variant="body2" fontWeight="medium">
+                            {booking.project.venueServiceListing.name || 'Venue'}
+                          </Typography>
+                        </Box>
+                      )}
                       <Box>
                         <Typography variant="caption" color="text.secondary" display="block">
                           Total Amount
@@ -552,10 +721,91 @@ const MyBookings = () => {
                     </Box>
                   </>
                 )}
+
+                {selectedBooking.reviews && selectedBooking.reviews.length > 0 && (
+                  <>
+                    <Divider sx={{ my: 2 }} />
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Your Reviews
+                      </Typography>
+                      <Stack spacing={1}>
+                        {selectedBooking.reviews.map((review, index) => {
+                          const service = selectedBooking.selectedServices.find(
+                            (s) => s.serviceListingId === review.serviceListingId
+                          );
+                          return (
+                            <Box
+                              key={review.id || index}
+                              sx={{ p: 2, backgroundColor: '#f0f7ff', borderRadius: 1 }}
+                            >
+                              <Typography variant="body2" fontWeight="medium" gutterBottom>
+                                {service?.serviceListing?.name || 'Service'}
+                              </Typography>
+                              <Rating value={review.rating} readOnly size="small" sx={{ mb: 1 }} />
+                              {review.comment && (
+                                <Typography variant="body2">{review.comment}</Typography>
+                              )}
+                              <Typography variant="caption" color="text.secondary">
+                                {formatDate(review.reviewDate)}
+                              </Typography>
+                            </Box>
+                          );
+                        })}
+                      </Stack>
+                    </Box>
+                  </>
+                )}
+
+                {selectedBooking.cancellation && (
+                  <>
+                    <Divider sx={{ my: 2 }} />
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Cancellation Information
+                      </Typography>
+                      <Box sx={{ p: 2, backgroundColor: '#fff3cd', borderRadius: 1, border: '1px solid #ffc107' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography variant="body2">Cancelled on:</Typography>
+                          <Typography variant="body2" fontWeight="medium">
+                            {formatDate(selectedBooking.cancellation.cancelledAt)}
+                          </Typography>
+                        </Box>
+                        {selectedBooking.cancellation.cancellationReason && (
+                          <Box sx={{ mb: 1 }}>
+                            <Typography variant="body2">Reason:</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {selectedBooking.cancellation.cancellationReason}
+                            </Typography>
+                          </Box>
+                        )}
+                        {selectedBooking.cancellation.cancellationFee !== null && (
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <Typography variant="body2">Cancellation fee:</Typography>
+                            <Typography variant="body2" fontWeight="medium">
+                              RM {parseFloat(selectedBooking.cancellation.cancellationFee || 0).toLocaleString()}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Box>
+                    </Box>
+                  </>
+                )}
               </Box>
             </DialogContent>
             <DialogActions>
               <Button onClick={() => setShowDetailDialog(false)}>Close</Button>
+              {/* Show cancellation button for cancellable bookings */}
+              {selectedBooking && ['pending_vendor_confirmation', 'pending_deposit_payment', 'confirmed', 'pending_final_payment'].includes(selectedBooking.status) && !selectedBooking.cancellation && (
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={() => handleCancelBooking(selectedBooking)}
+                  startIcon={<Cancel />}
+                >
+                  Cancel Booking
+                </Button>
+              )}
               {getNextAction(selectedBooking).action && (
                 <Button
                   variant="contained"
@@ -568,6 +818,275 @@ const MyBookings = () => {
             </DialogActions>
           </>
         )}
+      </Dialog>
+
+      {/* Review Dialog */}
+      <Dialog open={showReviewDialog} onClose={() => setShowReviewDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" component="div">
+            Leave a Review
+          </Typography>
+          <IconButton
+            aria-label="close"
+            onClick={() => setShowReviewDialog(false)}
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              color: (theme) => theme.palette.grey[500],
+            }}
+          >
+            <Close />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            {error && (
+              <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+            <Typography variant="subtitle2" gutterBottom>
+              Vendor: {selectedBooking?.vendor?.user?.name || 'Vendor'}
+            </Typography>
+            
+            {selectedBooking?.selectedServices && selectedBooking.selectedServices.length > 1 && (
+              <FormControl fullWidth sx={{ mb: 3 }}>
+                <InputLabel>Service to Review</InputLabel>
+                <Select
+                  value={reviewData.serviceListingId}
+                  onChange={(e) => setReviewData({ ...reviewData, serviceListingId: e.target.value })}
+                  label="Service to Review"
+                >
+                  {selectedBooking.selectedServices.map((service) => {
+                    // Check if review already exists for this service
+                    const hasReview = selectedBooking.reviews?.some(
+                      (review) => review.serviceListingId === service.serviceListingId
+                    );
+                    return (
+                      <MenuItem
+                        key={service.serviceListingId}
+                        value={service.serviceListingId}
+                        disabled={hasReview}
+                      >
+                        {service.serviceListing.name}
+                        {hasReview && ' (Already reviewed)'}
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            )}
+            
+            {selectedBooking?.selectedServices && selectedBooking.selectedServices.length === 1 && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Service: {selectedBooking.selectedServices[0].serviceListing.name}
+              </Typography>
+            )}
+
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Rating
+              </Typography>
+              <Rating
+                value={reviewData.rating}
+                onChange={(e, newValue) => setReviewData({ ...reviewData, rating: newValue || 5 })}
+                size="large"
+              />
+            </Box>
+            <TextField
+              fullWidth
+              multiline
+              rows={4}
+              label="Comment (Optional)"
+              value={reviewData.comment}
+              onChange={(e) => setReviewData({ ...reviewData, comment: e.target.value })}
+              placeholder="Share your experience..."
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowReviewDialog(false)} disabled={submittingReview}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmitReview}
+            disabled={submittingReview || !reviewData.serviceListingId}
+          >
+            {submittingReview ? 'Submitting...' : 'Submit Review'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Cancellation Dialog */}
+      <Dialog open={showCancelDialog} onClose={() => setShowCancelDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" component="div">
+            Cancel Booking
+          </Typography>
+          <IconButton
+            aria-label="close"
+            onClick={() => setShowCancelDialog(false)}
+            sx={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              color: (theme) => theme.palette.grey[500],
+            }}
+          >
+            <Close />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            {error && (
+              <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+
+            {loadingFeePreview ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : cancellationFeePreview ? (
+              <>
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  Are you sure you want to cancel this booking? This action cannot be undone.
+                </Alert>
+
+                {cancellationFeePreview.cancellationPolicy && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      Cancellation Policy
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {cancellationFeePreview.cancellationPolicy}
+                    </Typography>
+                  </Box>
+                )}
+
+                <Box sx={{ mb: 2, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Cancellation Fee Calculation
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2">Days until wedding:</Typography>
+                      <Typography variant="body2" fontWeight="medium">
+                        {cancellationFeePreview.daysUntilWedding !== null
+                          ? `${cancellationFeePreview.daysUntilWedding} days`
+                          : 'N/A'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2">Fee percentage:</Typography>
+                      <Typography variant="body2" fontWeight="medium">
+                        {(cancellationFeePreview.feePercentage * 100).toFixed(0)}%
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2">Cancellation fee:</Typography>
+                      <Typography variant="body2" fontWeight="medium">
+                        RM {cancellationFeePreview.feeAmount.toLocaleString()}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2">Amount already paid:</Typography>
+                      <Typography variant="body2" fontWeight="medium">
+                        RM {cancellationFeePreview.amountPaid.toLocaleString()}
+                      </Typography>
+                    </Box>
+                    <Divider sx={{ my: 1 }} />
+                    {cancellationFeePreview.requiresPayment ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body1" fontWeight="bold">
+                          Payment required:
+                        </Typography>
+                        <Typography variant="body1" fontWeight="bold" color="error.main">
+                          RM {cancellationFeePreview.feeDifference.toLocaleString()}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body1" fontWeight="bold" color="success.main">
+                          No additional payment required
+                        </Typography>
+                      </Box>
+                    )}
+                    {cancellationFeePreview.reason && (
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        {cancellationFeePreview.reason}
+                      </Alert>
+                    )}
+                  </Box>
+                </Box>
+
+                {/* Cancellation Reason */}
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Reason for cancellation <span style={{ color: 'red' }}>*</span>
+                  </Typography>
+
+                  <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
+                    {[
+                      'Change of wedding date',
+                      'Change of venue',
+                      'Found another vendor',
+                      'Budget issue',
+                      'Personal reasons',
+                    ].map((reason) => (
+                      <Chip
+                        key={reason}
+                        label={reason}
+                        size="small"
+                        onClick={() => {
+                          setSelectedReasonPreset(reason);
+                          setCancellationReason(reason);
+                        }}
+                        color={selectedReasonPreset === reason ? 'primary' : 'default'}
+                        variant={selectedReasonPreset === reason ? 'filled' : 'outlined'}
+                        sx={{ mb: 1 }}
+                      />
+                    ))}
+                  </Stack>
+
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={3}
+                    label="Reason for cancellation"
+                    value={cancellationReason}
+                    onChange={(e) => setCancellationReason(e.target.value)}
+                    placeholder="Please explain why you are cancelling this booking"
+                    required
+                  />
+                </Box>
+              </>
+            ) : (
+              <Alert severity="error">Failed to load cancellation fee information</Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowCancelDialog(false)} disabled={cancelling}>
+            Keep Booking
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleConfirmCancellation}
+            disabled={
+              cancelling ||
+              loadingFeePreview ||
+              !cancellationFeePreview ||
+              !cancellationReason.trim()
+            }
+          >
+            {cancelling ? 'Cancelling...' : cancellationFeePreview?.requiresPayment ? 'Pay Fee & Cancel' : 'Confirm Cancellation'}
+          </Button>
+        </DialogActions>
       </Dialog>
 
     </Box>

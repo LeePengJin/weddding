@@ -107,7 +107,8 @@ async function checkServiceAvailability(serviceListingId, date) {
           lte: endOfDay,
         },
         status: {
-          notIn: ['cancelled', 'rejected'],
+          // Treat any non-cancelled, non-rejected booking as blocking this date
+          notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
         },
         selectedServices: {
           some: {
@@ -167,7 +168,7 @@ async function checkServiceAvailability(serviceListingId, date) {
           lte: endOfDay,
         },
         status: {
-          notIn: ['cancelled', 'rejected'],
+          notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
         },
         selectedServices: {
           some: {

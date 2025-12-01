@@ -75,6 +75,13 @@ router.get('/search', async (req, res, next) => {
               rating: true,
             },
           },
+          // Include 3D-related data so venue selection can show previews
+          designElement: true,
+          components: {
+            include: {
+              designElement: true,
+            },
+          },
         },
         orderBy: [
           { averageRating: 'desc' },
@@ -152,6 +159,8 @@ router.get('/:id', async (req, res, next) => {
           orderBy: { reviewDate: 'desc' },
           take: 10,
         },
+        // Include 3D-related data for detailed view
+        designElement: true,
         components: {
           include: {
             designElement: true,

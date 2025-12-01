@@ -9,6 +9,7 @@ import {
   People as PeopleIcon,
   Payment as PaymentIcon,
   Assessment as AssessmentIcon,
+  Cancel as CancelIcon,
 } from '@mui/icons-material';
 import { apiFetch } from '../../../lib/api';
 import { useAuth } from '../../../context/AuthContext';
@@ -54,6 +55,11 @@ export default function AdminLayout({ children }) {
       label: 'Vendor Payment',
       path: '/admin/vendor-payment',
       icon: PaymentIcon,
+    },
+    {
+      label: 'Refunds & Cancellations',
+      path: '/admin/refunds-cancellations',
+      icon: CancelIcon,
     },
     {
       label: 'Report',

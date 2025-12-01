@@ -33,7 +33,7 @@ import {
   TableSortLabel,
   TablePagination,
 } from '@mui/material';
-import { Close } from '@mui/icons-material';
+import { Close, Cancel } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
 import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
 import './BookingRequests.styles.css';
@@ -126,6 +126,29 @@ const BookingRequests = () => {
     });
   };
 
+  const handleCancelBooking = async (booking) => {
+    try {
+      setUpdatingStatus(true);
+      setError(null);
+
+      await apiFetch(`/bookings/${booking.id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({
+          reason: null,
+        }),
+      });
+
+      setSuccess('Booking cancelled successfully');
+      setShowDetailDialog(false);
+      await fetchBookings();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setError(err.message || 'Failed to cancel booking');
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
   const handleConfirmAction = () => {
     if (!confirmationDialog.booking) return;
 
@@ -148,7 +171,8 @@ const BookingRequests = () => {
       pending_deposit_payment: 'info',
       confirmed: 'success',
       pending_final_payment: 'info',
-      cancelled: 'default',
+      cancelled_by_couple: 'default',
+      cancelled_by_vendor: 'error',
       rejected: 'error',
       completed: 'success',
     };
@@ -161,7 +185,8 @@ const BookingRequests = () => {
       pending_deposit_payment: 'Pending Deposit',
       confirmed: 'Confirmed',
       pending_final_payment: 'Pending Final Payment',
-      cancelled: 'Cancelled',
+      cancelled_by_couple: 'Cancelled by Couple',
+      cancelled_by_vendor: 'Cancelled by Vendor',
       rejected: 'Rejected',
       completed: 'Completed',
     };
@@ -384,6 +409,24 @@ const BookingRequests = () => {
                     <Typography variant="body2">
                       {formatDate(booking.reservedDate)}
                     </Typography>
+                    {booking.project?.eventStartTime && (
+                      <Typography variant="caption" color="text.secondary">
+                        {new Date(booking.project.eventStartTime).toLocaleTimeString('en-US', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                        {booking.project?.eventEndTime &&
+                          ` - ${new Date(booking.project.eventEndTime).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}`}
+                      </Typography>
+                    )}
+                    {booking.project?.venueServiceListing && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        Venue: {booking.project.venueServiceListing.name || 'Venue'}
+                      </Typography>
+                    )}
                     <Typography variant="caption" color="text.secondary">
                       Booked: {formatDate(booking.bookingDate)}
                     </Typography>
@@ -505,6 +548,30 @@ const BookingRequests = () => {
                         {formatDate(selectedBooking.reservedDate)}
                       </Typography>
                     </Box>
+                    {selectedBooking.project?.eventStartTime && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2">Time:</Typography>
+                        <Typography variant="body2" fontWeight="medium">
+                          {new Date(selectedBooking.project.eventStartTime).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                          {selectedBooking.project?.eventEndTime &&
+                            ` - ${new Date(selectedBooking.project.eventEndTime).toLocaleTimeString('en-US', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}`}
+                        </Typography>
+                      </Box>
+                    )}
+                    {selectedBooking.project?.venueServiceListing && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2">Venue:</Typography>
+                        <Typography variant="body2" fontWeight="medium">
+                          {selectedBooking.project.venueServiceListing.name || 'Venue'}
+                        </Typography>
+                      </Box>
+                    )}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                       <Typography variant="body2">Booking Date:</Typography>
                       <Typography variant="body2" fontWeight="medium">
@@ -625,6 +692,38 @@ const BookingRequests = () => {
                     </TableContainer>
                   </Box>
                 )}
+
+                {selectedBooking.cancellation && (
+                  <>
+                    <Box sx={{ mb: 3, p: 2, backgroundColor: '#fff3cd', borderRadius: 1, border: '1px solid #ffc107' }}>
+                      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                        Cancellation Information
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="body2">Cancelled on:</Typography>
+                          <Typography variant="body2" fontWeight="medium">
+                            {formatDateTime(selectedBooking.cancellation.cancelledAt)}
+                          </Typography>
+                        </Box>
+                        {selectedBooking.cancellation.cancellationReason && (
+                          <Box>
+                            <Typography variant="body2">Reason:</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {selectedBooking.cancellation.cancellationReason}
+                            </Typography>
+                          </Box>
+                        )}
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="body2">Cancelled by:</Typography>
+                          <Typography variant="body2" fontWeight="medium">
+                            {selectedBooking.status === 'cancelled_by_vendor' ? 'Vendor (You)' : 'Couple'}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Box>
+                  </>
+                )}
               </Box>
             </DialogContent>
             <DialogActions>
@@ -651,6 +750,18 @@ const BookingRequests = () => {
                     Reject
                   </Button>
                 </>
+              )}
+              {/* Show cancellation button for cancellable bookings (vendor can cancel any active booking) */}
+              {selectedBooking && ['pending_deposit_payment', 'confirmed', 'pending_final_payment'].includes(selectedBooking.status) && !selectedBooking.cancellation && (
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={() => handleCancelBooking(selectedBooking)}
+                  disabled={updatingStatus}
+                  startIcon={<Cancel />}
+                >
+                  Cancel Booking
+                </Button>
               )}
               <Button onClick={() => setShowDetailDialog(false)}>Close</Button>
             </DialogActions>

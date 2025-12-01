@@ -35,6 +35,7 @@ import Vendors from './admin/pages/Vendors';
 import AccountManagement from './admin/pages/AccountManagement';
 import PackageManagement from './admin/pages/PackageManagement';
 import VendorPayment from './admin/pages/VendorPayment';
+import RefundsAndCancellations from './admin/pages/RefundsAndCancellations';
 import VendorLayout from './vendor/components/layout/VendorLayout';
 import Profile from './pages/Profile/Profile';
 import VendorProfile from './pages/VendorProfile/VendorProfile';
@@ -120,6 +121,7 @@ const AppContent = () => {
               <Route path="/admin/packages/:packageId/designer" element={<VenueDesigner />} />
               <Route path="/admin/accounts" element={<AdminLayout><AccountManagement /></AdminLayout>} />
               <Route path="/admin/vendor-payment" element={<AdminLayout><VendorPayment /></AdminLayout>} />
+              <Route path="/admin/refunds-cancellations" element={<AdminLayout><RefundsAndCancellations /></AdminLayout>} />
               <Route path="/admin/reports" element={<AdminLayout><Box sx={{ p: 3 }}><Typography variant="h4">Report</Typography><Typography variant="body1" sx={{ mt: 2 }}>Coming soon...</Typography></Box></AdminLayout>} />
               <Route path="/" element={<Home />} />
               <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />

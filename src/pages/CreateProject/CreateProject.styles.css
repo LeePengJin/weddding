@@ -518,6 +518,45 @@
   color: #ff9800;
 }
 
+.venue-3d-preview {
+  margin-top: 12px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fafafa;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.venue-3d-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 12px 12px;
+}
+
+.venue-3d-nav {
+  border: none;
+  border-radius: 16px;
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #fff;
+  color: #e16789;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  transition: all 0.2s ease;
+}
+
+.venue-3d-nav:hover {
+  background: #e16789;
+  color: #fff;
+}
+
+.venue-3d-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #555;
+}
+
 .availability-badge.error {
   color: #f44336;
 }

@@ -464,7 +464,7 @@ const Payment = () => {
                     <Typography variant="subtitle2" color="text.primary" sx={{ mt: 1 }}>1. Payment Processing</Typography>
                     <Typography>All transactions are processed securely. Cancellations made within 24 hours of payment are subject to a full refund. Cancellations made after 24 hours may incur a service fee as per the vendor's individual contract.</Typography>
                     <Typography variant="subtitle2" color="text.primary" sx={{ mt: 1 }}>2. Vendor Liability</Typography>
-                    <Typography>BlissfulPay acts as an intermediary platform. Specific service delivery issues should be resolved directly with the vendor (e.g., photographer, venue).</Typography>
+                    <Typography>Weddding acts as an intermediary platform. Specific service delivery issues should be resolved directly with the vendor (e.g., photographer, venue).</Typography>
                   </>
                 ) : (
                   <>

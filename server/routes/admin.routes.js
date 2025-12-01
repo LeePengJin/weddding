@@ -891,5 +891,133 @@ Weddding Platform Team`;
   }
 });
 
+// GET /admin/cancellations - Get all cancellations with refund information
+router.get('/cancellations', requireAdmin, async (req, res, next) => {
+  try {
+    const cancellations = await prisma.cancellation.findMany({
+      include: {
+        booking: {
+          include: {
+            couple: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+            vendor: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        cancelledAt: 'desc',
+      },
+    });
+
+    // Convert Decimal to string for JSON response
+    const cancellationsWithStringPrices = cancellations.map((cancellation) => ({
+      ...cancellation,
+      cancellationFee: cancellation.cancellationFee ? cancellation.cancellationFee.toString() : null,
+      refundAmount: cancellation.refundAmount ? cancellation.refundAmount.toString() : null,
+    }));
+
+    res.json(cancellationsWithStringPrices);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /admin/cancellations/:id - Update refund information for a cancellation
+const updateRefundSchema = z.object({
+  refundStatus: z.enum(['not_applicable', 'pending', 'processed']).optional(),
+  refundMethod: z.string().max(500).optional().nullable(),
+  refundNotes: z.string().max(2000).optional().nullable(),
+});
+
+router.patch('/cancellations/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const data = updateRefundSchema.parse(req.body);
+    const cancellationId = req.params.id;
+
+    const cancellation = await prisma.cancellation.findUnique({
+      where: { id: cancellationId },
+    });
+
+    if (!cancellation) {
+      return res.status(404).json({ error: 'Cancellation not found' });
+    }
+
+    const updateData = {};
+    if (data.refundStatus !== undefined) {
+      updateData.refundStatus = data.refundStatus;
+    }
+    if (data.refundMethod !== undefined) {
+      updateData.refundMethod = data.refundMethod;
+    }
+    if (data.refundNotes !== undefined) {
+      updateData.refundNotes = data.refundNotes;
+    }
+
+    const updated = await prisma.cancellation.update({
+      where: { id: cancellationId },
+      data: updateData,
+      include: {
+        booking: {
+          include: {
+            couple: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+            vendor: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    res.json({
+      ...updated,
+      cancellationFee: updated.cancellationFee ? updated.cancellationFee.toString() : null,
+      refundAmount: updated.refundAmount ? updated.refundAmount.toString() : null,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
+      return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
+    }
+    next(err);
+  }
+});
+
 module.exports = router;
 

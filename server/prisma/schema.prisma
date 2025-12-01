@@ -123,6 +123,10 @@ model ServiceListing {
   hourlyRate    Decimal?      @db.Decimal(12, 2) // For time_based pricing
   tieredPricing Json?                     // For tiered_package pricing rules
 
+  // Cancellation policy
+  cancellationPolicy String? // Text description of cancellation policy
+  cancellationFeeTiers Json? // {">90": 0.0, "30-90": 0.10, "7-30": 0.25, "<7": 0.50} - percentage of total booking amount
+
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   designElement  DesignElement? @relation(fields: [designElementId], references: [id], onDelete: SetNull)
@@ -350,7 +354,8 @@ enum BookingStatus {
   pending_deposit_payment
   confirmed
   pending_final_payment
-  cancelled
+  cancelled_by_couple
+  cancelled_by_vendor
   rejected
   completed
 }
@@ -358,6 +363,7 @@ enum BookingStatus {
 enum PaymentType {
   deposit
   final
+  cancellation_fee
 }
 
 enum PaymentMethod {
@@ -577,22 +583,28 @@ model Booking {
   status           BookingStatus @default(pending_vendor_confirmation)
   depositDueDate   DateTime?
   finalDueDate     DateTime?
+  // Track venue dependency: if this is a non-venue service, which venue booking does it depend on?
+  dependsOnVenueBookingId String? // Reference to the venue booking this service depends on
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
   couple          Couple         @relation(fields: [coupleId], references: [userId], onDelete: Cascade)
   project         WeddingProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   vendor          Vendor         @relation(fields: [vendorId], references: [userId], onDelete: Cascade)
+  dependsOnVenue  Booking?       @relation("VenueDependency", fields: [dependsOnVenueBookingId], references: [id], onDelete: SetNull)
+  dependentBookings Booking[]   @relation("VenueDependency") // Bookings that depend on this venue
   selectedServices SelectedService[]
   payments        Payment[]
   reviews         Review[]
   placedElements  PlacedElement[]
   projectServices ProjectService[]
+  cancellation    Cancellation?
 
   @@index([coupleId])
   @@index([projectId])
   @@index([vendorId])
   @@index([reservedDate])
+  @@index([dependsOnVenueBookingId])
 }
 
 model SelectedService {
@@ -660,4 +672,35 @@ model TimeSlot {
   @@index([date])
   @@index([vendorId, status])
   @@unique([vendorId, date])
+}
+
+// Cancellation record for bookings
+// Note: ID should be generated using prefixedUlid('cncl') in application code
+model Cancellation {
+  id               String   @id @default(uuid()) // Use prefixedUlid('cncl') when creating
+  bookingId        String   @unique
+  cancelledAt      DateTime @default(now())
+  cancelledBy      String   // Must be either booking.coupleId or booking.vendorId
+  cancellationReason String?
+  cancellationFee  Decimal? @db.Decimal(12, 2) // null if vendor cancelled or fee = 0
+  cancellationFeePaymentId String? // Reference to Payment (null if fee = 0 or vendor cancelled)
+  
+  // Refund tracking (for cancellations not initiated by couple)
+  refundRequired   Boolean  @default(false) // Whether a refund is owed to the couple
+  refundAmount     Decimal? @db.Decimal(12, 2) // Amount to be refunded
+  refundStatus     RefundStatus @default(not_applicable) // Status of refund processing
+  refundMethod     String?  // How refund will be processed (filled by admin, e.g. "Bank transfer - Maybank xxxx")
+  refundNotes      String?  // Admin notes about refund processing
+  
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  
+  @@index([cancelledBy])
+  @@index([cancelledAt])
+  @@index([refundStatus])
+}
+
+enum RefundStatus {
+  not_applicable  // No refund required (e.g., couple cancelled, no payment made)
+  pending         // Refund is required and pending processing
+  processed       // Refund has been processed
 }

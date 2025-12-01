@@ -1,7 +1,8 @@
 import React from 'react';
-import { Card, CardContent, IconButton, Box, Typography } from '@mui/material';
+import { Card, CardContent, IconButton, Box, Typography, Rating } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import StarIcon from '@mui/icons-material/Star';
 import { formatImageUrl } from '../../utils/image';
 import './ServiceListingCard.css';
 
@@ -40,9 +41,24 @@ const ServiceListingCard = ({ item, onAdd, onShowDetails }) => {
         <Typography variant="caption" component="p" className="catalog-card-vendor">
           {item.vendor?.name || 'Vendor'}
         </Typography>
-        <Typography variant="subtitle2" component="p" className="catalog-card-price">
-          RM {Number(item.price).toLocaleString()}
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+          <Typography variant="subtitle2" component="p" className="catalog-card-price">
+            RM {Number(item.price).toLocaleString()}
+          </Typography>
+          {item.averageRating && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <StarIcon sx={{ fontSize: '0.875rem', color: '#ffc107' }} />
+              <Typography variant="caption" sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                {parseFloat(item.averageRating).toFixed(1)}
+              </Typography>
+              {item.reviewCount > 0 && (
+                <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#8d8894' }}>
+                  ({item.reviewCount})
+                </Typography>
+              )}
+            </Box>
+          )}
+        </Box>
         <span className={`availability-pill ${isUnavailable ? 'unavailable' : 'available'}`}>
           {availabilityLabel}
         </span>

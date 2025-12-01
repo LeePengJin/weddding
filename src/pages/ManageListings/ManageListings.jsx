@@ -126,6 +126,13 @@ const ManageListings = () => {
     pricingPolicy: 'fixed_package',
     hourlyRate: '',
     tieredPricing: [],
+    cancellationPolicy: '',
+    cancellationFeeTiers: {
+      '>90': 0,
+      '30-90': 0.10,
+      '7-30': 0.25,
+      '<7': 0.50,
+    },
     isBundle: false,
   });
   const [components, setComponents] = useState([]);
@@ -260,6 +267,17 @@ const ManageListings = () => {
         pricingPolicy: listing.pricingPolicy || 'fixed_package',
         hourlyRate: listing.hourlyRate ? parseFloat(listing.hourlyRate).toString() : '',
         tieredPricing: listing.tieredPricing || [],
+        cancellationPolicy: listing.cancellationPolicy || '',
+        cancellationFeeTiers: listing.cancellationFeeTiers ? (
+          typeof listing.cancellationFeeTiers === 'string'
+            ? JSON.parse(listing.cancellationFeeTiers)
+            : listing.cancellationFeeTiers
+        ) : {
+          '>90': 0,
+          '30-90': 0.10,
+          '7-30': 0.25,
+          '<7': 0.50,
+        },
         isBundle: (listing.components && listing.components.length > 0) || false,
       });
       // Map components to include designElementId (not just the full designElement object)
@@ -325,6 +343,13 @@ const ManageListings = () => {
         pricingPolicy: 'fixed_package',
         hourlyRate: '',
         tieredPricing: [],
+        cancellationPolicy: '',
+        cancellationFeeTiers: {
+          '>90': 0,
+          '30-90': 0.10,
+          '7-30': 0.25,
+          '<7': 0.50,
+        },
       });
       setComponents([]);
       setImages([]);
@@ -584,6 +609,8 @@ const ManageListings = () => {
           pricingPolicy: formData.pricingPolicy,
           hourlyRate: formData.pricingPolicy === 'time_based' && formData.hourlyRate ? parseFloat(formData.hourlyRate) : null,
           tieredPricing: formData.pricingPolicy === 'tiered_package' && formData.tieredPricing ? formData.tieredPricing : null,
+          cancellationPolicy: formData.cancellationPolicy || null,
+          cancellationFeeTiers: formData.cancellationFeeTiers || null,
           // Include designElementId for non-bundle services
           ...(components.length === 0 && useExistingDesignElement && selectedDesignElementId
             ? { designElementId: selectedDesignElementId }

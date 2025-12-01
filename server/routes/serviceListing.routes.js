@@ -139,6 +139,20 @@ const serviceListingSchema = z
       )
       .optional()
       .default([]),
+    cancellationPolicy: z
+      .string()
+      .max(2000, 'Cancellation policy must be at most 2000 characters')
+      .optional()
+      .nullable(),
+    cancellationFeeTiers: z
+      .object({
+        '>90': z.number().min(0).max(1).optional(),
+        '30-90': z.number().min(0).max(1).optional(),
+        '7-30': z.number().min(0).max(1).optional(),
+        '<7': z.number().min(0).max(1).optional(),
+      })
+      .optional()
+      .nullable(),
   })
   .refine(
     (data) => {
@@ -327,6 +341,8 @@ router.post('/', requireAuth, async (req, res, next) => {
         pricingPolicy: listingData.pricingPolicy || 'fixed_package',
         hourlyRate: listingData.pricingPolicy === 'time_based' && listingData.hourlyRate ? parseFloat(listingData.hourlyRate) : null,
         tieredPricing: listingData.pricingPolicy === 'tiered_package' && listingData.tieredPricing ? listingData.tieredPricing : null,
+        cancellationPolicy: listingData.cancellationPolicy || null,
+        cancellationFeeTiers: listingData.cancellationFeeTiers || null,
         designElementId: listingData.designElementId || null,
       },
       include: {
@@ -489,6 +505,20 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
             })
           )
           .optional(),
+        cancellationPolicy: z
+          .string()
+          .max(2000, 'Cancellation policy must be at most 2000 characters')
+          .optional()
+          .nullable(),
+        cancellationFeeTiers: z
+          .object({
+            '>90': z.number().min(0).max(1).optional(),
+            '30-90': z.number().min(0).max(1).optional(),
+            '7-30': z.number().min(0).max(1).optional(),
+            '<7': z.number().min(0).max(1).optional(),
+          })
+          .optional()
+          .nullable(),
       })
       .refine(
         (data) => {

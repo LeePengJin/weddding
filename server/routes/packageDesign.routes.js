@@ -172,49 +172,73 @@ const serializePlacement = (placement, meta, serviceMap) => {
   };
 };
 
-const serializeListingForCatalog = (listing) => ({
-  id: listing.id,
-  name: listing.name,
-  description: listing.description,
-  category: listing.category,
-  customCategory: listing.customCategory,
-  price: listing.price.toString(),
-  averageRating: listing.averageRating ? listing.averageRating.toString() : null,
-  has3DModel: listing.has3DModel,
-  availabilityType: listing.availabilityType,
-  images: listing.images,
-  vendor: listing.vendor
-    ? {
-        id: listing.vendor.userId,
-        name: listing.vendor.user?.name ?? null,
-        email: listing.vendor.user?.email ?? null,
-      }
-    : null,
-  designElement: listing.designElement
-    ? {
-        id: listing.designElement.id,
-        name: listing.designElement.name,
-        modelFile: listing.designElement.modelFile,
-        dimensions: listing.designElement.dimensions, // Include dimensions for 3D preview
-      }
-    : null,
-  components: listing.components
-    ? listing.components.map((component) => ({
-        id: component.id,
-        role: component.role,
-        quantityPerUnit: component.quantityPerUnit,
-        designElement: component.designElement
-          ? {
-              id: component.designElement.id,
-              name: component.designElement.name,
-              modelFile: component.designElement.modelFile,
-              dimensions: component.designElement.dimensions, // Include dimensions for component 3D preview
-            }
-          : null,
-      }))
-    : [],
-  availability: null,
-});
+const serializeListingForCatalog = (listing) => {
+  // Calculate average rating from reviews if not already set
+  let averageRating = listing.averageRating ? parseFloat(listing.averageRating.toString()) : null;
+  if (!averageRating && listing.reviews && listing.reviews.length > 0) {
+    const sum = listing.reviews.reduce((acc, review) => acc + review.rating, 0);
+    averageRating = sum / listing.reviews.length;
+  }
+
+  return {
+    id: listing.id,
+    name: listing.name,
+    description: listing.description,
+    category: listing.category,
+    customCategory: listing.customCategory,
+    price: listing.price.toString(),
+    averageRating: averageRating ? averageRating.toFixed(2) : null,
+    reviewCount: listing.reviews ? listing.reviews.length : 0,
+    reviews: listing.reviews
+      ? listing.reviews.map((review) => ({
+          id: review.id,
+          rating: review.rating,
+          comment: review.comment,
+          reviewDate: review.reviewDate,
+          reviewer: review.reviewer
+            ? {
+                id: review.reviewer.id,
+                name: review.reviewer.name,
+              }
+            : null,
+        }))
+      : [],
+    has3DModel: listing.has3DModel,
+    availabilityType: listing.availabilityType,
+    images: listing.images,
+    vendor: listing.vendor
+      ? {
+          id: listing.vendor.userId,
+          name: listing.vendor.user?.name ?? null,
+          email: listing.vendor.user?.email ?? null,
+        }
+      : null,
+    designElement: listing.designElement
+      ? {
+          id: listing.designElement.id,
+          name: listing.designElement.name,
+          modelFile: listing.designElement.modelFile,
+          dimensions: listing.designElement.dimensions, // Include dimensions for 3D preview
+        }
+      : null,
+    components: listing.components
+      ? listing.components.map((component) => ({
+          id: component.id,
+          role: component.role,
+          quantityPerUnit: component.quantityPerUnit,
+          designElement: component.designElement
+            ? {
+                id: component.designElement.id,
+                name: component.designElement.name,
+                modelFile: component.designElement.modelFile,
+                dimensions: component.designElement.dimensions, // Include dimensions for component 3D preview
+              }
+            : null,
+        }))
+      : [],
+    availability: null,
+  };
+};
 
 async function fetchPackage(packageId) {
   return prisma.weddingPackage.findUnique({
@@ -1010,6 +1034,20 @@ router.get('/:packageId/catalog', requireAdmin, async (req, res, next) => {
             include: {
               designElement: true,
             },
+          },
+          reviews: {
+            include: {
+              reviewer: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+            orderBy: {
+              reviewDate: 'desc',
+            },
+            take: 10, // Limit to latest 10 reviews for catalog
           },
         },
       }),

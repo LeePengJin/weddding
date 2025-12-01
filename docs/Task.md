@@ -62,7 +62,6 @@ _Last updated: November 18, 2025_
 - [x] Add lighting setup for proper 3D model visibility
 - [x] Load venue base model from `venueServiceListingId`
 - [ ] Optimize rendering performance (frustum culling, LOD selection)
-- [ ] Support parent-child attachments for stacked elements so children follow the surface when it moves
 
 ### Technical Notes
 - Use `useGLTF` hook from `@react-three/drei` for model loading
@@ -134,5 +133,51 @@ _Last updated: November 18, 2025_
 - [x] (Pricing Policy) Add hourly rate input field for time_based pricing in listing creation form
 - [x] (Pricing Policy) Add tiered pricing configuration UI (tier name, price, min/max guests) in listing creation form
 - [x] (Pricing Policy) Update booking confirmation to show calculated prices based on pricing model
-- [ ] What if the items in the venue is booked, but the venue suddenly become unavailable.
+- [ ] What if the items in the venue is booked, but the venue suddenly become unavailable. Let the vendor cancel before making it unavailable?
 - [ ] If the items in the venue is already sent booking request, the system shall not allow the user to submit the booking request again, unless the previous booking request is rejected. If not it will cause redundant record, where 2 booking requests if for the same item in the same venue design.
+- [ ] Support parent-child attachments for stacked elements so children follow the surface when it moves
+
+## Payment & Cancellation System
+
+### Database Schema
+- [x] Update `BookingStatus` enum (cancelled_by_couple, cancelled_by_vendor)
+- [x] Update `PaymentType` enum (add cancellation_fee)
+- [x] Add `cancellationPolicy` and `cancellationFeeTiers` to `ServiceListing`
+- [x] Create `Cancellation` model
+- [x] Create and run migration
+
+### Phase 1: Auto-Cancellation Logic
+- [x] Implement scheduled job to check deposit due dates
+- [x] Implement scheduled job to check final due dates
+- [x] Implement status transition: `confirmed` → `pending_final_payment` (1 week before)
+- [x] Implement auto-cancel for overdue deposit
+- [x] Implement auto-cancel for overdue final payment
+
+### Phase 2: Cancellation Flow
+- [x] Implement cancellation fee calculation utility
+- [x] Implement couple cancellation endpoint
+- [x] Implement vendor cancellation endpoint
+- [x] Implement cancellation fee payment flow
+- [x] Add validation: `cancelledBy` must match `coupleId` or `vendorId`
+
+### Phase 3: UI/UX
+- [x] Add cancellation button/action in booking details
+- [x] Display cancellation policy in service listing
+- [x] Show cancellation fee calculation before confirmation
+- [x] Payment flow for cancellation fees
+- [x] Display cancellation records in booking history
+
+### Phase 4: Notifications
+- [x] Send reminder for deposit due date (e.g., 3 days before)
+- [x] Send reminder for final payment due date (e.g., 3 days before)
+- [x] Send notification when booking auto-cancelled
+- [x] Send notification when cancellation fee is required
+- [x] Send notification when cancellation is completed
+
+### Notes
+- Cancellation Policy: Per listing (each `ServiceListing` can have its own policy)
+- Cancellation Fee: Deducted from amount already paid (Option B)
+- Vendor Cancellation: No fee, no payment required
+- Auto-Cancel: Permanent cancellation (no recovery)
+- Final Payment Timing: Automatically transitions to `pending_final_payment` 1 week before wedding date
+- Cancellation ID: Use `prefixedUlid('cncl')` when creating

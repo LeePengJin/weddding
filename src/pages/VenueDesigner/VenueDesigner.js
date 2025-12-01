@@ -4,6 +4,7 @@ import { Snackbar, Alert, CircularProgress, Typography } from '@mui/material';
 import './VenueDesigner.styles.css';
 import DesignSummary from './DesignSummary.jsx';
 import CheckoutModal from './CheckoutModal.jsx';
+import ContractReviewModal from './ContractReviewModal.jsx';
 import {
   getVenueDesign,
   addDesignElement,
@@ -80,6 +81,7 @@ const VenueDesigner = () => {
   const [availabilityMap, setAvailabilityMap] = useState({});
   const [savingState, setSavingState] = useState({ loading: false, lastSaved: null });
   const [threeDPreview, setThreeDPreview] = useState(null);
+  const [showContractReview, setShowContractReview] = useState(false);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [weddingDate, setWeddingDate] = useState(null);
   const [eventStartTime, setEventStartTime] = useState(null);
@@ -814,8 +816,22 @@ const VenueDesigner = () => {
           onClose={() => setShowCheckout(false)}
           onProceedToCheckout={() => {
             setShowCheckout(false);
+            setShowContractReview(true);
+          }}
+        />
+      )}
+
+      {designerMode === 'project' && (
+        <ContractReviewModal
+          open={showContractReview}
+          onClose={() => setShowContractReview(false)}
+          onAcknowledge={() => {
+            setShowContractReview(false);
             setShowCheckoutModal(true);
           }}
+          groupedByVendor={checkoutGroupedByVendor || []}
+          projectId={projectId}
+          weddingDate={weddingDate}
         />
       )}
 

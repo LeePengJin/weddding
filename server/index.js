@@ -99,6 +99,10 @@ app.set('emitNewMessage', emitNewMessage);
 app.set('emitConversationUpdate', emitConversationUpdate);
 app.set('notifyNewMessage', notifyNewMessage);
 
+// Start auto-cancellation scheduler
+const { startAutoCancellationScheduler } = require('./services/scheduler');
+startAutoCancellationScheduler();
+
 server.listen(PORT, () => {
   console.log(`API on :${PORT}`);
   console.log(`WebSocket server ready`);

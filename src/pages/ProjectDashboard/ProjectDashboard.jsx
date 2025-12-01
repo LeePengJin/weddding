@@ -176,7 +176,7 @@ const ProjectDashboard = () => {
       description: 'Handle deposits and final payments seamlessly',
       progress: `RM${projectData.payments.totalPaid.toLocaleString()} paid`,
       color: '#e16789',
-      link: '/payment-center',
+      link: `/payment-center?projectId=${projectData.id}`,
       stats: `RM${projectData.payments.totalOutstanding.toLocaleString()} outstanding`,
     },
     {
@@ -185,7 +185,7 @@ const ProjectDashboard = () => {
       description: 'View your confirmed vendors',
       progress: `${projectData.vendors.length} vendors`,
       color: '#e16789',
-      link: '/booked-suppliers',
+      link: `/booked-suppliers?projectId=${projectData.id}`,
       stats: `${projectData.vendors.filter(v => v.status === 'confirmed').length} confirmed`,
     },
     {
@@ -194,7 +194,7 @@ const ProjectDashboard = () => {
       description: 'Track all your booking requests and their status',
       progress: `${projectData.vendors.length} bookings`,
       color: '#e16789',
-      link: '/my-bookings',
+      link: `/my-bookings?projectId=${projectData.id}`,
       stats: 'View all bookings',
     },
   ];
