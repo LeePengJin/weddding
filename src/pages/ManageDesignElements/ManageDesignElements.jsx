@@ -19,6 +19,7 @@ import {
   Pagination,
   FormControlLabel,
   Switch,
+  Snackbar,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -40,7 +41,7 @@ const ManageDesignElements = () => {
   const [designElements, setDesignElements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [toastNotification, setToastNotification] = useState({ open: false, message: '', severity: 'info' });
   const [openModal, setOpenModal] = useState(false);
   const [editingElement, setEditingElement] = useState(null);
   const [formData, setFormData] = useState({
@@ -138,7 +139,6 @@ const ManageDesignElements = () => {
       setUseDimensionEditor(false);
     }
     setError('');
-    setSuccess('');
     setOpenModal(true);
   };
 
@@ -157,7 +157,6 @@ const ManageDesignElements = () => {
     }
     setLivePreviewUrl(null);
     setError('');
-    setSuccess('');
     setDimensions({ width: '', height: '', depth: '' });
     setIsStackable(false);
     setUseDimensionEditor(false);
@@ -279,7 +278,6 @@ const ManageDesignElements = () => {
 
     setSaving(true);
     setError('');
-    setSuccess('');
 
     try {
       if (editingElement) {
@@ -313,7 +311,7 @@ const ManageDesignElements = () => {
           });
         }
 
-        setSuccess('Design element updated successfully!');
+        setToastNotification({ open: true, message: 'Design element updated successfully!', severity: 'success' });
       } else {
         // Create new element
         const formData3D = new FormData();
@@ -333,7 +331,7 @@ const ManageDesignElements = () => {
           body: formData3D,
         });
 
-        setSuccess('Design element created successfully!');
+        setToastNotification({ open: true, message: 'Design element created successfully!', severity: 'success' });
       }
 
       await fetchDesignElements();
@@ -381,7 +379,7 @@ const ManageDesignElements = () => {
       await apiFetch(`/design-elements/${deletingElementId}`, {
         method: 'DELETE',
       });
-      setSuccess('Design element deleted successfully!');
+      setToastNotification({ open: true, message: 'Design element deleted successfully!', severity: 'success' });
       await fetchDesignElements();
       setShowDeleteDialog(false);
       setDeletingElementId(null);
@@ -523,17 +521,7 @@ const ManageDesignElements = () => {
           </Button>
         </Box>
 
-        {/* Error/Success Messages */}
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-            {error}
-          </Alert>
-        )}
-        {success && (
-          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
-            {success}
-          </Alert>
-        )}
+        {/* Error/Success Messages (top-of-page messages moved to toast) */}
 
         {/* Search, Filter, and Sort Bar */}
         {designElements.length > 0 && (
@@ -829,17 +817,6 @@ const ManageDesignElements = () => {
         </DialogTitle>
 
         <DialogContent sx={{ pt: 3 }}>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-              {error}
-            </Alert>
-          )}
-          {success && (
-            <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
-              {success}
-            </Alert>
-          )}
-
           <Stack spacing={3} sx={{ mt: 1 }}>
             <TextField
               fullWidth
@@ -998,6 +975,22 @@ const ManageDesignElements = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Toast Notification */}
+      <Snackbar
+        open={toastNotification.open}
+        autoHideDuration={6000}
+        onClose={() => setToastNotification({ ...toastNotification, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setToastNotification({ ...toastNotification, open: false })}
+          severity={toastNotification.severity}
+          sx={{ width: '100%' }}
+        >
+          {toastNotification.message}
+        </Alert>
+      </Snackbar>
 
       {/* Full-Screen 3D Viewer Dialog */}
       <Dialog

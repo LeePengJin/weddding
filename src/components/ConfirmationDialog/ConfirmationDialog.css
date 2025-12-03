@@ -8,7 +8,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1300;
+  /* Ensure this sits above MUI Dialogs (which use z-index 1300 for modals) */
+  z-index: 1400;
   animation: fadeIn 0.2s ease;
 }
 

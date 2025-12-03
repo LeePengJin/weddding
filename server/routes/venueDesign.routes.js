@@ -183,6 +183,8 @@ function serializePlacement(placement, meta, serviceMap) {
     },
     serviceListingIds: placement.serviceListingIds || [], // Include service listing IDs for table tagging
     elementType: placement.elementType || null, // Include element type
+    isBooked: placement.isBooked || false, // Include booking status
+    bookingId: placement.bookingId || null, // Include booking ID if booked
     designElement: placement.designElement
       ? {
           id: placement.designElement.id,
@@ -347,7 +349,7 @@ async function checkServiceAvailabilityForDate(serviceListingId, isoDate) {
           lte: endOfDay,
         },
         status: {
-          notIn: ['cancelled', 'rejected'],
+          notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
         },
         selectedServices: {
           some: {
@@ -594,6 +596,46 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
 
     const venueListing = project.venueServiceListing;
 
+    // Check if venue has an active booking
+    let venueBookingStatus = null;
+    if (venueListing && project.weddingDate) {
+      const weddingDate = project.weddingDate instanceof Date ? project.weddingDate : new Date(project.weddingDate);
+      const startOfDay = new Date(weddingDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(weddingDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const venueBooking = await prisma.booking.findFirst({
+        where: {
+          projectId: project.id,
+          reservedDate: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+          status: {
+            notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
+          },
+          selectedServices: {
+            some: {
+              serviceListingId: venueListing.id,
+            },
+          },
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      if (venueBooking) {
+        venueBookingStatus = {
+          isBooked: true,
+          bookingId: venueBooking.id,
+          status: venueBooking.status,
+        };
+      }
+    }
+
     const projectServices = (project.projectServices || []).map((ps) => ({
       id: ps.id,
       projectId: ps.projectId,
@@ -609,6 +651,7 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
             price: ps.serviceListing.price?.toString() ?? null,
             pricingPolicy: ps.serviceListing.pricingPolicy,
             isActive: ps.serviceListing.isActive,
+            has3DModel: ps.serviceListing.has3DModel || false, // Include has3DModel flag
             images: ps.serviceListing.images || [],
             vendor: ps.serviceListing.vendor
               ? {
@@ -621,6 +664,49 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
         : null,
     }));
 
+    // Get booked quantities for all services in this project (for checkout quantity adjustment)
+    const bookedQuantities = {};
+    if (project.weddingDate) {
+      const weddingDate = project.weddingDate instanceof Date ? project.weddingDate : new Date(project.weddingDate);
+      const startOfDay = new Date(weddingDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(weddingDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Get all active bookings for this project and date
+      const activeBookings = await prisma.booking.findMany({
+        where: {
+          projectId: project.id,
+          reservedDate: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+          status: {
+            notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
+          },
+        },
+        include: {
+          selectedServices: {
+            select: {
+              serviceListingId: true,
+              quantity: true,
+            },
+          },
+        },
+      });
+
+      // Calculate total booked quantity per service listing
+      activeBookings.forEach((booking) => {
+        booking.selectedServices.forEach((service) => {
+          const serviceId = service.serviceListingId;
+          if (!bookedQuantities[serviceId]) {
+            bookedQuantities[serviceId] = 0;
+          }
+          bookedQuantities[serviceId] += service.quantity || 0;
+        });
+      });
+    }
+
     return res.json({
       project: {
         id: project.id,
@@ -630,6 +716,7 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
             ? project.weddingDate.toISOString()
             : project.weddingDate,
       },
+      bookedQuantities, // Include booked quantities for checkout adjustment
       venue: venueListing
         ? {
             id: venueListing.id,
@@ -665,6 +752,9 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
                     : null,
                 }
               : null,
+            isBooked: venueBookingStatus?.isBooked || false,
+            bookingId: venueBookingStatus?.bookingId || null,
+            bookingStatus: venueBookingStatus?.status || null,
           }
         : null,
       design: {

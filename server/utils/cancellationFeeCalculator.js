@@ -100,21 +100,34 @@ function calculateCancellationFeeAndPayment(booking, serviceListing) {
   // Calculate amount already paid
   const amountPaid = calculateAmountPaid(booking.payments);
 
-  // Special case: If booking is pending_deposit_payment and no deposit has been paid,
+  // Special case: If booking is pending_vendor_confirmation or pending_deposit_payment with no payment,
   // there should be no cancellation fee (no penalty)
-  if (booking.status === 'pending_deposit_payment' && amountPaid === 0) {
+  // Vendor hasn't confirmed yet, so no commitment has been made
+  if (
+    booking.status === 'pending_vendor_confirmation' ||
+    (booking.status === 'pending_deposit_payment' && amountPaid === 0)
+  ) {
+    // Still calculate days until wedding for display purposes
+    const now = new Date();
+    const weddingDate = new Date(booking.reservedDate);
+    const timeDiff = weddingDate.getTime() - now.getTime();
+    const daysUntilWedding = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+
     return {
       feeAmount: 0,
       feePercentage: 0,
       amountPaid: 0,
       feeDifference: 0,
       requiresPayment: false,
-      daysUntilWedding: null,
-      tier: 'no_payment',
+      daysUntilWedding,
+      tier: booking.status === 'pending_vendor_confirmation' ? 'pending_confirmation' : 'no_payment',
       totalBookingAmount: booking.selectedServices.reduce((total, service) => {
         return total + Number(service.totalPrice);
       }, 0),
-      reason: 'No penalty: Booking cancelled before any payment was made',
+      reason:
+        booking.status === 'pending_vendor_confirmation'
+          ? 'No penalty: Booking request not yet confirmed by vendor'
+          : 'No penalty: Booking cancelled before any payment was made',
     };
   }
 

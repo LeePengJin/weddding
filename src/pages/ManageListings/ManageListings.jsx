@@ -17,6 +17,7 @@ import {
   Chip,
   CircularProgress,
   Alert,
+  Snackbar,
   Stack,
   Menu,
   Pagination,
@@ -101,7 +102,7 @@ const ManageListings = () => {
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [toastNotification, setToastNotification] = useState({ open: false, message: '', severity: 'info' });
   const [searchQuery, setSearchQuery] = useState('');
   const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [sortBy, setSortBy] = useState('dateAdded'); // 'name', 'price', 'dateAdded', 'category'
@@ -135,6 +136,7 @@ const ManageListings = () => {
     },
     isBundle: false,
   });
+  
   const [components, setComponents] = useState([]);
   const [designElements, setDesignElements] = useState([]);
   const [loadingDesignElements, setLoadingDesignElements] = useState(false);
@@ -246,21 +248,32 @@ const ManageListings = () => {
       const data = await apiFetch('/service-listings');
       setListings(data);
     } catch (err) {
-      setError(err.message || 'Failed to load listings');
+      setToastNotification({ open: true, message: err.message || 'Failed to load listings', severity: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
   const handleOpenModal = (listing = null) => {
+    // Clear all errors when opening modal - this is critical to prevent stale errors
+    setFieldErrors({});
+    setError('');
+    
     if (listing) {
       setEditingListing(listing);
-      setFormData({
+      // Ensure all values are properly formatted as strings
+      const formattedPrice = listing.price 
+        ? (typeof listing.price === 'string' 
+            ? listing.price 
+            : (listing.price.toString ? listing.price.toString() : String(listing.price)))
+        : '';
+      
+      const newFormData = {
         name: listing.name || '',
         description: listing.description || '',
         category: listing.category || '',
         customCategory: listing.customCategory || '',
-        price: listing.price || '',
+        price: formattedPrice,
         isActive: listing.isActive !== undefined ? listing.isActive : true,
         availabilityType: listing.availabilityType || 'exclusive',
         maxQuantity: listing.maxQuantity ? listing.maxQuantity.toString() : '',
@@ -279,7 +292,8 @@ const ManageListings = () => {
           '<7': 0.50,
         },
         isBundle: (listing.components && listing.components.length > 0) || false,
-      });
+      };
+      setFormData(newFormData);
       // Map components to include designElementId (not just the full designElement object)
       const mappedComponents = (listing.components || []).map((comp) => ({
         id: comp.id || `existing-${comp.designElementId}`,
@@ -374,13 +388,12 @@ const ManageListings = () => {
     }
     setFieldErrors({});
     setError('');
-    setSuccess('');
     setPage(1); // Reset to first page when opening modal
     setOpenModal(true);
   };
 
   const handleWizardComplete = (wizardData) => {
-    // Merge wizard data into formData
+    // Merge wizard data into formData for UI state
     setFormData(prev => ({
       ...prev,
       category: wizardData.category,
@@ -392,6 +405,8 @@ const ManageListings = () => {
       price: wizardData.price,
       pricingPolicy: wizardData.pricingPolicy,
       isBundle: wizardData.isBundle || false,
+      cancellationPolicy: wizardData.cancellationPolicy || prev.cancellationPolicy || '',
+      cancellationFeeTiers: wizardData.cancellationFeeTiers || prev.cancellationFeeTiers || null,
     }));
     
     // Update other state from wizard
@@ -416,11 +431,9 @@ const ManageListings = () => {
       setComponents(wizardData.components);
     }
     
-    // Now call handleSave with the merged data
-    // We'll trigger save after a brief delay to ensure state is updated
-    setTimeout(() => {
-      handleSave();
-    }, 100);
+    // Call handleSave immediately with wizard data to avoid state update timing issues
+    // Pass wizardData directly so validation uses the correct data
+    handleSave(wizardData);
   };
 
   const handleCloseModal = () => {
@@ -452,14 +465,18 @@ const ManageListings = () => {
     setComponentPhysicalProps({});
     setFieldErrors({});
     setError('');
-    setSuccess('');
   };
 
   const handleInputChange = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    // Update formData
+    setFormData((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
     setError('');
 
-    // Real-time validation
+    // Real-time validation - only validate the field being changed
+    // Do NOT validate other fields when changing a field
     if (field === 'name') {
       const error = validateServiceName(value);
       setFieldErrors((prev) => ({ ...prev, name: error }));
@@ -469,6 +486,27 @@ const ManageListings = () => {
     } else if (field === 'price') {
       const error = validateServicePrice(value);
       setFieldErrors((prev) => ({ ...prev, price: error }));
+    } else if (field === 'category') {
+      // When category changes, validate it and handle customCategory
+      const categoryError = !value ? 'Category is required' : '';
+      setFieldErrors((prev) => {
+        const newErrors = { ...prev, category: categoryError };
+        // Clear customCategory error if category is not "Other"
+        if (value !== 'Other') {
+          newErrors.customCategory = '';
+        }
+        return newErrors;
+      });
+    } else if (field === 'customCategory') {
+      const customCategoryError =
+        formData.category === 'Other' && (!value || String(value).trim().length < 2)
+          ? 'Custom category is required (2-50 characters)'
+          : '';
+      setFieldErrors((fieldErrorsPrev) => ({ ...fieldErrorsPrev, customCategory: customCategoryError }));
+    } else {
+      // For all other fields (pricingPolicy, availabilityType, etc.)
+      // Don't validate anything - just update the formData
+      // This prevents false validation errors when changing unrelated fields
     }
   };
 
@@ -520,7 +558,7 @@ const ManageListings = () => {
         }
       } catch (err) {
         console.error('Failed to delete image from server:', err);
-        setError('Failed to delete image. Please try again.');
+        setToastNotification({ open: true, message: 'Failed to delete image. Please try again.', severity: 'error' });
       }
     } else {
       // This is a new image - remove from both arrays
@@ -539,37 +577,80 @@ const ManageListings = () => {
     }
   };
 
-  const validateAllFields = () => {
-    const nameError = validateServiceName(formData.name);
-    const descriptionError = validateServiceDescription(formData.description);
-    const priceError = validateServicePrice(formData.price);
-    const categoryError = !formData.category ? 'Category is required' : '';
+  const validateAllFields = (dataToValidate = null) => {
+    // Use provided data (e.g. from wizard) or fall back to current formData
+    const data = dataToValidate || formData;
+    
+    // Ensure we're working with string values for validation
+    // Handle cases where data might be undefined or in wrong format
+    const name = data?.name ? (typeof data.name === 'string' ? data.name.trim() : String(data.name).trim()) : '';
+    const description = data?.description ? (typeof data.description === 'string' ? data.description.trim() : String(data.description).trim()) : '';
+    const price = data?.price !== null && data?.price !== undefined ? String(data.price).trim() : '';
+    const category = data?.category ? String(data.category).trim() : '';
+    
+    // Validate each field - only show error if field is actually empty/invalid
+    // If field has a value, validate it; if empty, show required error
+    const nameError = name && name.length > 0 ? validateServiceName(name) : (!name || name.length === 0 ? 'Service name is required' : '');
+    const descriptionError = description && description.length > 0 ? validateServiceDescription(description) : '';
+    const priceError = price && price.length > 0 ? validateServicePrice(price) : (!price || price.length === 0 ? 'Price is required' : '');
+    const categoryError = !category || category.length === 0 ? 'Category is required' : '';
     const customCategoryError =
-      formData.category === 'Other' && (!formData.customCategory || formData.customCategory.trim().length < 2)
+      category === 'Other' && (!data?.customCategory || String(data?.customCategory || '').trim().length < 2)
         ? 'Custom category is required (2-50 characters)'
         : '';
     const imageError = validateServiceImages(images);
     const maxQuantityError =
-      formData.availabilityType === 'quantity_based' && (!formData.maxQuantity || parseFloat(formData.maxQuantity) <= 0)
+      data?.availabilityType === 'quantity_based' && (!data?.maxQuantity || parseFloat(data.maxQuantity) <= 0)
         ? 'Max quantity is required and must be greater than 0'
         : '';
 
-    setFieldErrors({
-      name: nameError,
-      description: descriptionError,
-      price: priceError,
-      category: categoryError,
-      customCategory: customCategoryError,
-      images: imageError,
-      maxQuantity: maxQuantityError,
+    // Only update errors that have actual error messages (don't overwrite with empty strings unnecessarily)
+    setFieldErrors((prev) => {
+      const newErrors = { ...prev };
+      // Update only fields that have errors or need to be cleared
+      if (nameError) newErrors.name = nameError;
+      else if (prev.name) newErrors.name = ''; // Clear if was previously set
+      
+      if (descriptionError) newErrors.description = descriptionError;
+      else if (prev.description) newErrors.description = '';
+      
+      if (priceError) newErrors.price = priceError;
+      else if (prev.price) newErrors.price = '';
+      
+      if (categoryError) newErrors.category = categoryError;
+      else if (prev.category) newErrors.category = '';
+      
+      if (customCategoryError) newErrors.customCategory = customCategoryError;
+      else if (prev.customCategory && category !== 'Other') newErrors.customCategory = '';
+      
+      if (imageError) newErrors.images = imageError;
+      else if (prev.images) newErrors.images = '';
+      
+      if (maxQuantityError) newErrors.maxQuantity = maxQuantityError;
+      else if (prev.maxQuantity) newErrors.maxQuantity = '';
+      
+      return newErrors;
     });
 
     return !nameError && !descriptionError && !priceError && !categoryError && !customCategoryError && !imageError && !maxQuantityError;
   };
 
-  const handleSave = async () => {
-    if (!validateAllFields()) {
-      setError('Please fix the errors before saving');
+  const handleSave = async (wizardDataOrEvent = null) => {
+    // Decide what data we are validating/saving:
+    // - For wizard flow (create), use wizardData passed in
+    // - For edit flow (modal), use current formData
+    // NOTE: When used as a click handler, the first argument will be a React event.
+    // We need to ignore that and fall back to formData.
+    const isReactEvent =
+      wizardDataOrEvent &&
+      typeof wizardDataOrEvent === 'object' &&
+      ('nativeEvent' in wizardDataOrEvent || 'target' in wizardDataOrEvent);
+
+    const dataToUse = !isReactEvent && wizardDataOrEvent ? wizardDataOrEvent : formData;
+
+    // Validate with the chosen data
+    if (!validateAllFields(dataToUse)) {
+      setToastNotification({ open: true, message: 'Please fix the errors before saving', severity: 'error' });
       return;
     }
 
@@ -586,31 +667,29 @@ const ManageListings = () => {
     });
     
     if (invalidComponents.length > 0) {
-      setError('Please ensure all components have either a design element selected or a 3D model uploaded, and valid quantity');
+      setToastNotification({ open: true, message: 'Please ensure all components have either a design element selected or a 3D model uploaded, and valid quantity', severity: 'error' });
       return;
     }
 
     setSaving(true);
     setError('');
-    setSuccess('');
-
     try {
       if (editingListing) {
         // Update existing listing
         const updateData = {
-          name: formData.name,
-          description: formData.description || null,
-          category: formData.category,
-          customCategory: formData.category === 'Other' ? formData.customCategory : null,
-          price: parseFloat(formData.price),
-          isActive: formData.isActive,
-          availabilityType: formData.availabilityType,
-          maxQuantity: formData.availabilityType === 'quantity_based' ? parseInt(formData.maxQuantity) : null,
-          pricingPolicy: formData.pricingPolicy,
-          hourlyRate: formData.pricingPolicy === 'time_based' && formData.hourlyRate ? parseFloat(formData.hourlyRate) : null,
-          tieredPricing: formData.pricingPolicy === 'tiered_package' && formData.tieredPricing ? formData.tieredPricing : null,
-          cancellationPolicy: formData.cancellationPolicy || null,
-          cancellationFeeTiers: formData.cancellationFeeTiers || null,
+          name: dataToUse.name,
+          description: dataToUse.description || null,
+          category: dataToUse.category,
+          customCategory: dataToUse.category === 'Other' ? dataToUse.customCategory : null,
+          price: parseFloat(dataToUse.price),
+          isActive: dataToUse.isActive !== undefined ? dataToUse.isActive : formData.isActive,
+          availabilityType: dataToUse.availabilityType,
+          maxQuantity: dataToUse.availabilityType === 'quantity_based' ? parseInt(dataToUse.maxQuantity) : null,
+          pricingPolicy: dataToUse.pricingPolicy,
+          hourlyRate: dataToUse.pricingPolicy === 'time_based' && dataToUse.hourlyRate ? parseFloat(dataToUse.hourlyRate) : null,
+          tieredPricing: dataToUse.pricingPolicy === 'tiered_package' && dataToUse.tieredPricing ? dataToUse.tieredPricing : null,
+          cancellationPolicy: dataToUse.cancellationPolicy || formData.cancellationPolicy || null,
+          cancellationFeeTiers: dataToUse.cancellationFeeTiers || formData.cancellationFeeTiers || null,
           // Include designElementId for non-bundle services
           ...(components.length === 0 && useExistingDesignElement && selectedDesignElementId
             ? { designElementId: selectedDesignElementId }
@@ -711,8 +790,8 @@ const ManageListings = () => {
             const formData3D = new FormData();
             formData3D.append('model3D', file);
             formData3D.append('name', component.role || `Component ${componentIndex + 1}`);
-            if (formData.category) {
-              formData3D.append('elementType', formData.category);
+            if (dataToUse.category) {
+              formData3D.append('elementType', dataToUse.category);
             }
             formData3D.append('isStackable', String(Boolean(physicalProps.isStackable)));
             if (componentDimensions) {
@@ -765,7 +844,7 @@ const ManageListings = () => {
           await fetchDesignElements();
         }
 
-        setSuccess('Listing updated successfully!');
+        setToastNotification({ open: true, message: 'Listing updated successfully!', severity: 'success' });
         
         // Refetch the updated listing to ensure we have the latest designElement data
         try {
@@ -779,17 +858,19 @@ const ManageListings = () => {
       } else {
         // Create new listing
         const createData = {
-          name: formData.name,
-          description: formData.description || null,
-          category: formData.category,
-          customCategory: formData.category === 'Other' ? formData.customCategory : null,
-          price: parseFloat(formData.price),
-          isActive: formData.isActive,
-          availabilityType: formData.availabilityType,
-          maxQuantity: formData.availabilityType === 'quantity_based' ? parseInt(formData.maxQuantity) : null,
-          pricingPolicy: formData.pricingPolicy,
-          hourlyRate: formData.pricingPolicy === 'time_based' && formData.hourlyRate ? parseFloat(formData.hourlyRate) : null,
-          tieredPricing: formData.pricingPolicy === 'tiered_package' && formData.tieredPricing ? formData.tieredPricing : null,
+          name: dataToUse.name,
+          description: dataToUse.description || null,
+          category: dataToUse.category,
+          customCategory: dataToUse.category === 'Other' ? dataToUse.customCategory : null,
+          price: parseFloat(dataToUse.price),
+          isActive: dataToUse.isActive !== undefined ? dataToUse.isActive : formData.isActive,
+          availabilityType: dataToUse.availabilityType,
+          maxQuantity: dataToUse.availabilityType === 'quantity_based' ? parseInt(dataToUse.maxQuantity) : null,
+          pricingPolicy: dataToUse.pricingPolicy,
+          hourlyRate: dataToUse.pricingPolicy === 'time_based' && dataToUse.hourlyRate ? parseFloat(dataToUse.hourlyRate) : null,
+          tieredPricing: dataToUse.pricingPolicy === 'tiered_package' && dataToUse.tieredPricing ? dataToUse.tieredPricing : null,
+          cancellationPolicy: dataToUse.cancellationPolicy || formData.cancellationPolicy || null,
+          cancellationFeeTiers: dataToUse.cancellationFeeTiers || formData.cancellationFeeTiers || null,
           // Include designElementId for non-bundle services
           ...(components.length === 0 && useExistingDesignElement && selectedDesignElementId
             ? { designElementId: selectedDesignElementId }
@@ -885,8 +966,8 @@ const ManageListings = () => {
             const formData3D = new FormData();
             formData3D.append('model3D', file);
             formData3D.append('name', component.role || `Component ${componentIndex + 1}`);
-            if (formData.category) {
-              formData3D.append('elementType', formData.category);
+            if (dataToUse.category) {
+              formData3D.append('elementType', dataToUse.category);
             }
             formData3D.append('isStackable', String(Boolean(physicalProps.isStackable)));
             if (componentDimensions) {
@@ -939,7 +1020,7 @@ const ManageListings = () => {
           await fetchDesignElements();
         }
 
-        setSuccess('Listing created successfully!');
+        setToastNotification({ open: true, message: 'Listing created successfully!', severity: 'success' });
       }
 
       // Refresh listings
@@ -960,7 +1041,7 @@ const ManageListings = () => {
         errorMessage = errorMessages.join('\n');
       }
       
-      setError(errorMessage);
+      setToastNotification({ open: true, message: errorMessage, severity: 'error' });
     } finally {
       setSaving(false);
     }
@@ -978,12 +1059,12 @@ const ManageListings = () => {
       await apiFetch(`/service-listings/${deletingListingId}`, {
         method: 'DELETE',
       });
-      setSuccess('Listing deleted successfully!');
+      setToastNotification({ open: true, message: 'Listing deleted successfully!', severity: 'success' });
       await fetchListings();
       setShowDeleteDialog(false);
       setDeletingListingId(null);
     } catch (err) {
-      setError(err.message || 'Failed to delete listing');
+      setToastNotification({ open: true, message: err.message || 'Failed to delete listing', severity: 'error' });
       setShowDeleteDialog(false);
       setDeletingListingId(null);
     }
@@ -1064,7 +1145,7 @@ const ManageListings = () => {
       // Validate 3D model file type - only .glb allowed
       const fileName = file.name.toLowerCase();
       if (!fileName.endsWith('.glb')) {
-        setError('Please select a .glb file (GLTF Binary format)');
+        setToastNotification({ open: true, message: 'Please select a .glb file (GLTF Binary format)', severity: 'error' });
         if (e.target) {
           e.target.value = '';
         }
@@ -1074,7 +1155,7 @@ const ManageListings = () => {
       // Check file size (max 150MB for 3D models)
       const maxSize = 150 * 1024 * 1024;
       if (file.size > maxSize) {
-        setError('3D model file size must be less than 150MB');
+        setToastNotification({ open: true, message: '3D model file size must be less than 150MB', severity: 'error' });
         if (e.target) {
           e.target.value = '';
         }
@@ -1110,7 +1191,7 @@ const ManageListings = () => {
     });
 
     if (invalidFiles.length > 0) {
-      setError(`Some files were rejected:\n${invalidFiles.join('\n')}`);
+      setToastNotification({ open: true, message: `Some files were rejected:\n${invalidFiles.join('\n')}`, severity: 'error' });
     }
 
     if (validFiles.length > 0) {
@@ -1165,10 +1246,14 @@ const ManageListings = () => {
       setModel3DPreview('venue-floorplan.glb');
       setFloorplanData(exportData.floorplan);
       setFloorplanEditorOpen(false);
-      setSuccess('Floorplan exported successfully! The 3D model will be saved when you save the listing.');
+      setToastNotification({
+        open: true,
+        message: 'Floorplan exported successfully! The 3D model will be saved when you save the listing.',
+        severity: 'success',
+      });
     } catch (err) {
       console.error('Error handling floorplan export:', err);
-      setError(err.message || 'Failed to export floorplan');
+      setToastNotification({ open: true, message: err.message || 'Failed to export floorplan', severity: 'error' });
     }
   };
 
@@ -1274,7 +1359,7 @@ const ManageListings = () => {
     if (file) {
       const fileName = file.name.toLowerCase();
       if (!fileName.endsWith('.glb')) {
-        setError('Please select a .glb file (GLTF Binary format)');
+        setToastNotification({ open: true, message: 'Please select a .glb file (GLTF Binary format)', severity: 'error' });
         if (e.target) {
           e.target.value = '';
         }
@@ -1283,7 +1368,7 @@ const ManageListings = () => {
 
       const maxSize = 150 * 1024 * 1024;
         if (file.size > maxSize) {
-        setError('3D model file size must be less than 150MB');
+        setToastNotification({ open: true, message: '3D model file size must be less than 150MB', severity: 'error' });
         if (e.target) {
           e.target.value = '';
         }
@@ -1741,18 +1826,6 @@ const ManageListings = () => {
         </DialogTitle>
 
         <DialogContent sx={{ pt: 3, maxHeight: '80vh', overflowY: 'auto' }}>
-          {/* Error/Success Messages in Modal */}
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-              {error}
-            </Alert>
-          )}
-          {success && (
-            <Alert severity="success" sx={{ mb: 2, mt: 2 }} onClose={() => setSuccess('')}>
-              {success}
-            </Alert>
-          )}
-
           {/* Use wizard for new listings, old form for editing */}
           {!editingListing ? (
             <ListingWizard
@@ -2906,7 +2979,7 @@ const ManageListings = () => {
               Cancel
             </Button>
             <Button
-              onClick={handleSave}
+              onClick={() => handleSave()}
               variant="contained"
               disabled={saving}
               sx={{
@@ -2970,6 +3043,22 @@ const ManageListings = () => {
         confirmText="Delete"
         cancelText="Cancel"
       />
+
+      {/* Toast Notification */}
+      <Snackbar
+        open={toastNotification.open}
+        autoHideDuration={6000}
+        onClose={() => setToastNotification({ ...toastNotification, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setToastNotification({ ...toastNotification, open: false })}
+          severity={toastNotification.severity}
+          sx={{ width: '100%' }}
+        >
+          {toastNotification.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

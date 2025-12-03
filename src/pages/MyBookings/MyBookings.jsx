@@ -660,9 +660,14 @@ const MyBookings = () => {
                           }}
                         >
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                            <Typography variant="body2" fontWeight="medium">
-                              {service.serviceListing.name}
-                            </Typography>
+                            <Box>
+                              <Typography variant="body2" fontWeight="medium">
+                                {service.serviceListing.name}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                Quantity: {quantity}
+                              </Typography>
+                            </Box>
                             <Typography variant="body2" fontWeight="medium" color="primary.main">
                               RM {totalPrice.toLocaleString()}
                             </Typography>
@@ -671,7 +676,7 @@ const MyBookings = () => {
                             {breakdownText}
                           </Typography>
                           <Chip
-                            label={pricingPolicy.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            label={pricingPolicy.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             size="small"
                             sx={{ mt: 0.5, height: 20, fontSize: '0.65rem' }}
                           />
@@ -975,8 +980,11 @@ const MyBookings = () => {
                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                       <Typography variant="body2">Days until wedding:</Typography>
                       <Typography variant="body2" fontWeight="medium">
-                        {cancellationFeePreview.daysUntilWedding !== null
-                          ? `${cancellationFeePreview.daysUntilWedding} days`
+                        {cancellationFeePreview.daysUntilWedding !== null &&
+                        cancellationFeePreview.daysUntilWedding !== undefined
+                          ? cancellationFeePreview.daysUntilWedding >= 0
+                            ? `${cancellationFeePreview.daysUntilWedding} days`
+                            : `${Math.abs(cancellationFeePreview.daysUntilWedding)} days ago`
                           : 'N/A'}
                       </Typography>
                     </Box>
@@ -1024,12 +1032,15 @@ const MyBookings = () => {
                 </Box>
 
                 {/* Cancellation Reason */}
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle1" fontWeight="medium" gutterBottom>
                     Reason for cancellation <span style={{ color: 'red' }}>*</span>
                   </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+                    Select a preset reason or provide your own explanation
+                  </Typography>
 
-                  <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
+                  <Stack direction="row" spacing={1.5} flexWrap="wrap" sx={{ mb: 2 }}>
                     {[
                       'Change of wedding date',
                       'Change of venue',
@@ -1040,14 +1051,21 @@ const MyBookings = () => {
                       <Chip
                         key={reason}
                         label={reason}
-                        size="small"
                         onClick={() => {
                           setSelectedReasonPreset(reason);
                           setCancellationReason(reason);
                         }}
                         color={selectedReasonPreset === reason ? 'primary' : 'default'}
                         variant={selectedReasonPreset === reason ? 'filled' : 'outlined'}
-                        sx={{ mb: 1 }}
+                        sx={{
+                          mb: 1,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          '&:hover': {
+                            transform: 'translateY(-2px)',
+                            boxShadow: 2,
+                          },
+                        }}
                       />
                     ))}
                   </Stack>
@@ -1056,11 +1074,27 @@ const MyBookings = () => {
                     fullWidth
                     multiline
                     minRows={3}
-                    label="Reason for cancellation"
+                    label="Cancellation reason"
                     value={cancellationReason}
-                    onChange={(e) => setCancellationReason(e.target.value)}
-                    placeholder="Please explain why you are cancelling this booking"
+                    onChange={(e) => {
+                      setCancellationReason(e.target.value);
+                      // Clear preset selection if user manually edits
+                      if (selectedReasonPreset && e.target.value !== selectedReasonPreset) {
+                        setSelectedReasonPreset(null);
+                      }
+                    }}
+                    placeholder={
+                      selectedReasonPreset
+                        ? 'You can edit the selected reason or provide additional details'
+                        : 'Please explain why you are cancelling this booking'
+                    }
                     required
+                    error={!cancellationReason || cancellationReason.trim().length === 0}
+                    helperText={
+                      !cancellationReason || cancellationReason.trim().length === 0
+                        ? 'Please provide a reason for cancellation'
+                        : ''
+                    }
                   />
                 </Box>
               </>

@@ -36,6 +36,7 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
         const designResponse = await apiFetch(`/venue-designs/${projectId}`);
 
         // Get services from project (from ProjectService entries)
+        // Include ALL per_table services, regardless of whether they have 3D models or not
         const projectServices = [];
         if (designResponse.projectServices) {
           designResponse.projectServices.forEach((ps) => {
@@ -53,6 +54,7 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
                   isActive: ps.serviceListing.isActive,
                   vendor: ps.serviceListing.vendor,
                   isBooked: ps.isBooked || false, // Include booked status
+                  has3DModel: ps.serviceListing.has3DModel || false, // Track if service has 3D model
                 });
               }
             }

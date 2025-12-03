@@ -154,8 +154,8 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
       
       // For per_table services, count the number of tables tagged with this service
       // For other services, use the ProjectService quantity
-      let quantity = ps.quantity || 1;
       const isPerTable = listing.pricingPolicy === 'per_table';
+      let quantity;
       
       if (isPerTable) {
         // Count placements (tables) that have this service in their serviceListingIds
@@ -171,11 +171,14 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
           return serviceListingIds.includes(ps.serviceListingId);
         }).length;
         
-        quantity = tableCount || 0; // Use table count, default to 0 if no tables tagged
+        quantity = tableCount; // Use table count (will be 0 if no tables tagged)
         group.isPerTableService = true; // Mark as per_table service
+      } else {
+        // For non-per_table services, use the ProjectService quantity
+        quantity = ps.quantity || 1;
       }
       
-      group.quantity += quantity;
+      group.quantity = quantity; // Set quantity (don't add, replace)
       const price = listing.price ? parseFloat(listing.price) : 0;
       group.price += price * quantity;
 

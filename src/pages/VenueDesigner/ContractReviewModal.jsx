@@ -7,8 +7,6 @@ import {
   Button,
   Typography,
   Box,
-  Checkbox,
-  FormControlLabel,
   Paper,
   Divider,
   Stack,
@@ -19,18 +17,22 @@ import { Close } from '@mui/icons-material';
 import PropTypes from 'prop-types';
 
 const ContractReviewModal = ({ open, onClose, onAcknowledge, groupedByVendor, projectId, weddingDate }) => {
-  const [acknowledged, setAcknowledged] = useState(false);
-  const [expandedVendor, setExpandedVendor] = useState(null);
+  // Initialize with first vendor expanded by default, but it can be collapsed
+  const [expandedVendor, setExpandedVendor] = useState(
+    groupedByVendor.length > 0 ? (groupedByVendor[0].vendorId || groupedByVendor[0].vendorName) : null
+  );
 
   const handleAcknowledge = () => {
-    if (acknowledged && onAcknowledge) {
+    if (onAcknowledge) {
       onAcknowledge();
     }
   };
 
   const handleClose = () => {
-    setAcknowledged(false);
-    setExpandedVendor(null);
+    // Reset to first vendor expanded when closing
+    setExpandedVendor(
+      groupedByVendor.length > 0 ? (groupedByVendor[0].vendorId || groupedByVendor[0].vendorName) : null
+    );
     if (onClose) {
       onClose();
     }
@@ -61,7 +63,7 @@ const ContractReviewModal = ({ open, onClose, onAcknowledge, groupedByVendor, pr
 
           <Stack spacing={3}>
             {groupedByVendor.map((vendor, vendorIndex) => {
-              const isExpanded = expandedVendor === vendor.vendorId || vendorIndex === 0;
+              const isExpanded = expandedVendor === vendor.vendorId;
               
               // Get cancellation policy from first service listing
               const firstService = vendor.items[0];
@@ -209,43 +211,25 @@ const ContractReviewModal = ({ open, onClose, onAcknowledge, groupedByVendor, pr
               </Typography>
             </Box>
           </Box>
-
-          <Box sx={{ mt: 3 }}>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={acknowledged}
-                  onChange={(e) => setAcknowledged(e.target.checked)}
-                  required
-                />
-              }
-              label={
-                <Typography variant="body2">
-                  I have read and agree to the contract terms, payment schedule, and liability terms for all vendors listed above.
-                </Typography>
-              }
-            />
-          </Box>
         </Box>
       </DialogContent>
 
       <Divider />
 
-      <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
-        <Button onClick={handleClose} disabled={false}>
+      <DialogActions sx={{ p: 2, justifyContent: 'flex-end' }}>
+        <Button onClick={handleClose}>
           Cancel
         </Button>
         <Button
           variant="contained"
           onClick={handleAcknowledge}
-          disabled={!acknowledged}
           sx={{
             bgcolor: 'primary.main',
             '&:hover': { bgcolor: 'primary.dark' },
             fontWeight: 600,
           }}
         >
-          Acknowledge & Continue
+          Continue to Checkout
         </Button>
       </DialogActions>
     </Dialog>

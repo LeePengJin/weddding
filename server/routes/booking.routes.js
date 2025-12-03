@@ -88,10 +88,34 @@ async function updateLinkedDesignItemsForBooking(bookingId, status) {
   const layoutData = venueDesign.layoutData || {};
   const placementsMeta = layoutData.placementsMeta || {};
 
+  // Find all placements that match the booked services
   const placementIdsForServices = venueDesign.placedElements
     .filter((placement) => {
       const meta = placementsMeta[placement.id];
-      return meta && serviceListingIds.includes(meta.serviceListingId);
+      if (!meta) return false;
+      
+      // Check if this placement's serviceListingId matches any booked service
+      if (meta.serviceListingId && serviceListingIds.includes(meta.serviceListingId)) {
+        return true;
+      }
+      
+      // For bundle items, also check if any placement in the same bundle is booked
+      // This ensures all placements in a bundle are marked as booked together
+      if (meta.bundleId) {
+        // Find all placements in the same bundle
+        const bundlePlacements = venueDesign.placedElements.filter((p) => {
+          const pMeta = placementsMeta[p.id];
+          return pMeta && pMeta.bundleId === meta.bundleId;
+        });
+        
+        // If any placement in the bundle matches a booked service, mark all
+        return bundlePlacements.some((p) => {
+          const pMeta = placementsMeta[p.id];
+          return pMeta && pMeta.serviceListingId && serviceListingIds.includes(pMeta.serviceListingId);
+        });
+      }
+      
+      return false;
     })
     .map((placement) => placement.id);
 
@@ -244,6 +268,8 @@ router.get('/', requireAuth, async (req, res, next) => {
                 category: true,
                 price: true,
                 images: true,
+                pricingPolicy: true,
+                hourlyRate: true,
               },
             },
           },
@@ -541,6 +567,8 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
                 category: true,
                 price: true,
                 images: true,
+                pricingPolicy: true,
+                hourlyRate: true,
               },
             },
           },
@@ -650,9 +678,69 @@ router.post('/', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'One or more service listings not found or inactive' });
     }
 
+    // Check for duplicate bookings - only prevent duplicates for exclusive services
+    // Reusable services (e.g., bouquets) and quantity_based services can be booked multiple times
+    const reservedDate = new Date(data.reservedDate);
+    const exclusiveServiceIds = serviceListings
+      .filter((s) => s.availabilityType === 'exclusive')
+      .map((s) => s.id);
+
+    if (exclusiveServiceIds.length > 0) {
+      const existingBookings = await prisma.booking.findMany({
+        where: {
+          coupleId: req.user.sub,
+          projectId: data.projectId || null,
+          vendorId: data.vendorId,
+          reservedDate: reservedDate,
+          // Only check active bookings (exclude cancelled and rejected)
+          status: {
+            notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
+          },
+        },
+        include: {
+          selectedServices: {
+            where: {
+              serviceListingId: { in: exclusiveServiceIds },
+            },
+            select: {
+              serviceListingId: true,
+            },
+          },
+        },
+      });
+
+      // Check if any existing booking has the same exclusive service listing(s)
+      for (const existingBooking of existingBookings) {
+        if (existingBooking.selectedServices.length > 0) {
+          const existingExclusiveServiceIds = existingBooking.selectedServices.map(
+            (s) => s.serviceListingId
+          );
+          const duplicateServices = exclusiveServiceIds.filter((id) =>
+            existingExclusiveServiceIds.includes(id)
+          );
+
+          if (duplicateServices.length > 0) {
+            // Get service names for better error message
+            const duplicateServiceNames = serviceListings
+              .filter((s) => duplicateServices.includes(s.id))
+              .map((s) => s.name)
+              .join(', ');
+
+            return res.status(409).json({
+              error: `You have already booked the following exclusive service(s) for this date: ${duplicateServiceNames}. Please check your existing bookings.`,
+            });
+          }
+        }
+      }
+    }
+
     // Enforce venue-first rule for non-venue services
     // Couples must have a venue booking for the project/date before booking other services.
     const isVenueVendor = vendor.category === 'Venue';
+
+    // For non-venue services, ensure there is an existing accepted venue booking for this project/date.
+    // Declare venueBooking in the outer scope so we can safely reference it later when creating the booking.
+    let venueBooking = null;
 
     if (!isVenueVendor) {
       if (!data.projectId || !project) {
@@ -661,11 +749,9 @@ router.post('/', requireAuth, async (req, res, next) => {
         });
       }
 
-      const reservedDate = new Date(data.reservedDate);
-
       // Look for an existing venue booking for this project and date that is accepted by vendor (not just pending)
       // Venue must be at least pending_deposit_payment (vendor has accepted) before other services can be booked
-      const venueBooking = await prisma.booking.findFirst({
+      venueBooking = await prisma.booking.findFirst({
         where: {
           projectId: data.projectId,
           reservedDate: reservedDate,

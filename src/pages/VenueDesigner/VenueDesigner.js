@@ -76,7 +76,6 @@ const VenueDesigner = () => {
   const [catalogItems, setCatalogItems] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
   const [designLayout, setDesignLayout] = useState(() => normalizeLayout({}));
   const [availabilityMap, setAvailabilityMap] = useState({});
   const [savingState, setSavingState] = useState({ loading: false, lastSaved: null });
@@ -89,6 +88,7 @@ const VenueDesigner = () => {
   const [venueInfo, setVenueInfo] = useState(null);
   const [venueDesignId, setVenueDesignId] = useState(null);
   const [projectServices, setProjectServices] = useState([]);
+  const [bookedQuantities, setBookedQuantities] = useState({});
   const [toastNotification, setToastNotification] = useState({ open: false, message: '', severity: 'info' });
   const layoutAutosaveTimerRef = useRef(null);
   const skipNextLayoutSaveRef = useRef(true);
@@ -99,17 +99,23 @@ const VenueDesigner = () => {
 
   const plannedSpend = useMemo(() => {
     const bundleTotals = new Map();
-    placements.forEach((placement) => {
+    // Only count non-booked placements
+    placements.filter((placement) => !placement.isBooked).forEach((placement) => {
       const bundleId = placement?.metadata?.bundleId;
       const unitPrice = placement?.metadata?.unitPrice;
       if (bundleId && unitPrice && !bundleTotals.has(bundleId)) {
         bundleTotals.set(bundleId, parseFloat(unitPrice));
       }
     });
-    return Array.from(bundleTotals.values()).reduce((sum, price) => sum + price, 0);
-  }, [placements]);
+    const placementsTotal = Array.from(bundleTotals.values()).reduce((sum, price) => sum + price, 0);
+    
+    // Always include venue fee in budget tracker (even if booked)
+    const venueFee = venueInfo?.price ? parseFloat(venueInfo.price) : 0;
+    
+    return placementsTotal + venueFee;
+  }, [placements, venueInfo]);
 
-  const remainingBudget = Math.max(totalBudget - plannedSpend, 0);
+  const remainingBudget = totalBudget - plannedSpend; // Allow negative values
   const budgetProgress = totalBudget > 0 ? (plannedSpend / totalBudget) * 100 : 0;
 
   const loadDesign = useCallback(async () => {
@@ -155,15 +161,17 @@ const VenueDesigner = () => {
         }
         // Non-3D services associated with this project
         setProjectServices(data.projectServices || []);
+        // Booked quantities for checkout adjustment
+        setBookedQuantities(data.bookedQuantities || {});
       } else {
         // Package mode: set venue info if available
         setVenueInfo(data.venue || null);
         setWeddingDate(null);
       }
 
-      setErrorMessage('');
+      setToastNotification({ open: false, message: '', severity: 'info' });
     } catch (err) {
-      setErrorMessage(err.message || 'Failed to load venue design');
+      setToastNotification({ open: true, message: err.message || 'Failed to load venue design', severity: 'error' });
     } finally {
       setIsLoading(false);
     }
@@ -186,7 +194,7 @@ const VenueDesigner = () => {
           : await getVenueCatalog(projectId, queryPayload);
       setCatalogItems(response.listings || []);
     } catch (err) {
-      setErrorMessage(err.message || 'Failed to load catalog');
+      setToastNotification({ open: true, message: err.message || 'Failed to load catalog', severity: 'error' });
     } finally {
       setCatalogLoading(false);
     }
@@ -217,11 +225,11 @@ const VenueDesigner = () => {
   const saveLayoutData = useCallback(
     async (layoutData = {}) => {
       if (!resourceId) {
-        setErrorMessage('No design context selected.');
+        setToastNotification({ open: true, message: 'No design context selected.', severity: 'error' });
         return;
       }
       setSavingState((prev) => ({ ...prev, loading: true }));
-      setErrorMessage(''); // Clear any previous errors
+      setToastNotification({ open: false, message: '', severity: 'info' }); // Clear any previous errors
       try {
         const payload = { layoutData };
         if (designerMode === 'package') {
@@ -246,7 +254,7 @@ const VenueDesigner = () => {
       } catch (err) {
         console.error('Error saving design layout:', err);
         const errorMessage = err.message || err.error || 'Failed to save design layout. Please try again.';
-        setErrorMessage(errorMessage);
+        setToastNotification({ open: true, message: errorMessage, severity: 'error' });
         setSavingState((prev) => ({ ...prev, loading: false }));
       }
     },
@@ -291,9 +299,9 @@ const VenueDesigner = () => {
             severity: 'success',
           });
         }
-        setErrorMessage('');
+        setToastNotification({ open: false, message: '', severity: 'info' });
       } catch (err) {
-        setErrorMessage(err.message || 'Unable to add item to design');
+        setToastNotification({ open: true, message: err.message || 'Unable to add item to design', severity: 'error' });
       }
     },
     [resourceId, designerMode, packageId, projectId, loadDesign]
@@ -309,7 +317,7 @@ const VenueDesigner = () => {
             : await deleteDesignElement(projectId, placementId, scope);
         const removedIds = response.removedPlacementIds || [];
         setPlacements((prev) => prev.filter((placement) => !removedIds.includes(placement.id)));
-        setErrorMessage('');
+        setToastNotification({ open: false, message: '', severity: 'info' });
       } catch (err) {
         // Use toast notification instead of error message
         const errorMsg = err.message || 'Unable to remove item';
@@ -338,7 +346,7 @@ const VenueDesigner = () => {
         await deleteProjectService(projectId, serviceListingId);
         // Reload design to get updated projectServices
         await loadDesign();
-        setErrorMessage('');
+        setToastNotification({ open: false, message: '', severity: 'info' });
       } catch (err) {
         // Use toast notification instead of error message
         const errorMsg = err.message || 'Unable to remove service from project';
@@ -373,7 +381,7 @@ const VenueDesigner = () => {
             });
       setPlacements((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
     } catch (err) {
-      setErrorMessage(err.message || 'Unable to update lock state');
+      setToastNotification({ open: true, message: err.message || 'Unable to update lock state', severity: 'error' });
     }
   }, [resourceId, designerMode, packageId, projectId]);
 
@@ -388,7 +396,7 @@ const VenueDesigner = () => {
         setPlacements((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
         return updated;
       } catch (err) {
-        setErrorMessage(err.message || 'Unable to update element');
+        setToastNotification({ open: true, message: err.message || 'Unable to update element', severity: 'error' });
         throw err;
       }
     },
@@ -423,11 +431,12 @@ const VenueDesigner = () => {
     if (designerMode !== 'project') return [];
     
     // Calculate groupedByVendor from placements and projectServices (aligned with DesignSummary)
+    // Filter out booked services
     const itemGroups = new Map();
     const bundleInstanceTracker = new Map();
 
-    // 3D placements
-    placements.forEach((placement) => {
+    // 3D placements - filter out booked ones
+    placements.filter((placement) => !placement.isBooked).forEach((placement) => {
       const bundleId = placement.metadata?.bundleId;
       const serviceListingId = placement.metadata?.serviceListingId;
       const designElementName = placement.designElement?.name || placement.serviceListing?.name || 'Service Item';
@@ -488,8 +497,8 @@ const VenueDesigner = () => {
       }
     });
 
-    // Non-3D project services
-    projectServices.forEach((ps) => {
+    // Non-3D project services - filter out booked ones
+    projectServices.filter((ps) => !ps.isBooked).forEach((ps) => {
       const groupKey = `service_${ps.serviceListingId}`;
       const listing = ps.serviceListing || {};
 
@@ -521,8 +530,8 @@ const VenueDesigner = () => {
       
       // For per_table services, count the number of tables tagged with this service
       // For other services, use the ProjectService quantity
-      let quantity = ps.quantity || 1;
       const isPerTable = listing.pricingPolicy === 'per_table';
+      let quantity;
       
       if (isPerTable) {
         // Count placements (tables) that have this service in their serviceListingIds
@@ -538,11 +547,14 @@ const VenueDesigner = () => {
           return serviceListingIds.includes(ps.serviceListingId);
         }).length;
         
-        quantity = tableCount || 0; // Use table count, default to 0 if no tables tagged
+        quantity = tableCount; // Use table count (will be 0 if no tables tagged)
         group.isPerTableService = true; // Mark as per_table service
+      } else {
+        // For non-per_table services, use the ProjectService quantity
+        quantity = ps.quantity || 1;
       }
       
-              group.quantity += quantity;
+      group.quantity = quantity; // Set quantity (don't add, replace)
               // Parse price - handle both string and number formats
               let price = 0;
               if (listing.price) {
@@ -555,10 +567,10 @@ const VenueDesigner = () => {
               group.price += price * quantity;
     });
 
-    // Add venue as a separate item if it exists
+    // Add venue as a separate item if it exists and is not booked
     // Handle both id and listingId for backward compatibility
     const venueId = venueInfo?.id || venueInfo?.listingId;
-    if (venueInfo && venueId) {
+    if (venueInfo && venueId && !venueInfo.isBooked) {
       const venueKey = `venue_${venueId}`;
       if (!itemGroups.has(venueKey)) {
         itemGroups.set(venueKey, {
@@ -581,7 +593,7 @@ const VenueDesigner = () => {
             'Unknown Vendor',
           isNon3DService: false,
           isVenue: true, // Mark as venue
-          isBooked: false, // Venue booking status would need to be checked separately
+          isBooked: venueInfo.isBooked || false,
         });
       }
     }
@@ -722,14 +734,6 @@ const VenueDesigner = () => {
   return (
     <VenueDesignerProvider value={contextValue}>
       <div className="venue-designer">
-      {errorMessage && (
-        <div className="designer-alert">
-          <p>{errorMessage}</p>
-          <button onClick={() => setErrorMessage('')}>
-            <i className="fas fa-times"></i>
-          </button>
-        </div>
-      )}
 
       <div className="venue-layout">
         <CatalogSidebar
@@ -816,22 +820,8 @@ const VenueDesigner = () => {
           onClose={() => setShowCheckout(false)}
           onProceedToCheckout={() => {
             setShowCheckout(false);
-            setShowContractReview(true);
-          }}
-        />
-      )}
-
-      {designerMode === 'project' && (
-        <ContractReviewModal
-          open={showContractReview}
-          onClose={() => setShowContractReview(false)}
-          onAcknowledge={() => {
-            setShowContractReview(false);
             setShowCheckoutModal(true);
           }}
-          groupedByVendor={checkoutGroupedByVendor || []}
-          projectId={projectId}
-          weddingDate={weddingDate}
         />
       )}
 
@@ -845,9 +835,11 @@ const VenueDesigner = () => {
           venueDesignId={venueDesignId}
           eventStartTime={eventStartTime}
           eventEndTime={eventEndTime}
+          bookedQuantities={bookedQuantities}
           onSuccess={() => {
             loadDesign();
           }}
+          onShowToast={setToastNotification}
         />
       )}
 

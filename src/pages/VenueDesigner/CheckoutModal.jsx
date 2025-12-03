@@ -4,6 +4,7 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogActions,
   IconButton,
   Typography,
   Box,
@@ -14,7 +15,7 @@ import {
   Paper,
   Stack,
   CircularProgress,
-  Alert,
+  Link,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -23,14 +24,15 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { createBooking } from '../../lib/api';
 import { usePricingCalculation } from '../../hooks/usePricingCalculation';
 
-const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, weddingDate, venueDesignId, eventStartTime, eventEndTime, onSuccess }) => {
+const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, weddingDate, venueDesignId, eventStartTime, eventEndTime, bookedQuantities = {}, onSuccess, onShowToast }) => {
   // Track expanded vendors
   const [expandedVendors, setExpandedVendors] = useState(new Set());
   // Track selected listings by their key (item.key)
   const [selectedListings, setSelectedListings] = useState(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [contractAcknowledged, setContractAcknowledged] = useState(false);
+  const [showContractDialog, setShowContractDialog] = useState(false);
   const hasInitialized = React.useRef(false);
 
   // Get all items for price calculation, including serviceListing data from placements/projectServices
@@ -132,12 +134,22 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
   };
 
   // Get selected listings grouped by vendor with calculated prices
+  // Adjust quantities by subtracting already-booked quantities
   const selectedVendorData = useMemo(() => {
     return groupedByVendor
       .map((vendor) => {
         const selectedItems = vendor.items
           .filter((item) => selectedListings.has(item.key) && item.serviceListingId)
           .map((item) => {
+            // Adjust quantity: subtract already-booked quantity
+            const alreadyBooked = bookedQuantities[item.serviceListingId] || 0;
+            const adjustedQuantity = Math.max(0, (item.quantity || 0) - alreadyBooked);
+            
+            // Skip items with 0 adjusted quantity (all already booked)
+            if (adjustedQuantity <= 0) {
+              return null;
+            }
+            
             // Use calculated price if available and > 0, otherwise fall back to item.price
             // For non-3D services, item.price is the total price (unitPrice * quantity)
             const calculatedPrice = calculatedPrices.get(item.serviceListingId);
@@ -146,20 +158,38 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
             // Only use calculated price if it's valid (> 0)
             // The calculated price is the total price for the service
             if (calculatedPrice !== undefined && calculatedPrice > 0) {
-              price = calculatedPrice;
+              // Adjust calculated price proportionally based on adjusted quantity
+              const originalQuantity = item.quantity || 1;
+              if (originalQuantity > 0) {
+                price = (calculatedPrice / originalQuantity) * adjustedQuantity;
+              } else {
+                price = calculatedPrice;
+              }
             } else if (price === 0 && item.serviceListing?.price) {
-              // Fallback: if price is 0, try to get it from serviceListing and multiply by quantity
+              // Fallback: if price is 0, try to get it from serviceListing and multiply by adjusted quantity
               const unitPrice = typeof item.serviceListing.price === 'string' 
                 ? parseFloat(item.serviceListing.price) 
                 : (item.serviceListing.price || 0);
-              price = unitPrice * (item.quantity || 1);
+              price = unitPrice * adjustedQuantity;
+            } else if (price > 0) {
+              // Adjust existing price proportionally
+              const originalQuantity = item.quantity || 1;
+              if (originalQuantity > 0) {
+                price = (price / originalQuantity) * adjustedQuantity;
+              }
             }
+            
+            // Update displayName with adjusted quantity
+            const displayName = adjustedQuantity > 1 ? `${item.name} x ${adjustedQuantity}` : item.name;
             
             return {
               ...item,
+              quantity: adjustedQuantity,
               price,
+              displayName,
             };
-          });
+          })
+          .filter(Boolean); // Remove null items (all already booked)
         if (selectedItems.length === 0) return null;
 
         return {
@@ -169,7 +199,7 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
         };
       })
       .filter(Boolean);
-  }, [groupedByVendor, selectedListings, calculatedPrices]);
+  }, [groupedByVendor, selectedListings, calculatedPrices, bookedQuantities]);
 
   const grandTotal = useMemo(() => {
     return selectedVendorData.reduce((sum, vendor) => sum + vendor.total, 0);
@@ -192,12 +222,20 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
 
   const handleSubmit = async () => {
     if (selectedListings.size === 0) {
-      setSubmitError('Please select at least one listing to proceed');
+      if (onShowToast) {
+        onShowToast({ open: true, message: 'Please select at least one listing to proceed', severity: 'error' });
+      }
+      return;
+    }
+
+    if (!contractAcknowledged) {
+      if (onShowToast) {
+        onShowToast({ open: true, message: 'Please acknowledge the contract terms before proceeding', severity: 'error' });
+      }
       return;
     }
 
     setIsSubmitting(true);
-    setSubmitError(null);
 
     try {
       // Create booking requests for each selected vendor
@@ -251,7 +289,9 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
       const validPromises = bookingPromises.filter(p => p !== null);
       
       if (validPromises.length === 0) {
-        setSubmitError('No services with valid pricing to book. Please ensure services are properly tagged or configured.');
+        if (onShowToast) {
+          onShowToast({ open: true, message: 'No services with valid pricing to book. Please ensure services are properly tagged or configured.', severity: 'error' });
+        }
         setIsSubmitting(false);
         return;
       }
@@ -267,7 +307,9 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
       }, 2000);
     } catch (error) {
       console.error('Error creating booking requests:', error);
-      setSubmitError(error.message || 'Failed to create booking requests. Please try again.');
+      if (onShowToast) {
+        onShowToast({ open: true, message: error.message || 'Failed to create booking requests. Please try again.', severity: 'error' });
+      }
       setIsSubmitting(false);
     }
   };
@@ -277,7 +319,6 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
       // Reset state when closing
       setSelectedListings(new Set());
       setExpandedVendors(new Set());
-      setSubmitError(null);
       setIsSubmitted(false);
       onClose();
     }
@@ -289,8 +330,9 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
       hasInitialized.current = false; // Reset initialization flag
       setSelectedListings(new Set());
       setExpandedVendors(new Set());
-      setSubmitError(null);
       setIsSubmitted(false);
+      setContractAcknowledged(false); // Reset contract acknowledgment
+      setShowContractDialog(false);
     }
   }, [open]);
 
@@ -381,12 +423,6 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
                   : 'Select All'}
               </Button>
             </Box>
-
-            {submitError && (
-              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSubmitError(null)}>
-                {submitError}
-              </Alert>
-            )}
 
             <Stack spacing={2}>
               {groupedByVendor.map((vendor) => {
@@ -556,18 +592,111 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
               </Typography>
             </Paper>
 
+            {/* Contract Acknowledgment */}
+            <Box sx={{ mt: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'grey.50' }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={contractAcknowledged}
+                    onChange={(e) => setContractAcknowledged(e.target.checked)}
+                    required
+                    sx={{ 
+                      margin: 0,
+                      padding: '4px',
+                      '& .MuiSvgIcon-root': { 
+                        fontSize: 24,
+                        color: contractAcknowledged ? 'primary.main' : 'action.disabled'
+                      } 
+                    }}
+                  />
+                }
+                label={
+                  <Box sx={{ ml: 0.5 }}>
+                    <Typography variant="body2" sx={{ lineHeight: 1.6, color: 'text.primary' }}>
+                      <Typography component="span" sx={{ color: 'error.main', mr: 0.5 }}>*</Typography>
+                      I have read and agree to the{' '}
+                      <Link
+                        component="button"
+                        variant="body2"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setShowContractDialog(true);
+                        }}
+                        sx={{ 
+                          textDecoration: 'underline', 
+                          cursor: 'pointer',
+                          color: 'primary.main',
+                          fontWeight: 500,
+                          whiteSpace: 'nowrap',
+                          '&:hover': {
+                            color: 'primary.dark',
+                          }
+                        }}
+                      >
+                        contract terms
+                      </Link>
+                      <span style={{ whiteSpace: 'nowrap' }}>, </span>
+                      <Link
+                        component="button"
+                        variant="body2"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setShowContractDialog(true);
+                        }}
+                        sx={{ 
+                          textDecoration: 'underline', 
+                          cursor: 'pointer',
+                          color: 'primary.main',
+                          fontWeight: 500,
+                          whiteSpace: 'nowrap',
+                          '&:hover': {
+                            color: 'primary.dark',
+                          }
+                        }}
+                      >
+                        payment schedule
+                      </Link>
+                      <span style={{ whiteSpace: 'nowrap' }}>, and </span>
+                      <Link
+                        component="button"
+                        variant="body2"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setShowContractDialog(true);
+                        }}
+                        sx={{ 
+                          textDecoration: 'underline', 
+                          cursor: 'pointer',
+                          color: 'primary.main',
+                          fontWeight: 500,
+                          whiteSpace: 'nowrap',
+                          '&:hover': {
+                            color: 'primary.dark',
+                          }
+                        }}
+                      >
+                        liability terms
+                      </Link>
+                      {' '}for all vendors listed above.
+                    </Typography>
+                  </Box>
+                }
+                sx={{ alignItems: 'flex-start', m: 0, '& .MuiFormControlLabel-asterisk': { display: 'none' } }}
+              />
+            </Box>
+
             <Button
               variant="contained"
               fullWidth
               size="large"
               onClick={handleSubmit}
-              disabled={isSubmitting || selectedListings.size === 0}
+              disabled={isSubmitting || selectedListings.size === 0 || !contractAcknowledged}
               sx={{
                 bgcolor: 'primary.main',
                 '&:hover': { bgcolor: 'primary.dark' },
                 py: 1.5,
                 fontWeight: 600,
-                mt: 'auto',
+                mt: 2,
               }}
             >
               {isSubmitting ? (
@@ -582,6 +711,134 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
           </Box>
         </Box>
       </DialogContent>
+
+      {/* Contract Terms Dialog */}
+      <Dialog open={showContractDialog} onClose={() => setShowContractDialog(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+          <Typography variant="h5" component="h2" sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600 }}>
+            Contract Terms & Conditions
+          </Typography>
+          <IconButton onClick={() => setShowContractDialog(false)} size="small" aria-label="Close">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ p: 3 }}>
+          <Stack spacing={3}>
+            {groupedByVendor.map((vendor) => {
+              const firstService = vendor.items[0];
+              const cancellationPolicy = firstService?.serviceListing?.cancellationPolicy;
+              const cancellationFeeTiers = firstService?.serviceListing?.cancellationFeeTiers;
+
+              return (
+                <Paper key={vendor.vendorId || vendor.vendorName} elevation={1} sx={{ p: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                    {vendor.vendorName}
+                  </Typography>
+                  <Box sx={{ pl: 2, borderLeft: '2px solid', borderColor: 'primary.main' }}>
+                    <Stack spacing={2}>
+                      {/* Services */}
+                      <Box>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          Services
+                        </Typography>
+                        <Stack spacing={0.5}>
+                          {vendor.items.map((item, idx) => (
+                            <Box key={idx} sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <Typography variant="body2">
+                                {item.displayName || item.name || item.serviceListing?.name || 'Service'}
+                              </Typography>
+                              <Typography variant="body2" fontWeight="medium">
+                                RM {item.price.toLocaleString()}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Stack>
+                      </Box>
+
+                      <Divider />
+
+                      {/* Payment Schedule */}
+                      <Box>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          Payment Schedule
+                        </Typography>
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          <strong>Deposit:</strong> 10% of total (RM {(vendor.total * 0.1).toLocaleString()}) due within 7 days of vendor acceptance
+                        </Typography>
+                        <Typography variant="body2">
+                          <strong>Final Payment:</strong> Remaining 90% (RM {(vendor.total * 0.9).toLocaleString()}) due 1 week before wedding date
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      {/* Cancellation Policy */}
+                      {cancellationPolicy && (
+                        <Box>
+                          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                            Cancellation Policy
+                          </Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mb: 1 }}>
+                            {cancellationPolicy}
+                          </Typography>
+                          {cancellationFeeTiers && (
+                            <Box sx={{ mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1 }}>
+                              <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                                Cancellation Fee Schedule:
+                              </Typography>
+                              <Stack spacing={0.5}>
+                                {cancellationFeeTiers['>90'] !== undefined && (
+                                  <Typography variant="caption">
+                                    More than 90 days before: {(cancellationFeeTiers['>90'] * 100).toFixed(0)}%
+                                  </Typography>
+                                )}
+                                {cancellationFeeTiers['30-90'] !== undefined && (
+                                  <Typography variant="caption">
+                                    30-90 days before: {(cancellationFeeTiers['30-90'] * 100).toFixed(0)}%
+                                  </Typography>
+                                )}
+                                {cancellationFeeTiers['7-30'] !== undefined && (
+                                  <Typography variant="caption">
+                                    7-30 days before: {(cancellationFeeTiers['7-30'] * 100).toFixed(0)}%
+                                  </Typography>
+                                )}
+                                {cancellationFeeTiers['<7'] !== undefined && (
+                                  <Typography variant="caption">
+                                    Less than 7 days before: {(cancellationFeeTiers['<7'] * 100).toFixed(0)}%
+                                  </Typography>
+                                )}
+                              </Stack>
+                            </Box>
+                          )}
+                        </Box>
+                      )}
+
+                      <Divider />
+
+                      {/* Liability Terms */}
+                      <Box>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                          Liability Terms
+                        </Typography>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                          {vendor.vendorName} is responsible for delivering the services as described. Any issues with service delivery should be resolved directly with the vendor. The platform acts as an intermediary and is not liable for vendor performance or service quality issues.
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </Box>
+                </Paper>
+              );
+            })}
+          </Stack>
+        </DialogContent>
+        <Divider />
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShowContractDialog(false)} variant="contained">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 };
@@ -603,6 +860,7 @@ CheckoutModal.propTypes = {
   eventStartTime: PropTypes.string,
   eventEndTime: PropTypes.string,
   onSuccess: PropTypes.func,
+  onShowToast: PropTypes.func,
 };
 
 export default CheckoutModal;

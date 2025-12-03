@@ -103,25 +103,14 @@ _Last updated: November 18, 2025_
 
 ### Task comes up to my mind
 - [x] (Couple) Complete the payment part
-- [ ] (Couple) 3D venue design: When the user submit booking requests for a particular elements in the 3D venue design, it cannot be removed from the 3D venue design. Only can be removed if the booking is rejected.
 - [x] (Couple) Complete the Booked Suppliers part
 - [x] (Vendor) Manage booking requests
 - [x] (Admin) Complete the wedding package things 
 - [x] (Admin) Complete account management
 - [x] (Admin) Complete vendor payment
-- [ ] Reporting functionality (Admin & Vendor)
-- [ ] Couple profile view (from vendor)
 - [x] (General) Improve footer, add more pages (FaQ, About Us)
-- [ ] Remove service availability in database
 - [x] Remove design playgrond (both file and route)
-- [ ] Add grouping, duplicate functionality in 3D venue design
 - [x] Solve the issue about the logic about listing price
-- [ ] Try to enhance the 3D venue design functionality
-- [ ] Check OTP, not functioning right now (SMTP sendMail failed, falling back to console log: Error: Invalid login: 535-5.7.8 Username and Password not accepted.)
-- [ ] Change all IDs in database to be meaningful (have prefix)
-- [ ] For the listing image, if there is 3D model, take a screenshot of the 3D model and make it its listing image. But if the vendor choose to upload themselve, use the image uploaded. If none of them is provided, put a default image (need to be appropriate).
-- [ ] Allow pan for adjusting dimension.
-- [ ] Do one more list that store the 3D element that can be added into the 3D space. My idea is like there will be two option, if they click on the add button, the 3D item is added to something like a list that keep all the selected items choose by the user because there might be bundle service that contains many elements. Another option is they directly drag from the catalog to the 3D venue, this will directly put all the elements in the 3D venue instead of the list.
 - [x] (Pricing Policy) Build pricing calculation engine for all 5 pricing models (per_unit, per_table, fixed_package, tiered_package, time_based)
 - [x] (Pricing Policy) Create table count service to count tagged tables from 3D design
 - [x] (Pricing Policy) Add API endpoint for calculating service price: POST /service-listings/:id/calculate-price
@@ -135,7 +124,22 @@ _Last updated: November 18, 2025_
 - [x] (Pricing Policy) Update booking confirmation to show calculated prices based on pricing model
 - [ ] What if the items in the venue is booked, but the venue suddenly become unavailable. Let the vendor cancel before making it unavailable?
 - [ ] If the items in the venue is already sent booking request, the system shall not allow the user to submit the booking request again, unless the previous booking request is rejected. If not it will cause redundant record, where 2 booking requests if for the same item in the same venue design.
-- [ ] Support parent-child attachments for stacked elements so children follow the surface when it moves
+- [ ] Support parent-child attachments for stacked elements so children follow the surface when it moves.
+- [ ] If the wedding project has made booking, don't allow to delete.
+- [ ] Think how to connect budget with 3D venue design.
+- [ ] The rectangle on the floor in the 3D venue is likely due to the lighting, fix it. 
+- [ ] Reporting functionality (Admin & Vendor)
+- [ ] Couple profile view (from vendor)
+- [ ] Remove service availability in database
+- [ ] Add grouping, duplicate functionality in 3D venue design
+- [ ] Try to enhance the 3D venue design functionality
+- [ ] Check OTP, not functioning right now (SMTP sendMail failed, falling back to console log: Error: Invalid login: 535-5.7.8 Username and Password not accepted.)
+- [ ] Change all IDs in database to be meaningful (have prefix)
+- [ ] For the listing image, if there is 3D model, take a screenshot of the 3D model and make it its listing image. But if the vendor choose to upload themselve, use the image uploaded. If none of them is provided, put a default image (need to be appropriate).
+- [ ] Allow pan for adjusting dimension.
+- [ ] Do one more list that store the 3D element that can be added into the 3D space. My idea is like there will be two option, if they click on the add button, the 3D item is added to something like a list that keep all the selected items choose by the user because there might be bundle service that contains many elements. Another option is they directly drag from the catalog to the 3D venue, this will directly put all the elements in the 3D venue instead of the list.
+- [ ] (Couple) 3D venue design: When the user submit booking requests for a particular elements in the 3D venue design, it cannot be removed from the 3D venue design. Only can be removed if the booking is rejected.
+
 
 ## Payment & Cancellation System
 

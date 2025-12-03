@@ -170,6 +170,7 @@ const ListingWizard = ({
     // Step 3
     images: [],
     imagePreviews: [],
+    has3DModel: false, // Toggle for whether listing has 3D model
     model3DSource: 'upload', // 'existing', 'upload', 'floorplan'
     selectedDesignElementId: '',
     model3DFile: null,
@@ -216,7 +217,8 @@ const ListingWizard = ({
         },
         images: initialData.images || [],
         imagePreviews: initialData.images || [],
-        model3DSource: initialData.model3DFile ? 'upload' : (initialData.designElementId ? 'existing' : 'upload'),
+        has3DModel: !!(initialData.model3DFile || initialData.designElementId || initialData.floorplanData),
+        model3DSource: initialData.model3DFile ? 'upload' : (initialData.designElementId ? 'existing' : (initialData.floorplanData ? 'floorplan' : 'upload')),
         selectedDesignElementId: initialData.designElementId || '',
         model3DFile: null,
         model3DPreview: initialData.model3DFile ? 'existing' : null,
@@ -401,10 +403,9 @@ const ListingWizard = ({
     }
     Object.assign(allErrors, step1Errors);
 
-    // Set all errors and navigate to first step with errors
-    setFieldErrors(allErrors);
-    
+    // Only set errors if validation failed, otherwise clear them
     if (!allValid) {
+      setFieldErrors(allErrors);
       // Navigate to the first step with errors
       if (Object.keys(step0Errors).length > 0) {
         setActiveStep(0);
@@ -414,19 +415,23 @@ const ListingWizard = ({
       return;
     }
 
+    // All valid - clear any existing errors
+    setFieldErrors({});
+
     // All valid, proceed with completion
     const completeData = {
       ...formData,
       images: imagePreviews || [],
-      model3DFile: model3DFile,
-      model3DPreview: model3DPreview,
-      selectedDesignElementId: selectedDesignElementId || '',
-      useExistingDesignElement: useExistingDesignElement || false,
-      model3DSource: model3DSource || 'upload',
-      modelDimensions: modelDimensions || { width: '', height: '', depth: '' },
-      isStackable: isStackable || false,
+      has3DModel: formData.has3DModel || false,
+      model3DFile: formData.has3DModel ? model3DFile : null,
+      model3DPreview: formData.has3DModel ? model3DPreview : null,
+      selectedDesignElementId: formData.has3DModel ? (selectedDesignElementId || '') : '',
+      useExistingDesignElement: formData.has3DModel ? (useExistingDesignElement || false) : false,
+      model3DSource: formData.has3DModel ? (model3DSource || 'upload') : 'upload',
+      modelDimensions: formData.has3DModel ? (modelDimensions || { width: '', height: '', depth: '' }) : { width: '', height: '', depth: '' },
+      isStackable: formData.has3DModel ? (isStackable || false) : false,
       components: components || [],
-      floorplanData: floorplanData,
+      floorplanData: formData.has3DModel ? floorplanData : null,
       // Include pricing-specific fields
       hourlyRate: formData.pricingPolicy === 'time_based' ? formData.hourlyRate : undefined,
       tieredPricing: formData.pricingPolicy === 'tiered_package' ? formData.tieredPricing : undefined,
@@ -990,12 +995,39 @@ const ListingWizard = ({
             {/* Hide 3D model section if bundle is enabled (components will have their own 3D models) */}
             {!formData.isBundle && (
             <Box>
-              <Typography variant="body2" sx={{ mb: 1, fontWeight: 500 }}>
-                3D Model (Optional)
-              </Typography>
+              <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box>
+                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                    Include 3D Model
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Enable this if your listing has a 3D model for visualization
+                  </Typography>
+                </Box>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.has3DModel || false}
+                      onChange={(e) => {
+                        handleInputChange('has3DModel', e.target.checked);
+                        // Clear 3D model data if toggle is turned off
+                        if (!e.target.checked) {
+                          if (on3DModelRemove) on3DModelRemove();
+                          if (onDesignElementSelect) onDesignElementSelect('');
+                          if (onModel3DSourceChange) onModel3DSourceChange('upload');
+                        }
+                      }}
+                    />
+                  }
+                  label=""
+                />
+              </Box>
               
-              {/* For venues, only show floorplan option; for others, show all options */}
-              {formData.category === 'Venue' ? (
+              {/* Only show 3D model fields if toggle is enabled */}
+              {formData.has3DModel && (
+                <>
+                  {/* For venues, only show floorplan option; for others, show all options */}
+                  {formData.category === 'Venue' ? (
                 <Box
                   sx={{
                     p: 2,
@@ -1125,62 +1157,59 @@ const ListingWizard = ({
                       </IconButton>
                     </Box>
                   )}
+
+                  {/* Dimensions and Settings - Only for non-venue listings when uploading new 3D model */}
+                  {formData.category !== 'Venue' && model3DPreview && (
+                    <Box sx={{ mt: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f8f9fa' }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+                        3D Model Settings
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                        Real-world dimensions (in meters) for accurate scaling:
+                      </Typography>
+                      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+                        <TextField
+                          label="Width (X)"
+                          type="number"
+                          size="small"
+                          value={modelDimensions?.width || ''}
+                          onChange={(e) => onModelDimensionsChange && onModelDimensionsChange({ ...modelDimensions, width: e.target.value })}
+                          InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                          inputProps={{ step: '0.01', min: '0' }}
+                        />
+                        <TextField
+                          label="Height (Y)"
+                          type="number"
+                          size="small"
+                          value={modelDimensions?.height || ''}
+                          onChange={(e) => onModelDimensionsChange && onModelDimensionsChange({ ...modelDimensions, height: e.target.value })}
+                          InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                          inputProps={{ step: '0.01', min: '0' }}
+                        />
+                        <TextField
+                          label="Depth (Z)"
+                          type="number"
+                          size="small"
+                          value={modelDimensions?.depth || ''}
+                          onChange={(e) => onModelDimensionsChange && onModelDimensionsChange({ ...modelDimensions, depth: e.target.value })}
+                          InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
+                          inputProps={{ step: '0.01', min: '0' }}
+                        />
+                      </Stack>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={isStackable || false}
+                            onChange={(e) => onStackableChange && onStackableChange(e.target.checked)}
+                          />
+                        }
+                        label="Stackable (can be placed on tables/surfaces)"
+                      />
+                    </Box>
+                  )}
                 </>
               )}
-
-
-              {/* Dimensions and Settings - Only for non-venue listings */}
-              {formData.category !== 'Venue' && ((model3DSource === 'upload' && model3DPreview) || (model3DSource === 'existing' && selectedDesignElementId)) && (
-                <Box sx={{ mt: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f8f9fa' }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
-                    3D Model Settings
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                    Real-world dimensions (in meters) for accurate scaling:
-                  </Typography>
-                  <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-                    <TextField
-                      label="Width (X)"
-                      type="number"
-                      size="small"
-                      value={modelDimensions?.width || ''}
-                      onChange={(e) => onModelDimensionsChange && onModelDimensionsChange({ ...modelDimensions, width: e.target.value })}
-                      InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                      disabled={model3DSource === 'existing'}
-                      inputProps={{ step: '0.01', min: '0' }}
-                    />
-                    <TextField
-                      label="Height (Y)"
-                      type="number"
-                      size="small"
-                      value={modelDimensions?.height || ''}
-                      onChange={(e) => onModelDimensionsChange && onModelDimensionsChange({ ...modelDimensions, height: e.target.value })}
-                      InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                      disabled={model3DSource === 'existing'}
-                      inputProps={{ step: '0.01', min: '0' }}
-                    />
-                    <TextField
-                      label="Depth (Z)"
-                      type="number"
-                      size="small"
-                      value={modelDimensions?.depth || ''}
-                      onChange={(e) => onModelDimensionsChange && onModelDimensionsChange({ ...modelDimensions, depth: e.target.value })}
-                      InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                      disabled={model3DSource === 'existing'}
-                      inputProps={{ step: '0.01', min: '0' }}
-                    />
-                  </Stack>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={isStackable || false}
-                        onChange={(e) => onStackableChange && onStackableChange(e.target.checked)}
-                        disabled={model3DSource === 'existing'}
-                      />
-                    }
-                    label="Stackable (can be placed on tables/surfaces)"
-                  />
-                </Box>
+                </>
               )}
                 </>
               )}
