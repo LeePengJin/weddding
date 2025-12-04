@@ -173,19 +173,21 @@ export default function Vendors() {
       <Card sx={{ mb: 2 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'center' }}>
-            <TextField
-              fullWidth
-              placeholder="Search by name, email, or location"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon />
-                  </InputAdornment>
-                ),
-              }}
-            />
+            <Box sx={{ flex: 1, display: 'flex', justifyContent: { xs: 'stretch', sm: 'flex-end' } }}>
+              <TextField
+                sx={{ width: { xs: '100%', sm: 320, md: 360 } }}
+                placeholder="Search by name, email, or location"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Box>
             <TextField
               select
               label="Category"

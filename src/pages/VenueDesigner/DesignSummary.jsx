@@ -26,6 +26,7 @@ import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import LockIcon from '@mui/icons-material/Lock';
 import './DesignSummary.styles.css';
 import { useVenueDesigner } from './VenueDesignerContext';
+import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
 
 const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
   const {
@@ -39,6 +40,36 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
     venueInfo,
   } = useVenueDesigner();
   const [expandedVendors, setExpandedVendors] = useState(new Set());
+  const [confirmationDialog, setConfirmationDialog] = useState({
+    open: false,
+    title: '',
+    description: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    onConfirm: null,
+  });
+
+  const openConfirmationDialog = ({ title, description, confirmText = 'Confirm', cancelText = 'Cancel', onConfirm }) => {
+    setConfirmationDialog({
+      open: true,
+      title,
+      description,
+      confirmText,
+      cancelText,
+      onConfirm,
+    });
+  };
+
+  const handleCloseConfirmation = () => {
+    setConfirmationDialog((prev) => ({ ...prev, open: false }));
+  };
+
+  const handleConfirmAction = () => {
+    if (typeof confirmationDialog.onConfirm === 'function') {
+      confirmationDialog.onConfirm();
+    }
+    handleCloseConfirmation();
+  };
 
   const handleToggleVendor = (vendorId) => {
     const newExpanded = new Set(expandedVendors);
@@ -297,36 +328,43 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
         window.alert('This service is linked to a booking and cannot be removed.');
         return;
       }
-      
-      const confirmed = window.confirm(
-        `Remove "${item.name}" from your project? This will remove it from the design summary.`
-      );
-      if (!confirmed) return;
-      
-      try {
-        await onRemoveProjectService(item.serviceListingId);
-      } catch (err) {
-        window.alert(err.message || 'Failed to remove service from project');
-      }
+
+      openConfirmationDialog({
+        title: 'Remove Service from Project?',
+        description: `Remove "${item.name}" from your project? This will remove it from the design summary.`,
+        confirmText: 'Remove Service',
+        onConfirm: async () => {
+          try {
+            await onRemoveProjectService(item.serviceListingId);
+          } catch (err) {
+            window.alert(err.message || 'Failed to remove service from project');
+          }
+        },
+      });
       return;
     }
     
     // Handle 3D placements
     if (!onRemovePlacement) return;
-    const confirmed = window.confirm('Remove this service from your 3D design?');
-    if (!confirmed) return;
 
-    if (item.isBundle && item.bundleInstances?.length > 0) {
-      item.bundleInstances.forEach((instance) => {
-        if (instance?.placementId) {
-          onRemovePlacement(instance.placementId, 'bundle');
+    openConfirmationDialog({
+      title: 'Remove Service from Design?',
+      description: 'Remove this service from your 3D design?',
+      confirmText: 'Remove Service',
+      onConfirm: () => {
+        if (item.isBundle && item.bundleInstances?.length > 0) {
+          item.bundleInstances.forEach((instance) => {
+            if (instance?.placementId) {
+              onRemovePlacement(instance.placementId, 'bundle');
+            }
+          });
+        } else if (!item.isBundle && item.placementIds.length > 0) {
+          item.placementIds.forEach((placementId) => {
+            onRemovePlacement(placementId, 'single');
+          });
         }
-      });
-    } else if (!item.isBundle && item.placementIds.length > 0) {
-      item.placementIds.forEach((placementId) => {
-        onRemovePlacement(placementId, 'single');
-      });
-    }
+      },
+    });
   };
 
   const handleDecreaseQuantity = async (item) => {
@@ -353,48 +391,81 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
       }
       
       const isFinalUnit = item.quantity <= 1;
-      const message = isFinalUnit
-        ? 'Reducing this item will remove it entirely from your project. Continue?'
-        : 'Remove one unit of this service from your project?';
-      if (!window.confirm(message)) return;
-      
-      try {
-        const { updateProjectServiceQuantity, deleteProjectService } = await import('../../lib/api');
-        if (isFinalUnit) {
-          await deleteProjectService(projectId, item.serviceListingId);
-        } else {
+
+      // If reducing will NOT remove the service entirely, do it directly without confirmation
+      if (!isFinalUnit) {
+        try {
+          const { updateProjectServiceQuantity } = await import('../../lib/api');
           await updateProjectServiceQuantity(projectId, item.serviceListingId, item.quantity - 1);
+          if (onReloadDesign) {
+            await onReloadDesign();
+          }
+        } catch (err) {
+          window.alert(err.message || 'Failed to update service quantity');
         }
-        // Reload design to refresh the summary
-        if (onReloadDesign) {
-          await onReloadDesign();
-        }
-      } catch (err) {
-        window.alert(err.message || 'Failed to update service quantity');
+        return;
       }
+
+      // Final unit: confirm because this will remove the service from the project
+      openConfirmationDialog({
+        title: 'Remove Service from Project?',
+        description: 'Reducing this item will remove it entirely from your project.',
+        confirmText: 'Remove Service',
+        onConfirm: async () => {
+          try {
+            const { deleteProjectService } = await import('../../lib/api');
+            await deleteProjectService(projectId, item.serviceListingId);
+            if (onReloadDesign) {
+              await onReloadDesign();
+            }
+          } catch (err) {
+            window.alert(err.message || 'Failed to update service quantity');
+          }
+        },
+      });
       return;
     }
     
     // Handle 3D placements
     if (!onRemovePlacement || item.quantity <= 0) return;
 
-    const isFinalUnit = item.quantity <= 1;
-    const message = isFinalUnit
-      ? 'Reducing this item will remove it entirely from your design. Continue?'
-      : 'Remove one unit of this service from your design?';
-    if (!window.confirm(message)) return;
+    const isFinalUnit3D = item.quantity <= 1;
 
-    if (item.isBundle) {
-      const targetInstance = item.bundleInstances?.[0];
-      if (targetInstance?.placementId) {
-        onRemovePlacement(targetInstance.placementId, 'bundle');
+    // If reducing will NOT remove the service entirely from the design, do it directly
+    if (!isFinalUnit3D) {
+      if (item.isBundle) {
+        const targetInstance = item.bundleInstances?.[0];
+        if (targetInstance?.placementId) {
+          onRemovePlacement(targetInstance.placementId, 'bundle');
+        }
+      } else {
+        const targetPlacementId = item.singlePlacementQueue?.[0] || item.placementIds?.[0];
+        if (targetPlacementId) {
+          onRemovePlacement(targetPlacementId, 'single');
+        }
       }
-    } else {
-      const targetPlacementId = item.singlePlacementQueue?.[0] || item.placementIds?.[0];
-      if (targetPlacementId) {
-        onRemovePlacement(targetPlacementId, 'single');
-      }
+      return;
     }
+
+    // Final unit: confirm because this will remove the service from the design
+    openConfirmationDialog({
+      title: 'Remove From Design?',
+      description: 'Reducing this item will remove it entirely from your design.',
+      confirmText: 'Remove From Design',
+      onConfirm: () => {
+        if (item.isBundle) {
+          const targetInstance = item.bundleInstances?.[0];
+          if (targetInstance?.placementId) {
+            onRemovePlacement(targetInstance.placementId, 'bundle');
+          }
+        } else {
+          const targetPlacementId = item.singlePlacementQueue?.[0] || item.placementIds?.[0];
+          if (targetPlacementId) {
+            onRemovePlacement(targetPlacementId, 'single');
+          }
+        }
+      },
+    });
   };
 
   const handleProceed = () => {
@@ -406,6 +477,7 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
   if (!open) return null;
 
   return (
+    <>
     <Dialog 
       open={open} 
       onClose={onClose} 
@@ -700,6 +772,17 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
         </Box>
       </DialogContent>
     </Dialog>
+
+    <ConfirmationDialog
+      open={confirmationDialog.open}
+      onClose={handleCloseConfirmation}
+      onConfirm={handleConfirmAction}
+      title={confirmationDialog.title}
+      description={confirmationDialog.description}
+      confirmText={confirmationDialog.confirmText}
+      cancelText={confirmationDialog.cancelText}
+    />
+    </>
   );
 };
 

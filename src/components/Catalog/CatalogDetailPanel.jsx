@@ -132,6 +132,9 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
   const activeImage = imageSources[activeImageIndex] || null;
   const activeModel = modelSources[activeModelIndex] || null;
 
+  // Mark listing as unavailable when catalog availability flag says so
+  const isUnavailable = item.availability && item.availability.available === false;
+
   const handlePrevImage = () => {
     if (imageSources.length <= 1) return;
     setActiveImageIndex((prev) => (prev - 1 + imageSources.length) % imageSources.length);
@@ -379,7 +382,13 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
       </div>
 
       <Stack spacing={1} className="detail-actions">
-        <Button variant="contained" fullWidth startIcon={<AddIcon />} onClick={() => onAdd?.(item)}>
+        <Button
+          variant="contained"
+          fullWidth
+          startIcon={<AddIcon />}
+          onClick={() => onAdd?.(item)}
+          disabled={isUnavailable}
+        >
           Add to Design
         </Button>
         {onMessageVendor && (

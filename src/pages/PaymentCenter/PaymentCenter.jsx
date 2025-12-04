@@ -18,6 +18,12 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  InputAdornment,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -25,6 +31,7 @@ import {
   History,
   Warning,
   CheckCircle,
+  Search,
 } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
 import './PaymentCenter.styles.css';
@@ -37,6 +44,8 @@ const PaymentCenter = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedTab, setSelectedTab] = useState(0);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortOption, setSortOption] = useState('date_asc');
 
   useEffect(() => {
     fetchBookings();
@@ -122,6 +131,68 @@ const PaymentCenter = () => {
   const paymentsDue = getPaymentsDue();
   const paymentHistory = getPaymentHistory();
 
+  const searchValue = searchTerm.trim().toLowerCase();
+
+  const matchesBookingSearch = (booking) => {
+    if (!searchValue) return true;
+    const vendorName = booking.vendor?.user?.name?.toLowerCase() || '';
+    const serviceName =
+      booking.selectedServices?.map((s) => s.serviceListing?.name?.toLowerCase() || '').join(' ') || '';
+    const bookingId = booking.id?.toLowerCase() || '';
+    return vendorName.includes(searchValue) || serviceName.includes(searchValue) || bookingId.includes(searchValue);
+  };
+
+  const matchesHistorySearch = (payment) => {
+    if (!searchValue) return true;
+    const vendorName = payment.vendorName?.toLowerCase() || '';
+    const serviceName = payment.serviceName?.toLowerCase() || '';
+    const bookingId = payment.bookingId?.toLowerCase() || '';
+    return vendorName.includes(searchValue) || serviceName.includes(searchValue) || bookingId.includes(searchValue);
+  };
+
+  const getBookingDueDate = (booking) => {
+    const dueDate =
+      booking.status === 'pending_deposit_payment' ? booking.depositDueDate : booking.finalDueDate;
+    return dueDate ? new Date(dueDate).getTime() : 0;
+  };
+
+  const getPaymentAmount = (booking) => {
+    const paymentType = booking.status === 'pending_deposit_payment' ? 'deposit' : 'final';
+    return calculatePaymentAmount(booking, paymentType);
+  };
+
+  const sortList = (list, getDate, getAmount, getName) => {
+    return [...list].sort((a, b) => {
+      switch (sortOption) {
+        case 'date_desc':
+          return getDate(b) - getDate(a);
+        case 'amount_high':
+          return getAmount(b) - getAmount(a);
+        case 'amount_low':
+          return getAmount(a) - getAmount(b);
+        case 'vendor_az':
+          return getName(a).localeCompare(getName(b));
+        case 'date_asc':
+        default:
+          return getDate(a) - getDate(b);
+      }
+    });
+  };
+
+  const filteredPaymentsDue = sortList(
+    paymentsDue.filter(matchesBookingSearch),
+    getBookingDueDate,
+    getPaymentAmount,
+    (booking) => booking.vendor?.user?.name?.toLowerCase() || ''
+  );
+
+  const filteredPaymentHistory = sortList(
+    paymentHistory.filter(matchesHistorySearch),
+    (payment) => (payment.paymentDate ? new Date(payment.paymentDate).getTime() : 0),
+    (payment) => parseFloat(payment.amount) || 0,
+    (payment) => payment.vendorName?.toLowerCase() || ''
+  );
+
   if (loading && bookings.length === 0) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -182,9 +253,46 @@ const PaymentCenter = () => {
           </Tabs>
         </Paper>
 
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', md: 'row' },
+            gap: 2,
+            mb: 3,
+          }}
+        >
+          <TextField
+            fullWidth
+            placeholder="Search by vendor, service, or booking ID"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <FormControl sx={{ minWidth: { xs: '100%', md: 220 } }}>
+            <InputLabel>Sort By</InputLabel>
+            <Select
+              label="Sort By"
+              value={sortOption}
+              onChange={(e) => setSortOption(e.target.value)}
+            >
+              <MenuItem value="date_asc">Date (oldest first)</MenuItem>
+              <MenuItem value="date_desc">Date (newest first)</MenuItem>
+              <MenuItem value="amount_high">Amount (high to low)</MenuItem>
+              <MenuItem value="amount_low">Amount (low to high)</MenuItem>
+              <MenuItem value="vendor_az">Vendor A-Z</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+
         {selectedTab === 0 && (
           <>
-            {paymentsDue.length === 0 ? (
+            {filteredPaymentsDue.length === 0 ? (
               <Paper elevation={2} sx={{ p: 4, textAlign: 'center' }}>
                 <CheckCircle sx={{ fontSize: 48, color: 'success.main', mb: 2 }} />
                 <Typography variant="h6" color="text.secondary">
@@ -196,7 +304,7 @@ const PaymentCenter = () => {
               </Paper>
             ) : (
               <Stack spacing={2}>
-                {paymentsDue.map((booking) => {
+                {filteredPaymentsDue.map((booking) => {
                   const paymentType = booking.status === 'pending_deposit_payment' ? 'deposit' : 'final';
                   const amount = calculatePaymentAmount(booking, paymentType);
                   const dueDate =
@@ -279,7 +387,7 @@ const PaymentCenter = () => {
 
         {selectedTab === 1 && (
           <>
-            {paymentHistory.length === 0 ? (
+            {filteredPaymentHistory.length === 0 ? (
               <Paper elevation={2} sx={{ p: 4, textAlign: 'center' }}>
                 <Typography variant="h6" color="text.secondary">
                   No payment history
@@ -287,7 +395,7 @@ const PaymentCenter = () => {
               </Paper>
             ) : (
               <Stack spacing={2}>
-                {paymentHistory.map((payment, index) => (
+                {filteredPaymentHistory.map((payment, index) => (
                   <Card key={index} elevation={1}>
                     <CardContent>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>

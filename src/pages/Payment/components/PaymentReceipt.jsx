@@ -75,7 +75,7 @@ const PaymentReceipt = ({ payment, booking, orderDetails, paymentMethod }) => {
             Receipt Number
           </Typography>
           <Typography variant="body1" sx={{ fontWeight: 600, fontFamily: 'monospace' }}>
-            {payment.id.substring(0, 8).toUpperCase()}
+            {(payment.id || '').toString().substring(0, 8).toUpperCase() || 'N/A'}
           </Typography>
         </Box>
 
@@ -117,7 +117,7 @@ const PaymentReceipt = ({ payment, booking, orderDetails, paymentMethod }) => {
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
               <Typography variant="body2" color="text.secondary">Booking ID:</Typography>
               <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
-                {booking.id.substring(0, 8).toUpperCase()}
+                {(booking.id || '').toString().substring(0, 8).toUpperCase() || 'N/A'}
               </Typography>
             </Box>
             {booking.project && (

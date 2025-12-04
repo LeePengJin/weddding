@@ -266,19 +266,21 @@ export default function AccountManagement() {
               <Tab label="Vendor Accounts" value="vendor" />
             </Tabs>
           </Paper>
-          <TextField
-            fullWidth
-            placeholder={`Search ${accountType === 'couple' ? 'couple' : 'vendor'} accounts by name or email...`}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon />
-                </InputAdornment>
-              ),
-            }}
-          />
+          <Box sx={{ mt: 1.5, display: 'flex', justifyContent: 'flex-end' }}>
+            <TextField
+              sx={{ width: { xs: '100%', sm: 320, md: 360 } }}
+              placeholder={`Search ${accountType === 'couple' ? 'couple' : 'vendor'} accounts by name or email...`}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Box>
         </CardContent>
       </Card>
 

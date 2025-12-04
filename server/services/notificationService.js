@@ -207,43 +207,204 @@ Weddding Platform Team`;
  */
 async function sendCancellationCompletedNotification(booking, cancellation) {
   try {
-    const couple = await prisma.couple.findUnique({
-      where: { userId: booking.coupleId },
-      include: { user: true },
-    });
+    let coupleUser = booking.couple?.user;
+    if (!coupleUser || !coupleUser.email) {
+      const couple = await prisma.couple.findUnique({
+        where: { userId: booking.coupleId },
+        include: { user: true },
+      });
+      coupleUser = couple?.user;
+    }
 
-    if (!couple || !couple.user.email) {
+    if (!coupleUser || !coupleUser.email) {
       console.warn(`No email found for couple ${booking.coupleId}`);
       return;
     }
 
     const isVendorCancellation = booking.status === 'cancelled_by_vendor';
     const cancelledBy = isVendorCancellation ? 'the vendor' : 'you';
+    const cancellationReason = cancellation.cancellationReason || 'Not provided';
+    const cancellationFee =
+      cancellation.cancellationFee !== null && cancellation.cancellationFee !== undefined
+        ? `Cancellation Fee: RM ${Number(cancellation.cancellationFee).toLocaleString()}`
+        : null;
+    const cancellationDate = cancellation.cancelledAt
+      ? new Date(cancellation.cancelledAt).toLocaleDateString()
+      : new Date().toLocaleDateString();
+    const weddingDate = booking.reservedDate ? new Date(booking.reservedDate).toLocaleDateString() : 'N/A';
 
-    const subject = 'Booking Cancellation Confirmed - Weddding Platform';
-    const text = `Dear ${couple.user.name || 'Valued Customer'},
+    const refundInstruction = isVendorCancellation
+      ? 'Please reply to this email with your preferred refund method (for example bank transfer details, Touch ’n Go wallet, or another method) so our team can coordinate the refund with the vendor immediately.'
+      : 'If you believe a refund is due based on the vendor’s policy, reply to this email with your preferred refund method and we will assist you further.';
 
-Your booking has been successfully cancelled.
+    const subject = 'Booking Cancelled - Summary & Next Steps';
+    const text = `Hi ${coupleUser.name || 'there'},
+
+Your booking with ${booking.vendor?.user?.name || 'the vendor'} has been cancelled.
 
 Booking Details:
 - Booking ID: ${booking.id}
-- Vendor: ${booking.vendor?.user?.name || 'Vendor'}
-- Wedding Date: ${new Date(booking.reservedDate).toLocaleDateString()}
+- Wedding Date: ${weddingDate}
 - Cancelled by: ${cancelledBy}
-- Cancellation Date: ${new Date(cancellation.cancelledAt).toLocaleDateString()}
-${cancellation.cancellationFee !== null ? `- Cancellation Fee: RM ${parseFloat(cancellation.cancellationFee).toLocaleString()}` : ''}
+- Cancellation Date: ${cancellationDate}
+- Reason: ${cancellationReason}
+${cancellationFee ? `- ${cancellationFee}` : ''}
 
-${isVendorCancellation ? 'The vendor has cancelled this booking. If you have any questions, please contact our support team.' : 'Your booking cancellation is complete. If you have any questions, please contact our support team.'}
+${refundInstruction}
 
-We hope to serve you in the future.
+We’re here if you need help planning your next steps.
 
 Best regards,
 Weddding Platform Team`;
 
-    await sendEmail(couple.user.email, subject, text);
-    console.log(`✅ Cancellation completed notification sent to ${couple.user.email} for booking ${booking.id}`);
+    const html = `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f7; padding:24px;">
+        <table align="center" width="100%" style="max-width:640px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+          <tr>
+            <td style="padding:24px 32px 16px; background:linear-gradient(135deg,#f97373,#e11d48); color:#ffffff;">
+              <h1 style="margin:0; font-size:24px; letter-spacing:0.03em; text-transform:uppercase;">Booking Cancelled</h1>
+              <p style="margin:8px 0 0; opacity:0.9;">Your booking has been cancelled. Please review the details below.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 32px 8px;">
+              <p style="margin:0 0 16px; color:#111827;">Hi ${coupleUser.name || 'there'},</p>
+              <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
+                Your booking with <strong>${booking.vendor?.user?.name || 'the vendor'}</strong> has been
+                <strong>cancelled</strong>. Here is a quick summary of what changed.
+              </p>
+
+              <div style="margin:24px 0; padding:16px 18px; border-radius:12px; background:#f9fafb; border:1px solid #e5e7eb;">
+                <h2 style="margin:0 0 12px; font-size:16px; color:#111827;">Booking Summary</h2>
+                <table style="width:100%; font-size:14px; color:#374151;">
+                  <tr>
+                    <td style="padding:4px 0; width:40%; opacity:0.7;">Booking ID</td>
+                    <td style="padding:4px 0; font-family:monospace;">${booking.id}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Vendor</td>
+                    <td style="padding:4px 0;">${booking.vendor?.user?.name || 'Vendor'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Wedding Date</td>
+                    <td style="padding:4px 0;">${weddingDate}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Cancelled by</td>
+                    <td style="padding:4px 0;">${cancelledBy}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Cancellation Date</td>
+                    <td style="padding:4px 0;">${cancellationDate}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7; vertical-align:top;">Reason</td>
+                    <td style="padding:4px 0;">${cancellationReason}</td>
+                  </tr>
+                  ${
+                    cancellationFee
+                      ? `<tr>
+                          <td style="padding:8px 0; opacity:0.7;">Cancellation Fee</td>
+                          <td style="padding:8px 0; font-weight:600; color:#b91c1c;">${cancellationFee}</td>
+                         </tr>`
+                      : ''
+                  }
+                </table>
+              </div>
+
+              <div style="margin:16px 0; padding:16px 18px; border-radius:12px; background:#fef2f2; border:1px solid #fecaca;">
+                <h2 style="margin:0 0 12px; font-size:15px; color:#b91c1c;">Refund & Next Steps</h2>
+                <p style="margin:0; font-size:14px; color:#7f1d1d; line-height:1.6;">
+                  ${refundInstruction}
+                </p>
+              </div>
+
+              <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
+                You can review all your bookings and their latest status from the
+                <strong>My Bookings</strong> page.
+              </p>
+
+              <div style="margin:24px 0;">
+                <a href="${process.env.FRONTEND_BASE_URL || 'https://localhost:3000'}/my-bookings"
+                   style="display:inline-block; padding:10px 18px; border-radius:999px;
+                          background:#111827; color:#ffffff; text-decoration:none; font-size:14px; font-weight:600;">
+                  Go to My Bookings
+                </a>
+              </div>
+
+              <p style="margin:16px 0 0; font-size:12px; color:#9ca3af;">
+                If you have any questions about this cancellation or a potential refund, please contact your vendor
+                directly or reach out to our support team.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    await sendEmail(coupleUser.email, subject, { text, html });
+    console.log(`✅ Cancellation completed notification sent to ${coupleUser.email} for booking ${booking.id}`);
   } catch (error) {
     console.error(`❌ Error sending cancellation completed notification for booking ${booking.id}:`, error);
+  }
+}
+
+async function sendCancellationVendorNotification(booking, cancellation) {
+  try {
+    const vendorEmail = booking.vendor?.user?.email;
+    if (!vendorEmail) {
+      console.warn(`No email found for vendor ${booking.vendorId}`);
+      return;
+    }
+
+    const coupleName = booking.couple?.user?.name || 'the couple';
+    const cancellationReason = cancellation.cancellationReason || 'Not provided';
+    const cancellationDate = cancellation.cancelledAt
+      ? new Date(cancellation.cancelledAt).toLocaleDateString()
+      : new Date().toLocaleDateString();
+    const isCoupleCancellation = booking.status === 'cancelled_by_couple';
+    const subject = isCoupleCancellation
+      ? `Booking ${booking.id} cancelled by ${coupleName}`
+      : `Booking ${booking.id} has been cancelled`;
+    const amountPaid = booking.payments?.reduce((sum, payment) => sum + Number(payment.amount || 0), 0) || 0;
+
+    const text = `Hello ${booking.vendor?.user?.name || 'Vendor'},
+
+${coupleName} has cancelled booking ${booking.id}.
+
+Details:
+- Wedding Date: ${booking.reservedDate ? new Date(booking.reservedDate).toLocaleDateString() : 'N/A'}
+- Cancellation Date: ${cancellationDate}
+- Reason: ${cancellationReason}
+- Amount Paid To Date: RM ${amountPaid.toLocaleString()}
+
+If a refund is required, please reach out to the couple and request their preferred refund method so you can process it quickly.
+
+Thank you,
+Weddding Platform Team`;
+
+    const html = `
+      <div style="font-family: 'Inter', Arial, sans-serif; color: #2f3542; line-height: 1.6;">
+        <h2 style="color:#1565c0;margin-bottom:12px;">Booking Update</h2>
+        <p>Hello ${booking.vendor?.user?.name || 'Vendor'},</p>
+        <p>${coupleName} has cancelled <strong>booking ${booking.id}</strong>.</p>
+        <div style="background:#f1f5f9;border-radius:12px;padding:16px;margin:18px 0;">
+          <ul style="padding-left:18px;margin:0;">
+            <li><strong>Wedding Date:</strong> ${booking.reservedDate ? new Date(booking.reservedDate).toLocaleDateString() : 'N/A'}</li>
+            <li><strong>Cancellation Date:</strong> ${cancellationDate}</li>
+            <li><strong>Reason:</strong> ${cancellationReason}</li>
+            <li><strong>Amount Paid To Date:</strong> RM ${amountPaid.toLocaleString()}</li>
+          </ul>
+        </div>
+        <p>Please contact the couple to confirm the next steps and ask for their preferred refund method (bank transfer, Touch ’n Go, etc.) so refunds can be processed without delay.</p>
+        <p style="margin-top:24px;">Thank you,<br/>Weddding Platform Team</p>
+      </div>
+    `;
+
+    await sendEmail(vendorEmail, subject, { text, html });
+    console.log(`✅ Cancellation notification sent to vendor ${vendorEmail} for booking ${booking.id}`);
+  } catch (error) {
+    console.error(`❌ Error sending cancellation vendor notification for booking ${booking.id}:`, error);
   }
 }
 
@@ -352,13 +513,423 @@ Weddding Platform Team`;
   }
 }
 
+/**
+ * Send notification to couple when booking request is created
+ */
+async function sendBookingRequestCreatedCoupleNotification(booking) {
+  try {
+    const couple = await prisma.couple.findUnique({
+      where: { userId: booking.coupleId },
+      include: { user: true },
+    });
+
+    if (!couple || !couple.user.email) {
+      console.warn(`No email found for couple ${booking.coupleId}`);
+      return;
+    }
+
+    const totalAmount = booking.selectedServices.reduce((sum, service) => {
+      return sum + Number(service.totalPrice);
+    }, 0);
+
+    const serviceNames = booking.selectedServices
+      .map((s) => `${s.serviceListing?.name || 'Service'} (Qty: ${s.quantity})`)
+      .join(', ');
+
+    const subject = 'Booking Request Submitted - Weddding';
+
+    const text = `Dear ${couple.user.name || 'Valued Customer'},
+
+Your booking request has been successfully submitted.
+
+Booking Details:
+- Booking ID: ${booking.id}
+- Vendor: ${booking.vendor?.user?.name || 'Vendor'}
+- Wedding Date: ${new Date(booking.reservedDate).toLocaleDateString()}
+- Services: ${serviceNames}
+- Total Amount: RM ${totalAmount.toLocaleString()}
+
+Status: Pending Vendor Confirmation
+
+The vendor will review your booking request and respond shortly. You will be notified once the vendor accepts or rejects your request.
+
+You can track the status of your booking in the \"My Bookings\" section of your account.
+
+Thank you for choosing Weddding.
+
+Best regards,
+Weddding Team`;
+
+    const html = `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f7; padding:24px;">
+        <table align="center" width="100%" style="max-width:640px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+          <tr>
+            <td style="padding:24px 32px 16px; background:linear-gradient(135deg,#f9739b,#ec4899); color:#ffffff;">
+              <h1 style="margin:0; font-size:24px; letter-spacing:0.03em; text-transform:uppercase;">Booking Request Submitted</h1>
+              <p style="margin:8px 0 0; opacity:0.9;">Thank you for planning with Weddding.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 32px 8px;">
+              <p style="margin:0 0 16px; color:#111827;">Hi ${couple.user.name || 'there'},</p>
+              <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
+                Your booking request has been received and is now <strong>pending vendor confirmation</strong>.
+              </p>
+
+              <div style="margin:24px 0; padding:16px 18px; border-radius:12px; background:#f9fafb; border:1px solid #e5e7eb;">
+                <h2 style="margin:0 0 12px; font-size:16px; color:#111827;">Booking Details</h2>
+                <table style="width:100%; font-size:14px; color:#374151;">
+                  <tr>
+                    <td style="padding:4px 0; width:40%; opacity:0.7;">Booking ID</td>
+                    <td style="padding:4px 0; font-family:monospace;">${booking.id}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Vendor</td>
+                    <td style="padding:4px 0;">${booking.vendor?.user?.name || 'Vendor'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Wedding Date</td>
+                    <td style="padding:4px 0;">${new Date(booking.reservedDate).toLocaleDateString()}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7; vertical-align:top;">Services</td>
+                    <td style="padding:4px 0;">${serviceNames}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0; opacity:0.7;">Total Amount</td>
+                    <td style="padding:8px 0; font-weight:600; color:#111827;">RM ${totalAmount.toLocaleString()}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0; opacity:0.7;">Current Status</td>
+                    <td style="padding:8px 0; font-weight:500; color:#16a34a;">Pending Vendor Confirmation</td>
+                  </tr>
+                </table>
+              </div>
+
+              <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
+                You’ll receive another email once the vendor has accepted or rejected your request.
+                You can also track the status at any time from your <strong>My Bookings</strong> page.
+              </p>
+
+              <div style="margin:24px 0;">
+                <a href="${process.env.FRONTEND_BASE_URL || 'https://localhost:3000'}/my-bookings"
+                   style="display:inline-block; padding:10px 18px; border-radius:999px;
+                          background:#111827; color:#ffffff; text-decoration:none; font-size:14px; font-weight:600;">
+                  View My Bookings
+                </a>
+              </div>
+
+              <p style="margin:16px 0 0; font-size:12px; color:#9ca3af;">
+                If you didn’t make this request, please contact our support team immediately.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    await sendEmail(couple.user.email, subject, { text, html });
+    console.log(`✅ Booking request created notification sent to couple ${couple.user.email} for booking ${booking.id}`);
+  } catch (error) {
+    console.error(`❌ Error sending booking request created notification to couple for booking ${booking.id}:`, error);
+  }
+}
+
+/**
+ * Send notification when vendor accepts a booking request
+ * Includes deposit/final due dates when available.
+ */
+async function sendBookingAcceptedCoupleNotification(booking) {
+  try {
+    const couple = await prisma.couple.findUnique({
+      where: { userId: booking.coupleId },
+      include: { user: true },
+    });
+
+    if (!couple || !couple.user.email) {
+      console.warn(`No email found for couple ${booking.coupleId}`);
+      return;
+    }
+
+    const totalAmount = booking.selectedServices.reduce((sum, service) => {
+      return sum + Number(service.totalPrice);
+    }, 0);
+
+    const serviceNames = booking.selectedServices
+      .map((s) => `${s.serviceListing?.name || 'Service'} (Qty: ${s.quantity})`)
+      .join(', ');
+
+    const subject = 'Booking Accepted - Next Steps & Payment Due Dates';
+
+    const depositAmount = Math.round(totalAmount * 0.30 * 100) / 100;
+    const finalAmount = Math.max(0, Math.round((totalAmount - depositAmount) * 100) / 100);
+
+    const depositDue =
+      booking.depositDueDate
+        ? new Date(booking.depositDueDate).toLocaleDateString()
+        : 'To be provided by vendor';
+    const finalDue =
+      booking.finalDueDate
+        ? new Date(booking.finalDueDate).toLocaleDateString()
+        : 'Will be set after deposit is paid';
+
+    const text = `Dear ${couple.user.name || 'Valued Customer'},
+
+Good news! Your booking request has been accepted by the vendor.
+
+Booking Details:
+- Booking ID: ${booking.id}
+- Vendor: ${booking.vendor?.user?.name || 'Vendor'}
+- Wedding Date: ${new Date(booking.reservedDate).toLocaleDateString()}
+- Services: ${serviceNames}
+- Total Amount: RM ${totalAmount.toLocaleString()}
+
+Payment Schedule:
+- Deposit: RM ${depositAmount.toLocaleString()} (30% of total) — Due by ${depositDue}
+- Final Payment: RM ${finalAmount.toLocaleString()} — Due by ${finalDue}
+
+Please pay the deposit by the due date to confirm your booking. You can make payment from the "My Bookings" section.
+
+Thank you for choosing Weddding.
+
+Best regards,
+Weddding Team`;
+
+    const html = `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f7; padding:24px;">
+        <table align="center" width="100%" style="max-width:640px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+          <tr>
+            <td style="padding:24px 32px 16px; background:linear-gradient(135deg,#22c55e,#16a34a); color:#ffffff;">
+              <h1 style="margin:0; font-size:24px; letter-spacing:0.03em; text-transform:uppercase;">Booking Accepted</h1>
+              <p style="margin:8px 0 0; opacity:0.9;">Your vendor has accepted your booking request.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 32px 8px;">
+              <p style="margin:0 0 16px; color:#111827;">Hi ${couple.user.name || 'there'},</p>
+              <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
+                Your booking request has been <strong>accepted</strong>. Please review the payment schedule below
+                and pay the deposit to confirm your booking.
+              </p>
+
+              <div style="margin:24px 0; padding:16px 18px; border-radius:12px; background:#f9fafb; border:1px solid #e5e7eb;">
+                <h2 style="margin:0 0 12px; font-size:16px; color:#111827;">Booking Summary</h2>
+                <table style="width:100%; font-size:14px; color:#374151;">
+                  <tr>
+                    <td style="padding:4px 0; width:40%; opacity:0.7;">Booking ID</td>
+                    <td style="padding:4px 0; font-family:monospace;">${booking.id}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Vendor</td>
+                    <td style="padding:4px 0;">${booking.vendor?.user?.name || 'Vendor'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Wedding Date</td>
+                    <td style="padding:4px 0;">${new Date(booking.reservedDate).toLocaleDateString()}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7; vertical-align:top;">Services</td>
+                    <td style="padding:4px 0;">${serviceNames}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0; opacity:0.7;">Total Amount</td>
+                    <td style="padding:8px 0; font-weight:600; color:#111827;">RM ${totalAmount.toLocaleString()}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <div style="margin:16px 0; padding:16px 18px; border-radius:12px; background:#ecfdf5; border:1px solid #bbf7d0;">
+                <h2 style="margin:0 0 12px; font-size:15px; color:#166534;">Payment Schedule</h2>
+                <table style="width:100%; font-size:14px; color:#166534;">
+                  <tr>
+                    <td style="padding:4px 0; width:45%; opacity:0.8;">Deposit</td>
+                    <td style="padding:4px 0; font-weight:600;">
+                      RM ${depositAmount.toLocaleString()} (30% of total)
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.8;">Deposit Due Date</td>
+                    <td style="padding:4px 0; font-weight:600;">${depositDue}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.8;">Final Payment</td>
+                    <td style="padding:4px 0; font-weight:600;">
+                      RM ${finalAmount.toLocaleString()}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.8;">Final Payment Due Date</td>
+                    <td style="padding:4px 0; font-weight:600;">${finalDue}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
+                You can pay the deposit and view full booking details from your <strong>My Bookings</strong> page.
+              </p>
+
+              <div style="margin:24px 0;">
+                <a href="${process.env.FRONTEND_BASE_URL || 'https://localhost:3000'}/my-bookings"
+                   style="display:inline-block; padding:10px 18px; border-radius:999px;
+                          background:#111827; color:#ffffff; text-decoration:none; font-size:14px; font-weight:600;">
+                  Go to My Bookings
+                </a>
+              </div>
+
+              <p style="margin:16px 0 0; font-size:12px; color:#9ca3af;">
+                If you have any questions about the payment schedule or services, please contact your vendor directly
+                via the in-app messaging feature.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    await sendEmail(couple.user.email, subject, { text, html });
+  } catch (error) {
+    console.error(`❌ Error sending booking accepted notification for booking ${booking.id}:`, error);
+  }
+}
+
+/**
+ * Send notification to vendor when booking request is received
+ */
+async function sendBookingRequestReceivedVendorNotification(booking) {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: booking.vendorId },
+      include: { user: true },
+    });
+
+    if (!vendor || !vendor.user.email) {
+      console.warn(`No email found for vendor ${booking.vendorId}`);
+      return;
+    }
+
+    const couple = await prisma.couple.findUnique({
+      where: { userId: booking.coupleId },
+      include: { user: true },
+    });
+
+    const totalAmount = booking.selectedServices.reduce((sum, service) => {
+      return sum + Number(service.totalPrice);
+    }, 0);
+
+    const serviceNames = booking.selectedServices
+      .map((s) => `${s.serviceListing?.name || 'Service'} (Qty: ${s.quantity})`)
+      .join(', ');
+
+    const subject = 'New Booking Request Received - Weddding';
+
+    const text = `Dear ${vendor.user.name || 'Vendor'},
+
+You have received a new booking request.
+
+Booking Details:
+- Booking ID: ${booking.id}
+- Couple: ${couple?.user?.name || 'Couple'}
+- Wedding Date: ${new Date(booking.reservedDate).toLocaleDateString()}
+- Services: ${serviceNames}
+- Total Amount: RM ${totalAmount.toLocaleString()}
+
+Status: Pending Your Confirmation
+
+Please review this booking request and accept or reject it in the \"Booking Requests\" section of your account.
+
+You have 7 days to respond to this booking request. If no response is received, the booking may be cancelled automatically.
+
+Thank you for being part of Weddding.
+
+Best regards,
+Weddding Team`;
+
+    const html = `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f7; padding:24px;">
+        <table align="center" width="100%" style="max-width:640px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+          <tr>
+            <td style="padding:24px 32px 16px; background:linear-gradient(135deg,#38bdf8,#0ea5e9); color:#ffffff;">
+              <h1 style="margin:0; font-size:24px; letter-spacing:0.03em; text-transform:uppercase;">New Booking Request</h1>
+              <p style="margin:8px 0 0; opacity:0.9;">A couple is interested in your services on Weddding.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 32px 8px;">
+              <p style="margin:0 0 16px; color:#111827;">Hi ${vendor.user.name || 'there'},</p>
+              <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
+                You’ve received a new booking request and it is currently <strong>pending your confirmation</strong>.
+              </p>
+
+              <div style="margin:24px 0; padding:16px 18px; border-radius:12px; background:#f9fafb; border:1px solid #e5e7eb;">
+                <h2 style="margin:0 0 12px; font-size:16px; color:#111827;">Booking Details</h2>
+                <table style="width:100%; font-size:14px; color:#374151;">
+                  <tr>
+                    <td style="padding:4px 0; width:40%; opacity:0.7;">Booking ID</td>
+                    <td style="padding:4px 0; font-family:monospace;">${booking.id}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Couple</td>
+                    <td style="padding:4px 0;">${couple?.user?.name || 'Couple'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7;">Wedding Date</td>
+                    <td style="padding:4px 0;">${new Date(booking.reservedDate).toLocaleDateString()}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:4px 0; opacity:0.7; vertical-align:top;">Requested Services</td>
+                    <td style="padding:4px 0;">${serviceNames}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0; opacity:0.7;">Estimated Total</td>
+                    <td style="padding:8px 0; font-weight:600; color:#111827;">RM ${totalAmount.toLocaleString()}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0; opacity:0.7;">Current Status</td>
+                    <td style="padding:8px 0; font-weight:500; color:#f97316;">Pending Your Confirmation</td>
+                  </tr>
+                </table>
+              </div>
+
+              <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
+                Please log in to your vendor dashboard to review the request details, update availability if needed,
+                and accept or reject the booking.
+              </p>
+
+              <div style="margin:24px 0;">
+                <a href="${process.env.FRONTEND_BASE_URL || 'https://localhost:3000'}/vendor/booking-requests"
+                   style="display:inline-block; padding:10px 18px; border-radius:999px;
+                          background:#111827; color:#ffffff; text-decoration:none; font-size:14px; font-weight:600;">
+                  Review Booking Request
+                </a>
+              </div>
+
+              <p style="margin:16px 0 0; font-size:12px; color:#9ca3af;">
+                If you did not expect this email, you can safely ignore it. No action will be taken until you respond in your dashboard.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    await sendEmail(vendor.user.email, subject, { text, html });
+    console.log(`✅ Booking request received notification sent to vendor ${vendor.user.email} for booking ${booking.id}`);
+  } catch (error) {
+    console.error(`❌ Error sending booking request received notification to vendor for booking ${booking.id}:`, error);
+  }
+}
+
 module.exports = {
   sendDepositDueDateReminder,
   sendFinalPaymentDueDateReminder,
   sendAutoCancellationNotification,
   sendCancellationFeeRequiredNotification,
   sendCancellationCompletedNotification,
+  sendCancellationVendorNotification,
   sendVenueCancellationNotification,
   sendVenueCancellationVendorNotification,
+  sendBookingRequestCreatedCoupleNotification,
+  sendBookingRequestReceivedVendorNotification,
+  sendBookingAcceptedCoupleNotification,
 };
 

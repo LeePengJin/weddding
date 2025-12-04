@@ -177,6 +177,16 @@ const VenueDesigner = () => {
     }
   }, [resourceId, designerMode, projectId, packageId]);
 
+  const refreshBookedQuantities = useCallback(async () => {
+    if (!projectId || designerMode !== 'project') return;
+    try {
+      const data = await getVenueDesign(projectId);
+      setBookedQuantities(data.bookedQuantities || {});
+    } catch (error) {
+      console.error('[VenueDesigner] Failed to refresh booked quantities', error);
+    }
+  }, [projectId, designerMode]);
+
   const loadCatalog = useCallback(async () => {
     if (!resourceId) return;
     setCatalogLoading(true);
@@ -295,11 +305,10 @@ const VenueDesigner = () => {
           setPlacements((prev) => [...prev, ...(response.placements || [])]);
           setToastNotification({
             open: true,
-            message: 'Item added to design successfully!',
+            message: 'Service added to design successfully!',
             severity: 'success',
           });
         }
-        setToastNotification({ open: false, message: '', severity: 'info' });
       } catch (err) {
         setToastNotification({ open: true, message: err.message || 'Unable to add item to design', severity: 'error' });
       }
@@ -426,200 +435,7 @@ const VenueDesigner = () => {
     setThreeDPreview({ item, modelSrc });
   };
 
-  // Calculate groupedByVendor for checkout (memoized to prevent unnecessary recalculations)
-  const checkoutGroupedByVendor = useMemo(() => {
-    if (designerMode !== 'project') return [];
-    
-    // Calculate groupedByVendor from placements and projectServices (aligned with DesignSummary)
-    // Filter out booked services
-    const itemGroups = new Map();
-    const bundleInstanceTracker = new Map();
-
-    // 3D placements - filter out booked ones
-    placements.filter((placement) => !placement.isBooked).forEach((placement) => {
-      const bundleId = placement.metadata?.bundleId;
-      const serviceListingId = placement.metadata?.serviceListingId;
-      const designElementName = placement.designElement?.name || placement.serviceListing?.name || 'Service Item';
-      const groupKey = bundleId
-        ? `bundle_${serviceListingId}`
-        : `item_${placement.designElement?.id || placement.id || serviceListingId}`;
-
-      if (!itemGroups.has(groupKey)) {
-        const isBundle = Boolean(bundleId);
-        const itemName = isBundle
-          ? (placement.serviceListing?.name || 'Bundle Item')
-          : designElementName;
-
-        itemGroups.set(groupKey, {
-          key: groupKey,
-          isBundle,
-          name: itemName,
-          quantity: 0,
-          price: 0,
-          placementIds: [],
-          serviceListingId: serviceListingId || null,
-          serviceListing: placement.serviceListing || null, // Include full serviceListing data
-          designElementId: placement.designElement?.id || null,
-          vendorId: placement.designElement?.vendorId || placement.serviceListing?.vendorId,
-          vendorName:
-            placement.designElement?.vendor?.name ||
-            placement.designElement?.vendor?.user?.name ||
-            placement.serviceListing?.vendor?.name ||
-            placement.serviceListing?.vendor?.user?.name ||
-            'Unknown Vendor',
-          isNon3DService: false,
-          isBooked: placement.isBooked || false,
-        });
-      }
-
-      const group = itemGroups.get(groupKey);
-      group.placementIds.push(placement.id);
-
-      if (bundleId) {
-        if (!bundleInstanceTracker.has(bundleId)) {
-          bundleInstanceTracker.set(bundleId, true);
-          group.quantity += 1;
-          const price = placement.metadata?.unitPrice
-            ? parseFloat(placement.metadata.unitPrice)
-            : placement.serviceListing?.price
-            ? parseFloat(placement.serviceListing.price)
-            : 0;
-          group.price += price;
-        }
-      } else {
-        group.quantity += 1;
-        const price = placement.metadata?.unitPrice
-          ? parseFloat(placement.metadata.unitPrice)
-          : placement.serviceListing?.price
-          ? parseFloat(placement.serviceListing.price)
-          : 0;
-        group.price += price;
-      }
-    });
-
-    // Non-3D project services - filter out booked ones
-    projectServices.filter((ps) => !ps.isBooked).forEach((ps) => {
-      const groupKey = `service_${ps.serviceListingId}`;
-      const listing = ps.serviceListing || {};
-
-      if (!itemGroups.has(groupKey)) {
-        // Extract vendorId - backend returns vendor.id which is the userId
-        const vendorId = listing.vendor?.id;
-
-        itemGroups.set(groupKey, {
-          key: groupKey,
-          isBundle: false,
-          name: listing.name || 'Service Item',
-          quantity: 0,
-          price: 0,
-          placementIds: [],
-          serviceListingId: ps.serviceListingId,
-          serviceListing: listing || null, // Include full serviceListing data
-          designElementId: null,
-          vendorId: vendorId, // Backend returns vendor.id as userId
-          vendorName:
-            listing.vendor?.name ||
-            listing.vendor?.user?.name ||
-            'Unknown Vendor',
-          isNon3DService: true,
-          isBooked: ps.isBooked,
-        });
-      }
-
-      const group = itemGroups.get(groupKey);
-      
-      // For per_table services, count the number of tables tagged with this service
-      // For other services, use the ProjectService quantity
-      const isPerTable = listing.pricingPolicy === 'per_table';
-      let quantity;
-      
-      if (isPerTable) {
-        // Count placements (tables) that have this service in their serviceListingIds
-        const tableCount = placements.filter((placement) => {
-          const isTable = 
-            placement?.designElement?.elementType === 'table' ||
-            placement?.elementType === 'table' ||
-            placement?.designElement?.name?.toLowerCase().includes('table');
-          
-          if (!isTable) return false;
-          
-          const serviceListingIds = placement.serviceListingIds || [];
-          return serviceListingIds.includes(ps.serviceListingId);
-        }).length;
-        
-        quantity = tableCount; // Use table count (will be 0 if no tables tagged)
-        group.isPerTableService = true; // Mark as per_table service
-      } else {
-        // For non-per_table services, use the ProjectService quantity
-        quantity = ps.quantity || 1;
-      }
-      
-      group.quantity = quantity; // Set quantity (don't add, replace)
-              // Parse price - handle both string and number formats
-              let price = 0;
-              if (listing.price) {
-                if (typeof listing.price === 'string') {
-                  price = parseFloat(listing.price) || 0;
-                } else if (typeof listing.price === 'number') {
-                  price = listing.price;
-                }
-              }
-              group.price += price * quantity;
-    });
-
-    // Add venue as a separate item if it exists and is not booked
-    // Handle both id and listingId for backward compatibility
-    const venueId = venueInfo?.id || venueInfo?.listingId;
-    if (venueInfo && venueId && !venueInfo.isBooked) {
-      const venueKey = `venue_${venueId}`;
-      if (!itemGroups.has(venueKey)) {
-        itemGroups.set(venueKey, {
-          key: venueKey,
-          isBundle: false,
-          name: venueInfo.name || 'Venue',
-          quantity: 1, // Venue is always quantity 1
-          price: venueInfo.price ? parseFloat(venueInfo.price) : 0,
-          placementIds: [],
-          serviceListingId: venueId,
-          serviceListing: {
-            ...venueInfo,
-            id: venueId, // Ensure id is set
-          }, // Include full venue serviceListing data
-          designElementId: venueInfo.designElement?.id || null,
-          vendorId: venueInfo.vendor?.userId || venueInfo.vendor?.id || venueInfo.vendorId,
-          vendorName:
-            venueInfo.vendor?.name ||
-            venueInfo.vendor?.user?.name ||
-            'Unknown Vendor',
-          isNon3DService: false,
-          isVenue: true, // Mark as venue
-          isBooked: venueInfo.isBooked || false,
-        });
-      }
-    }
-
-    const vendorGroups = {};
-    Array.from(itemGroups.values()).forEach((item) => {
-      // Use vendorId as primary key, fallback to vendorName if vendorId is missing
-      const vendorKey = item.vendorId || item.vendorName;
-      if (!vendorGroups[vendorKey]) {
-        vendorGroups[vendorKey] = {
-          vendorId: item.vendorId, // This is the userId from backend
-          vendorName: item.vendorName,
-          items: [],
-          total: 0,
-        };
-      }
-      const displayName = item.quantity > 1 ? `${item.name} x ${item.quantity}` : item.name;
-      vendorGroups[vendorKey].items.push({
-        ...item,
-        displayName,
-      });
-      vendorGroups[vendorKey].total += item.price;
-    });
-
-    return Object.values(vendorGroups);
-  }, [designerMode, placements, projectServices, venueInfo]);
+  // Note: checkoutGroupedByVendor is no longer needed - CheckoutModal fetches its own data from backend endpoint
 
   const contextValue = useMemo(
     () => ({
@@ -829,15 +645,20 @@ const VenueDesigner = () => {
         <CheckoutModal
           open={showCheckoutModal}
           onClose={() => setShowCheckoutModal(false)}
-          groupedByVendor={checkoutGroupedByVendor}
           projectId={projectId}
           weddingDate={weddingDate}
           venueDesignId={venueDesignId}
           eventStartTime={eventStartTime}
           eventEndTime={eventEndTime}
-          bookedQuantities={bookedQuantities}
           onSuccess={() => {
-            loadDesign();
+            // Keep the current design and camera position; refresh booked quantities only.
+            setShowCheckoutModal(false);
+            refreshBookedQuantities();
+            setToastNotification({
+              open: true,
+              severity: 'success',
+              message: 'Your booking request has been submitted. You can track it under My Bookings.',
+            });
           }}
           onShowToast={setToastNotification}
         />

@@ -76,14 +76,14 @@ This guide covers all features implemented for the booking, payment, and cancell
 **Steps:**
 1. Log in as a Couple
 2. Create a new Wedding Project
-3. **Step 1**: Book a venue service
+3. **Step 1**: Book a venue service ✅
    - Select a venue from the venue selection screen
    - Submit booking request
-4. **Step 2**: As Vendor, accept the venue booking
+4. **Step 2**: As Vendor, accept the venue booking ✅
    - Log in as the venue vendor
    - Go to "Booking Requests"
    - Accept the venue booking (status becomes `pending_deposit_payment`)
-5. **Step 3**: As Couple, book other services
+5. **Step 3**: As Couple, book other services ✅
    - Return to couple account
    - Try booking a photographer or caterer
    - Try adding items in 3D venue designer
@@ -100,11 +100,11 @@ This guide covers all features implemented for the booking, payment, and cancell
 ### Test: Contract Review Modal in 3D Venue Designer
 
 **Steps:**
-1. Log in as a Couple
-2. Navigate to 3D Venue Designer (with a venue already selected)
-3. Add some services to the 3D design
-4. Click "Proceed to Checkout" in the Design Summary
-5. Review the Contract Review Modal
+1. Log in as a Couple ✅
+2. Navigate to 3D Venue Designer (with a venue already selected) ✅
+3. Add some services to the 3D design ✅ 
+4. Click "Proceed to Checkout" in the Design Summary ✅
+5. Review the Contract Review Modal ✅
 
 **Expected Results:**
 - ✅ Contract Review Modal appears **before** Checkout Modal
@@ -137,7 +137,7 @@ This guide covers all features implemented for the booking, payment, and cancell
 
 ### Test: Submit Booking Request
 
-**Steps:**
+**Steps:** ✅
 1. Log in as a Couple
 2. Book a service (venue or other)
 3. Submit booking request
@@ -154,7 +154,7 @@ This guide covers all features implemented for the booking, payment, and cancell
 
 ### Test: Vendor Accepts Booking
 
-**Steps:**
+**Steps:** ✅
 1. As Vendor, go to "Booking Requests"
 2. View the booking request
 3. Verify venue and time are displayed
@@ -172,7 +172,7 @@ This guide covers all features implemented for the booking, payment, and cancell
 
 ### Test: Deposit Payment
 
-**Steps:**
+**Steps:** ✅
 1. As Couple, go to "My Bookings" → "Pending Payment"
 2. Click on a booking with status `pending_deposit_payment`
 3. Pay the deposit (10% of total)
@@ -185,7 +185,7 @@ This guide covers all features implemented for the booking, payment, and cancell
 
 ### Test: Final Payment
 
-**Steps:**
+**Steps:** ✅
 1. Wait for booking to transition to `pending_final_payment` (1 week before wedding date)
    - OR manually update booking status in database for testing
 2. As Couple, go to "My Bookings" → "Pending Payment"
@@ -203,7 +203,7 @@ This guide covers all features implemented for the booking, payment, and cancell
 
 ### Test: Cancel Booking (No Fee)
 
-**Steps:**
+**Steps:** ✅
 1. As Couple, go to "My Bookings"
 2. Select a booking with status `pending_vendor_confirmation` or `pending_deposit_payment`
 3. Click "Cancel Booking"
@@ -225,7 +225,7 @@ This guide covers all features implemented for the booking, payment, and cancell
 
 ### Test: Cancel Booking (With Fee)
 
-**Steps:**
+**Steps:** ✅
 1. As Couple, go to "My Bookings"
 2. Select a booking with status `confirmed` or `pending_final_payment`
 3. Click "Cancel Booking"
@@ -246,7 +246,7 @@ This guide covers all features implemented for the booking, payment, and cancell
 
 ### Test: Cancelled Bookings Tab
 
-**Steps:**
+**Steps:** ✅
 1. As Couple, go to "My Bookings"
 2. Click on "Cancelled" tab (5th tab)
 3. View cancelled bookings
@@ -273,7 +273,7 @@ This guide covers all features implemented for the booking, payment, and cancell
 3. Cancel the booking
 4. Provide reason (optional for vendor)
 
-**Expected Results:**
+**Expected Results:** ✅
 - ✅ Vendor can cancel their bookings
 - ✅ No cancellation fee is charged
 - ✅ Couple receives notification

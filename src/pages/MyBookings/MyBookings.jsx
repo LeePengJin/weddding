@@ -27,6 +27,7 @@ import {
   Select,
   FormControl,
   InputLabel,
+  InputAdornment,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -38,6 +39,7 @@ import {
   Visibility,
   Star,
   Message,
+  Search,
 } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
 import './MyBookings.styles.css';
@@ -116,6 +118,8 @@ const MyBookings = () => {
   const [cancelling, setCancelling] = useState(false);
   const [cancellationReason, setCancellationReason] = useState('');
   const [selectedReasonPreset, setSelectedReasonPreset] = useState('');
+  const [bookingSearch, setBookingSearch] = useState('');
+  const [bookingSort, setBookingSort] = useState('date_desc');
 
   useEffect(() => {
     fetchBookings();
@@ -261,15 +265,13 @@ const MyBookings = () => {
       }
 
       if (cancellationFeePreview?.requiresPayment && cancellationFeePreview.feeDifference > 0) {
-        await apiFetch(`/bookings/${selectedBooking.id}/cancellation-fee-payment`, {
-          method: 'POST',
-          body: JSON.stringify({
-            amount: Number(cancellationFeePreview.feeDifference.toFixed(2)),
-            paymentMethod: 'bank_transfer',
-            receipt: null,
-            reason: trimmedReason,
-          }),
-        });
+        setShowCancelDialog(false);
+        navigate(
+          `/payment?bookingId=${selectedBooking.id}&type=cancellation_fee&reason=${encodeURIComponent(
+            trimmedReason
+          )}`
+        );
+        return;
       } else {
         await apiFetch(`/bookings/${selectedBooking.id}/cancel`, {
           method: 'POST',
@@ -345,6 +347,47 @@ const MyBookings = () => {
     return true;
   });
 
+  const searchValue = bookingSearch.trim().toLowerCase();
+  const searchedBookings = filteredBookings.filter((booking) => {
+    if (!searchValue) return true;
+    const vendorName = booking.vendor?.user?.name?.toLowerCase() || '';
+    const serviceNames = (booking.selectedServices || [])
+      .map((service) => service.serviceListing?.name?.toLowerCase() || '')
+      .join(' ');
+    const bookingId = booking.id?.toLowerCase() || '';
+    return (
+      vendorName.includes(searchValue) ||
+      serviceNames.includes(searchValue) ||
+      bookingId.includes(searchValue)
+    );
+  });
+
+  const sortByOption = (list) => {
+    return [...list].sort((a, b) => {
+      const dateA = a.reservedDate ? new Date(a.reservedDate).getTime() : 0;
+      const dateB = b.reservedDate ? new Date(b.reservedDate).getTime() : 0;
+      const totalA = calculateTotal(a);
+      const totalB = calculateTotal(b);
+
+      switch (bookingSort) {
+        case 'date_asc':
+          return dateA - dateB;
+        case 'date_desc':
+          return dateB - dateA;
+        case 'amount_high':
+          return totalB - totalA;
+        case 'amount_low':
+          return totalA - totalB;
+        case 'status':
+          return (a.status || '').localeCompare(b.status || '');
+        default:
+          return dateB - dateA;
+      }
+    });
+  };
+
+  const displayBookings = sortByOption(searchedBookings);
+
   if (loading && bookings.length === 0) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -380,11 +423,18 @@ const MyBookings = () => {
           </Alert>
         )}
 
-        <Paper elevation={2} sx={{ mb: 3 }}>
+        <Paper elevation={2} sx={{ mb: 3, overflow: 'hidden' }}>
           <Tabs
             value={selectedTab}
             onChange={(e, newValue) => setSelectedTab(newValue)}
-            sx={{ borderBottom: 1, borderColor: 'divider' }}
+            sx={{
+              borderBottom: 1,
+              borderColor: 'divider',
+              '& .MuiTabs-indicator': {
+                height: 3,
+                borderRadius: '3px 3px 0 0',
+              },
+            }}
           >
             <Tab label="All Bookings" />
             <Tab label="Pending" />
@@ -395,7 +445,44 @@ const MyBookings = () => {
           </Tabs>
         </Paper>
 
-        {filteredBookings.length === 0 ? (
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', md: 'row' },
+            gap: 2,
+            mb: 3,
+          }}
+        >
+          <TextField
+            fullWidth
+            placeholder="Search by vendor, service, or booking ID"
+            value={bookingSearch}
+            onChange={(e) => setBookingSearch(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <FormControl sx={{ minWidth: { xs: '100%', md: 220 } }}>
+            <InputLabel>Sort By</InputLabel>
+            <Select
+              label="Sort By"
+              value={bookingSort}
+              onChange={(e) => setBookingSort(e.target.value)}
+            >
+              <MenuItem value="date_desc">Wedding date (newest)</MenuItem>
+              <MenuItem value="date_asc">Wedding date (oldest)</MenuItem>
+              <MenuItem value="amount_high">Amount (high to low)</MenuItem>
+              <MenuItem value="amount_low">Amount (low to high)</MenuItem>
+              <MenuItem value="status">Status A-Z</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+
+        {displayBookings.length === 0 ? (
           <Paper elevation={2} sx={{ p: 4, textAlign: 'center' }}>
             <Typography variant="h6" color="text.secondary">
               No bookings found
@@ -403,7 +490,7 @@ const MyBookings = () => {
           </Paper>
         ) : (
           <Stack spacing={2}>
-            {filteredBookings.map((booking) => {
+            {displayBookings.map((booking) => {
               const statusConfig = getStatusConfig(booking.status);
               const StatusIcon = statusConfig.icon;
               const nextAction = getNextAction(booking);
@@ -602,6 +689,43 @@ const MyBookings = () => {
                         {formatDate(selectedBooking.bookingDate)}
                       </Typography>
                     </Box>
+                    {selectedBooking.depositDueDate && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2">Deposit Due Date:</Typography>
+                        <Typography variant="body2" fontWeight="medium" color="error">
+                          {formatDate(selectedBooking.depositDueDate)}
+                        </Typography>
+                      </Box>
+                    )}
+                    {selectedBooking.finalDueDate && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2">Final Payment Due Date:</Typography>
+                        <Typography variant="body2" fontWeight="medium" color="error">
+                          {formatDate(selectedBooking.finalDueDate)}
+                        </Typography>
+                      </Box>
+                    )}
+                    {/* Show when payments were actually made (if any) */}
+                    {selectedBooking.payments && selectedBooking.payments.some((p) => p.paymentType === 'deposit') && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2">Deposit Paid On:</Typography>
+                        <Typography variant="body2" fontWeight="medium">
+                          {formatDate(
+                            selectedBooking.payments.find((p) => p.paymentType === 'deposit')?.paymentDate
+                          )}
+                        </Typography>
+                      </Box>
+                    )}
+                    {selectedBooking.payments && selectedBooking.payments.some((p) => p.paymentType === 'final') && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2">Final Payment Paid On:</Typography>
+                        <Typography variant="body2" fontWeight="medium">
+                          {formatDate(
+                            selectedBooking.payments.find((p) => p.paymentType === 'final')?.paymentDate
+                          )}
+                        </Typography>
+                      </Box>
+                    )}
                     {selectedBooking.project && (
                       <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                         <Typography variant="body2">Project:</Typography>
@@ -1040,7 +1164,17 @@ const MyBookings = () => {
                     Select a preset reason or provide your own explanation
                   </Typography>
 
-                  <Stack direction="row" spacing={1.5} flexWrap="wrap" sx={{ mb: 2 }}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: {
+                        xs: 'repeat(auto-fit, minmax(150px, 1fr))',
+                        sm: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      },
+                      gap: 1.5,
+                      mb: 2,
+                    }}
+                  >
                     {[
                       'Change of wedding date',
                       'Change of venue',
@@ -1058,9 +1192,11 @@ const MyBookings = () => {
                         color={selectedReasonPreset === reason ? 'primary' : 'default'}
                         variant={selectedReasonPreset === reason ? 'filled' : 'outlined'}
                         sx={{
-                          mb: 1,
+                          justifyContent: 'center',
                           cursor: 'pointer',
                           transition: 'all 0.2s',
+                          borderRadius: '999px',
+                          py: 0.5,
                           '&:hover': {
                             transform: 'translateY(-2px)',
                             boxShadow: 2,
@@ -1068,7 +1204,7 @@ const MyBookings = () => {
                         }}
                       />
                     ))}
-                  </Stack>
+                  </Box>
 
                   <TextField
                     fullWidth

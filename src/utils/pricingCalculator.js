@@ -18,6 +18,21 @@ export async function calculateServicePrice(serviceListing, context = {}, venueD
 
   // Build context for pricing calculation
   const pricingContext = { ...context };
+  
+  // Validate context before making API call
+  // For per_unit pricing, ensure quantity is valid
+  if (pricingPolicy === 'per_unit') {
+    if (pricingContext.quantity === undefined || pricingContext.quantity === null) {
+      console.warn(`Invalid context for per_unit pricing: quantity is ${pricingContext.quantity}`);
+      return parseFloat(serviceListing.price || 0);
+    }
+    const qty = typeof pricingContext.quantity === 'number' ? pricingContext.quantity : parseFloat(pricingContext.quantity);
+    if (isNaN(qty) || qty < 0) {
+      console.warn(`Invalid quantity for per_unit pricing: ${pricingContext.quantity}`);
+      return parseFloat(serviceListing.price || 0);
+    }
+    pricingContext.quantity = Math.max(1, Math.floor(qty)); // Ensure at least 1 for per_unit
+  }
 
   // For per_table pricing, get table count from venue design
   if (pricingPolicy === 'per_table' && venueDesignId) {
@@ -39,6 +54,7 @@ export async function calculateServicePrice(serviceListing, context = {}, venueD
       pricingContext.eventDuration = diffMs / (1000 * 60 * 60); // Convert to hours
     }
   }
+  
 
   // Call the pricing calculation API
   try {
@@ -50,6 +66,8 @@ export async function calculateServicePrice(serviceListing, context = {}, venueD
     return parseFloat(response.totalPrice || 0);
   } catch (error) {
     console.error('Error calculating price:', error);
+    console.error('Context sent:', pricingContext);
+    console.error('Service listing:', { id: serviceListing.id, pricingPolicy, price: serviceListing.price });
     // Fallback to base price if calculation fails
     return parseFloat(serviceListing.price || 0);
   }

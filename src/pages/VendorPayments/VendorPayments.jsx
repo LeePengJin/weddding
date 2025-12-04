@@ -280,20 +280,22 @@ export default function VendorPayments() {
             </Tabs>
           </Paper>
 
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            <TextField
-              fullWidth
-              placeholder="Search by payment ID, couple name, or service..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon />
-                  </InputAdornment>
-                ),
-              }}
-            />
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2, justifyContent: 'space-between' }}>
+            <Box sx={{ flex: 1, display: 'flex', justifyContent: { xs: 'stretch', sm: 'flex-end' } }}>
+              <TextField
+                sx={{ width: { xs: '100%', sm: 320, md: 360 } }}
+                placeholder="Search by payment ID, couple name, or service..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Box>
             <TextField
               type="date"
               label="Start Date"

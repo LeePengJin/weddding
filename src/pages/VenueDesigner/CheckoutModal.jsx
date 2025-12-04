@@ -21,10 +21,13 @@ import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import { createBooking } from '../../lib/api';
-import { usePricingCalculation } from '../../hooks/usePricingCalculation';
+import { createBooking, getCheckoutSummary } from '../../lib/api';
 
-const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, weddingDate, venueDesignId, eventStartTime, eventEndTime, bookedQuantities = {}, onSuccess, onShowToast }) => {
+const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, eventStartTime, eventEndTime, onSuccess, onShowToast }) => {
+  // Backend-driven checkout data
+  const [checkoutData, setCheckoutData] = useState(null);
+  const [loadingCheckout, setLoadingCheckout] = useState(false);
+  
   // Track expanded vendors
   const [expandedVendors, setExpandedVendors] = useState(new Set());
   // Track selected listings by their key (item.key)
@@ -35,49 +38,42 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
   const [showContractDialog, setShowContractDialog] = useState(false);
   const hasInitialized = React.useRef(false);
 
-  // Get all items for price calculation, including serviceListing data from placements/projectServices
-  const allItems = useMemo(() => {
-    return groupedByVendor.flatMap((vendor) => 
-      vendor.items
-        .filter((item) => item.serviceListingId)
-        .map((item) => {
-          // Include serviceListing data if available from the item
-          // This data comes from the venue design response (placements.serviceListing or projectServices.serviceListing)
-          return {
-            ...item,
-            serviceListing: item.serviceListing || null, // Pass through serviceListing if available
-          };
-        })
-    );
-  }, [groupedByVendor]);
-
-  // Calculate prices using the pricing engine
-  const { prices: calculatedPrices } = usePricingCalculation(
-    allItems,
-    venueDesignId,
-    eventStartTime ? new Date(eventStartTime) : null,
-    eventEndTime ? new Date(eventEndTime) : null
-  );
-
-  // Initialize: expand all vendors and select all listings when modal opens
-  React.useEffect(() => {
-    if (open && groupedByVendor.length > 0 && !hasInitialized.current) {
-      // Only initialize once when modal first opens
-      hasInitialized.current = true;
-      // Expand all vendors
-      setExpandedVendors(new Set(groupedByVendor.map((v) => v.vendorId || v.vendorName)));
-      // Select all listings
-      const allListingKeys = new Set();
-      groupedByVendor.forEach((vendor) => {
-        vendor.items.forEach((item) => {
-          if (item.serviceListingId) {
-            allListingKeys.add(item.key);
+  // Fetch checkout summary from backend when modal opens
+  useEffect(() => {
+    if (open && projectId) {
+      setLoadingCheckout(true);
+      getCheckoutSummary(projectId)
+        .then((data) => {
+          setCheckoutData(data);
+          // Initialize: expand all vendors and select all listings
+          if (data.groupedByVendor && data.groupedByVendor.length > 0 && !hasInitialized.current) {
+            hasInitialized.current = true;
+            setExpandedVendors(new Set(data.groupedByVendor.map((v) => v.vendorId || v.vendorName)));
+            const allListingKeys = new Set();
+            data.groupedByVendor.forEach((vendor) => {
+              vendor.items.forEach((item) => {
+                if (item.serviceListingId) {
+                  allListingKeys.add(item.key);
+                }
+              });
+            });
+            setSelectedListings(allListingKeys);
           }
+        })
+        .catch((err) => {
+          console.error('[CheckoutModal] Failed to fetch checkout summary:', err);
+          if (onShowToast) {
+            onShowToast({ open: true, message: err.message || 'Failed to load checkout data', severity: 'error' });
+          }
+        })
+        .finally(() => {
+          setLoadingCheckout(false);
         });
-      });
-      setSelectedListings(allListingKeys);
     }
-  }, [open, groupedByVendor]);
+  }, [open, projectId, onShowToast]);
+
+  // Use backend-provided groupedByVendor
+  const groupedByVendor = checkoutData?.groupedByVendor || [];
 
   const handleToggleVendor = (vendorId) => {
     const newExpanded = new Set(expandedVendors);
@@ -133,73 +129,21 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
     }
   };
 
-  // Get selected listings grouped by vendor with calculated prices
-  // Adjust quantities by subtracting already-booked quantities
+  // Get selected listings grouped by vendor (prices already calculated by backend)
   const selectedVendorData = useMemo(() => {
     return groupedByVendor
       .map((vendor) => {
-        const selectedItems = vendor.items
-          .filter((item) => selectedListings.has(item.key) && item.serviceListingId)
-          .map((item) => {
-            // Adjust quantity: subtract already-booked quantity
-            const alreadyBooked = bookedQuantities[item.serviceListingId] || 0;
-            const adjustedQuantity = Math.max(0, (item.quantity || 0) - alreadyBooked);
-            
-            // Skip items with 0 adjusted quantity (all already booked)
-            if (adjustedQuantity <= 0) {
-              return null;
-            }
-            
-            // Use calculated price if available and > 0, otherwise fall back to item.price
-            // For non-3D services, item.price is the total price (unitPrice * quantity)
-            const calculatedPrice = calculatedPrices.get(item.serviceListingId);
-            let price = item.price || 0; // Start with total price from item
-            
-            // Only use calculated price if it's valid (> 0)
-            // The calculated price is the total price for the service
-            if (calculatedPrice !== undefined && calculatedPrice > 0) {
-              // Adjust calculated price proportionally based on adjusted quantity
-              const originalQuantity = item.quantity || 1;
-              if (originalQuantity > 0) {
-                price = (calculatedPrice / originalQuantity) * adjustedQuantity;
-              } else {
-                price = calculatedPrice;
-              }
-            } else if (price === 0 && item.serviceListing?.price) {
-              // Fallback: if price is 0, try to get it from serviceListing and multiply by adjusted quantity
-              const unitPrice = typeof item.serviceListing.price === 'string' 
-                ? parseFloat(item.serviceListing.price) 
-                : (item.serviceListing.price || 0);
-              price = unitPrice * adjustedQuantity;
-            } else if (price > 0) {
-              // Adjust existing price proportionally
-              const originalQuantity = item.quantity || 1;
-              if (originalQuantity > 0) {
-                price = (price / originalQuantity) * adjustedQuantity;
-              }
-            }
-            
-            // Update displayName with adjusted quantity
-            const displayName = adjustedQuantity > 1 ? `${item.name} x ${adjustedQuantity}` : item.name;
-            
-            return {
-              ...item,
-              quantity: adjustedQuantity,
-              price,
-              displayName,
-            };
-          })
-          .filter(Boolean); // Remove null items (all already booked)
+        const selectedItems = vendor.items.filter((item) => selectedListings.has(item.key) && item.serviceListingId);
         if (selectedItems.length === 0) return null;
 
         return {
           ...vendor,
           items: selectedItems,
-          total: selectedItems.reduce((sum, item) => sum + item.price, 0),
+          total: selectedItems.reduce((sum, item) => sum + (item.price || 0), 0),
         };
       })
       .filter(Boolean);
-  }, [groupedByVendor, selectedListings, calculatedPrices, bookedQuantities]);
+  }, [groupedByVendor, selectedListings]);
 
   const grandTotal = useMemo(() => {
     return selectedVendorData.reduce((sum, vendor) => sum + vendor.total, 0);
@@ -245,26 +189,14 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
             if (!item.serviceListingId || item.quantity <= 0) {
               return false;
             }
-            // For price, use calculated price if available, otherwise use item.price
-            // Only filter out if both are 0 or invalid
-            const calculatedPrice = calculatedPrices.get(item.serviceListingId);
-            const finalPrice = calculatedPrice !== undefined && calculatedPrice > 0 
-              ? calculatedPrice 
-              : (item.price || 0);
-            
-            return finalPrice > 0;
+            // Backend already calculated the price, use it directly
+            return (item.price || 0) > 0;
           })
           .map((item) => {
-            // Use calculated price if available and > 0, otherwise use item.price
-            const calculatedPrice = calculatedPrices.get(item.serviceListingId);
-            const finalPrice = calculatedPrice !== undefined && calculatedPrice > 0 
-              ? calculatedPrice 
-              : (item.price || 0);
-            
             return {
               serviceListingId: item.serviceListingId,
               quantity: item.quantity,
-              totalPrice: finalPrice,
+              totalPrice: item.price || 0,
             };
           });
 
@@ -331,12 +263,27 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
       setSelectedListings(new Set());
       setExpandedVendors(new Set());
       setIsSubmitted(false);
+      setIsSubmitting(false); // Reset submitting state
       setContractAcknowledged(false); // Reset contract acknowledgment
       setShowContractDialog(false);
+      setCheckoutData(null); // Clear checkout data
     }
   }, [open]);
 
   if (!open) return null;
+
+  if (loadingCheckout) {
+    return (
+      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+        <DialogContent sx={{ p: 4, textAlign: 'center' }}>
+          <CircularProgress sx={{ mb: 2 }} />
+          <Typography variant="body1" color="text.secondary">
+            Loading checkout summary...
+          </Typography>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   if (isSubmitted) {
     return (
@@ -846,15 +793,7 @@ const CheckoutModal = ({ open, onClose, groupedByVendor = [], projectId, wedding
 CheckoutModal.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
-          groupedByVendor: PropTypes.arrayOf(
-    PropTypes.shape({
-      vendorId: PropTypes.string,
-      vendorName: PropTypes.string.isRequired,
-      items: PropTypes.array.isRequired,
-      total: PropTypes.number.isRequired,
-    })
-  ),
-  projectId: PropTypes.string,
+  projectId: PropTypes.string.isRequired,
   weddingDate: PropTypes.string,
   venueDesignId: PropTypes.string,
   eventStartTime: PropTypes.string,

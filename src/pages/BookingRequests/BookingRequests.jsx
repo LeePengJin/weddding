@@ -49,7 +49,7 @@ const BookingRequests = () => {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [confirmationDialog, setConfirmationDialog] = useState({
     open: false,
-    type: null, // 'accept' or 'reject'
+    type: null, // 'accept', 'reject', or 'cancel'
     booking: null,
   });
   const [sortBy, setSortBy] = useState('bookingDate');
@@ -126,7 +126,19 @@ const BookingRequests = () => {
     });
   };
 
-  const handleCancelBooking = async (booking) => {
+  const [vendorCancelReason, setVendorCancelReason] = useState('');
+
+  const handleCancelBooking = (booking) => {
+    setVendorCancelReason('');
+    setConfirmationDialog({
+      open: true,
+      type: 'cancel',
+      booking,
+    });
+  };
+
+  const performVendorCancellation = async (booking) => {
+    if (!booking) return;
     try {
       setUpdatingStatus(true);
       setError(null);
@@ -134,7 +146,7 @@ const BookingRequests = () => {
       await apiFetch(`/bookings/${booking.id}/cancel`, {
         method: 'POST',
         body: JSON.stringify({
-          reason: null,
+          reason: vendorCancelReason,
         }),
       });
 
@@ -156,6 +168,13 @@ const BookingRequests = () => {
       handleStatusUpdate(confirmationDialog.booking.id, 'pending_deposit_payment');
     } else if (confirmationDialog.type === 'reject') {
       handleStatusUpdate(confirmationDialog.booking.id, 'rejected');
+    } else if (confirmationDialog.type === 'cancel') {
+      // Require a cancellation reason from the vendor
+      if (!vendorCancelReason || !vendorCancelReason.trim()) {
+        setError('Please provide a cancellation reason before cancelling this booking.');
+        return;
+      }
+      performVendorCancellation(confirmationDialog.booking);
     }
 
     setConfirmationDialog({ open: false, type: null, booking: null });
@@ -164,6 +183,46 @@ const BookingRequests = () => {
   const handleCloseConfirmation = () => {
     setConfirmationDialog({ open: false, type: null, booking: null });
   };
+
+  const confirmationCopy = (() => {
+    if (!confirmationDialog.booking) {
+      return {
+        title: 'Confirm Action',
+        description: '',
+        confirmText: 'Confirm',
+      };
+    }
+
+    if (confirmationDialog.type === 'accept') {
+      return {
+        title: 'Accept Booking Request?',
+        description: `Are you sure you want to accept the booking request from ${confirmationDialog.booking.couple.user.name}? This will move the booking to pending deposit payment status.`,
+        confirmText: 'Accept',
+      };
+    }
+
+    if (confirmationDialog.type === 'reject') {
+      return {
+        title: 'Reject Booking Request?',
+        description: `Are you sure you want to reject the booking request from ${confirmationDialog.booking.couple.user.name}? This action cannot be undone.`,
+        confirmText: 'Reject',
+      };
+    }
+
+    if (confirmationDialog.type === 'cancel') {
+      return {
+        title: 'Cancel Booking?',
+        description: `Canceling this confirmed booking will notify ${confirmationDialog.booking.couple.user.name} immediately. Make sure you are ready to process any pending refunds.`,
+        confirmText: 'Cancel Booking',
+      };
+    }
+
+    return {
+      title: 'Confirm Action',
+      description: '',
+      confirmText: 'Confirm',
+    };
+  })();
 
   const getStatusColor = (status) => {
     const statusColors = {
@@ -774,21 +833,27 @@ const BookingRequests = () => {
         open={confirmationDialog.open}
         onClose={handleCloseConfirmation}
         onConfirm={handleConfirmAction}
-        title={
-          confirmationDialog.type === 'accept'
-            ? 'Accept Booking Request?'
-            : 'Reject Booking Request?'
-        }
-        description={
-          confirmationDialog.booking
-            ? confirmationDialog.type === 'accept'
-              ? `Are you sure you want to accept the booking request from ${confirmationDialog.booking.couple.user.name}? This will move the booking to pending deposit payment status.`
-              : `Are you sure you want to reject the booking request from ${confirmationDialog.booking.couple.user.name}? This action cannot be undone.`
-            : ''
-        }
-        confirmText={confirmationDialog.type === 'accept' ? 'Accept' : 'Reject'}
+        title={confirmationCopy.title}
+        description={confirmationCopy.description}
+        confirmText={confirmationCopy.confirmText}
         cancelText="Cancel"
-      />
+      >
+        {confirmationDialog.type === 'cancel' && (
+          <TextField
+            label="Cancellation reason"
+            placeholder="Please explain why you are cancelling this booking."
+            multiline
+            minRows={3}
+            fullWidth
+            value={vendorCancelReason}
+            onChange={(e) => setVendorCancelReason(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onFocus={(e) => e.stopPropagation()}
+            required
+            sx={{ mt: 2 }}
+          />
+        )}
+      </ConfirmationDialog>
 
       {/* Success Notification */}
       <Snackbar

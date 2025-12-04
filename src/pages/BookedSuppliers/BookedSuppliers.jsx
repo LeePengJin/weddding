@@ -23,6 +23,7 @@ import {
   Select,
   FormControl,
   InputLabel,
+  InputAdornment,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -33,6 +34,7 @@ import {
   LocationOn,
   CheckCircle,
   Close,
+  Search,
 } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
 import UserAvatar from '../../components/UserAvatar/UserAvatar';
@@ -53,6 +55,8 @@ const BookedSuppliers = () => {
     comment: '',
   });
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [supplierSort, setSupplierSort] = useState('date_desc');
 
   useEffect(() => {
     fetchBookings();
@@ -163,6 +167,41 @@ const BookedSuppliers = () => {
     }, 0);
   };
 
+  const searchValue = supplierSearch.trim().toLowerCase();
+  const filteredSuppliers = bookings.filter((booking) => {
+    if (!searchValue) return true;
+    const vendorName = booking.vendor?.user?.name?.toLowerCase() || '';
+    const serviceNames =
+      booking.selectedServices?.map((service) => service.serviceListing?.name?.toLowerCase() || '').join(' ') || '';
+    const bookingId = booking.id?.toLowerCase() || '';
+    return (
+      vendorName.includes(searchValue) ||
+      serviceNames.includes(searchValue) ||
+      bookingId.includes(searchValue)
+    );
+  });
+
+  const sortedSuppliers = [...filteredSuppliers].sort((a, b) => {
+    const dateA = a.reservedDate ? new Date(a.reservedDate).getTime() : 0;
+    const dateB = b.reservedDate ? new Date(b.reservedDate).getTime() : 0;
+    const totalA = calculateTotal(a);
+    const totalB = calculateTotal(b);
+
+    switch (supplierSort) {
+      case 'date_asc':
+        return dateA - dateB;
+      case 'amount_high':
+        return totalB - totalA;
+      case 'amount_low':
+        return totalA - totalB;
+      case 'vendor_az':
+        return (a.vendor?.user?.name || '').localeCompare(b.vendor?.user?.name || '');
+      case 'date_desc':
+      default:
+        return dateB - dateA;
+    }
+  });
+
   if (loading && bookings.length === 0) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -198,18 +237,57 @@ const BookedSuppliers = () => {
           </Alert>
         )}
 
-        {bookings.length === 0 ? (
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', md: 'row' },
+            gap: 2,
+            mb: 3,
+          }}
+        >
+          <TextField
+            fullWidth
+            placeholder="Search by vendor, service, or booking ID"
+            value={supplierSearch}
+            onChange={(e) => setSupplierSearch(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <FormControl sx={{ minWidth: { xs: '100%', md: 220 } }}>
+            <InputLabel>Sort By</InputLabel>
+            <Select
+              label="Sort By"
+              value={supplierSort}
+              onChange={(e) => setSupplierSort(e.target.value)}
+            >
+              <MenuItem value="date_desc">Wedding date (newest)</MenuItem>
+              <MenuItem value="date_asc">Wedding date (oldest)</MenuItem>
+              <MenuItem value="amount_high">Amount (high to low)</MenuItem>
+              <MenuItem value="amount_low">Amount (low to high)</MenuItem>
+              <MenuItem value="vendor_az">Vendor A-Z</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+
+        {sortedSuppliers.length === 0 ? (
           <Paper elevation={2} sx={{ p: 4, textAlign: 'center' }}>
             <Typography variant="h6" color="text.secondary">
-              No confirmed bookings yet
+              {bookings.length === 0 ? 'No confirmed bookings yet' : 'No suppliers match your filters'}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Your confirmed vendors will appear here
+              {bookings.length === 0
+                ? 'Your confirmed vendors will appear here.'
+                : 'Try adjusting your search keywords or sorting option.'}
             </Typography>
           </Paper>
         ) : (
           <Stack spacing={3}>
-            {bookings.map((booking) => {
+            {sortedSuppliers.map((booking) => {
               const total = calculateTotal(booking);
               // Check if all services have been reviewed
               // For single-service bookings, check if that service has a review

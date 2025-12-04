@@ -26,6 +26,16 @@ export function usePricingCalculation(items, venueDesignId = null, eventStartTim
     );
   }, [items]);
 
+  // Signature that changes when quantities for a service change
+  // This forces recalculation when user adjusts quantities without changing IDs.
+  const quantitySignature = useMemo(
+    () =>
+      items
+        .map((item) => `${item.serviceListingId || 'none'}:${item.quantity ?? 0}`)
+        .join('|'),
+    [items]
+  );
+
   useEffect(() => {
     if (serviceListingIds.length === 0) {
       setPrices(new Map());
@@ -73,8 +83,64 @@ export function usePricingCalculation(items, venueDesignId = null, eventStartTim
               // For per_table services, tableCount will be fetched by calculateServicePrice
               // For other services, use quantity from items
               const itemsForService = items.filter((item) => item.serviceListingId === serviceListing.id);
+              
+              if (itemsForService.length === 0) {
+                // No items found for this service, return 0
+                return {
+                  id: serviceListing.id,
+                  price: 0,
+                };
+              }
+              
+              // Calculate total quantity with proper validation
+              const totalQuantity = itemsForService.reduce((sum, item) => {
+                const qty = item.quantity;
+                // Handle various quantity formats: number, string, or default to 1
+                if (qty === null || qty === undefined || qty === '') {
+                  return sum + 1; // Default to 1 if quantity is missing
+                }
+                const numQty = typeof qty === 'number' ? qty : (typeof qty === 'string' ? parseFloat(qty) : 1);
+                if (isNaN(numQty) || numQty < 0) {
+                  return sum + 1; // Default to 1 if invalid
+                }
+                return sum + numQty;
+              }, 0);
+              
+              // Ensure quantity is a valid positive number (at least 1 for per_unit)
+              const validQuantity = serviceListing.pricingPolicy === 'per_unit' 
+                ? Math.max(1, Math.floor(totalQuantity)) // At least 1 for per_unit
+                : Math.max(0, Math.floor(totalQuantity)); // Can be 0 for others
+              
+              // Skip price calculation for services with 0 quantity (except fixed_package)
+              // This prevents "Invalid pricing context" errors
+              if (validQuantity <= 0 && serviceListing.pricingPolicy !== 'fixed_package') {
+                return {
+                  id: serviceListing.id,
+                  price: 0,
+                };
+              }
+
+              // Simple client-side pricing for per_unit and fixed_package to avoid
+              // unnecessary API calls and invalid pricing contexts.
+              const basePrice = parseFloat(serviceListing.price || 0);
+
+              if (serviceListing.pricingPolicy === 'per_unit') {
+                return {
+                  id: serviceListing.id,
+                  price: basePrice * validQuantity,
+                };
+              }
+
+              if (serviceListing.pricingPolicy === 'fixed_package') {
+                return {
+                  id: serviceListing.id,
+                  price: basePrice,
+                };
+              }
+
+              // For other pricing policies, use the backend pricing engine
               const context = {
-                quantity: itemsForService.reduce((sum, item) => sum + (item.quantity || 1), 0),
+                quantity: validQuantity,
               };
 
               const price = await calculateServicePrice(
@@ -91,6 +157,13 @@ export function usePricingCalculation(items, venueDesignId = null, eventStartTim
               // For per_table services with 0 tables, return 0 instead of base price
               // This prevents validation errors in checkout
               if (serviceListing.pricingPolicy === 'per_table') {
+                return {
+                  id: serviceListing.id,
+                  price: 0,
+                };
+              }
+              // For per_unit services with 0 quantity, return 0
+              if (serviceListing.pricingPolicy === 'per_unit') {
                 return {
                   id: serviceListing.id,
                   price: 0,
@@ -128,7 +201,7 @@ export function usePricingCalculation(items, venueDesignId = null, eventStartTim
     return () => {
       cancelled = true;
     };
-  }, [serviceListingIds.join(','), venueDesignId, eventStartTime?.getTime(), eventEndTime?.getTime(), items.length]);
+  }, [serviceListingIds.join(','), quantitySignature, venueDesignId, eventStartTime?.getTime(), eventEndTime?.getTime()]);
 
   return { prices, loading, error };
 }

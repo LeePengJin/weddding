@@ -40,7 +40,7 @@ const PaymentMethodSelector = ({ selected, onSelect }) => {
         
         <CreditCard sx={{ fontSize: 32, mb: 2, opacity: selected === 'card' ? 1 : 0.7 }} />
         <Typography variant="body1" fontWeight={600} sx={{ position: 'relative', zIndex: 1 }}>
-          Credit Card
+          Card
         </Typography>
       </Paper>
 

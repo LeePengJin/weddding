@@ -100,6 +100,12 @@ const OrderSummary = ({ order }) => {
 
       {/* Payment Breakdown */}
       <Box sx={{ pt: 3, mt: 'auto', borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        {order.items[0]?.id === 'cancellation_fee' && (
+          <Typography variant="caption" color="text.secondary">
+            This payment only covers the <strong>cancellation fee</strong> for this booking. No additional
+            services will be booked or paid for.
+          </Typography>
+        )}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', color: 'text.secondary' }}>
           <Typography variant="body2">Subtotal</Typography>
           <Typography variant="body2">RM {order.subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>

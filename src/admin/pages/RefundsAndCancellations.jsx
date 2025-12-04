@@ -9,6 +9,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   Chip,
   Button,
   Dialog,
@@ -16,15 +17,16 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  MenuItem,
-  Select,
-  FormControl,
-  InputLabel,
   Alert,
   CircularProgress,
   IconButton,
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
-import { Edit, Close } from '@mui/icons-material';
+import { Edit, Close, Search } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
 
 const RefundStatus = {
@@ -45,6 +47,9 @@ const RefundsAndCancellations = () => {
     refundNotes: '',
   });
   const [saving, setSaving] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [orderBy, setOrderBy] = useState('cancelledAt');
+  const [orderDirection, setOrderDirection] = useState('desc');
 
   useEffect(() => {
     fetchCancellations();
@@ -123,6 +128,54 @@ const RefundsAndCancellations = () => {
     }
   };
 
+  const searchValue = searchTerm.trim().toLowerCase();
+
+  const filteredCancellations = [...cancellations]
+    .filter((cancellation) => {
+      if (!searchValue) return true;
+      const bookingId = cancellation.bookingId?.toLowerCase() || '';
+      const coupleName = cancellation.booking?.couple?.user?.name?.toLowerCase() || '';
+      const vendorName = cancellation.booking?.vendor?.user?.name?.toLowerCase() || '';
+      const reason = cancellation.cancellationReason?.toLowerCase() || '';
+      return (
+        bookingId.includes(searchValue) ||
+        coupleName.includes(searchValue) ||
+        vendorName.includes(searchValue) ||
+        reason.includes(searchValue)
+      );
+    })
+    .sort((a, b) => {
+      const direction = orderDirection === 'asc' ? 1 : -1;
+      if (orderBy === 'cancelledAt') {
+        const dateA = a.cancelledAt ? new Date(a.cancelledAt).getTime() : 0;
+        const dateB = b.cancelledAt ? new Date(b.cancelledAt).getTime() : 0;
+        return (dateA - dateB) * direction;
+      }
+      if (orderBy === 'refundAmount') {
+        const amountA = parseFloat(a.refundAmount) || 0;
+        const amountB = parseFloat(b.refundAmount) || 0;
+        return (amountA - amountB) * direction;
+      }
+      if (orderBy === 'refundStatus') {
+        const statusA = getRefundStatusLabel(a.refundStatus);
+        const statusB = getRefundStatusLabel(b.refundStatus);
+        return statusA.localeCompare(statusB) * direction;
+      }
+      // default fallback
+      const dateA = a.cancelledAt ? new Date(a.cancelledAt).getTime() : 0;
+      const dateB = b.cancelledAt ? new Date(b.cancelledAt).getTime() : 0;
+      return (dateA - dateB) * direction;
+    });
+
+  const handleRequestSort = (property) => {
+    if (orderBy === property) {
+      setOrderDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setOrderBy(property);
+      setOrderDirection('asc');
+    }
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -143,23 +196,69 @@ const RefundsAndCancellations = () => {
         </Alert>
       )}
 
+      <Box
+        sx={{
+          mb: 2,
+          display: 'flex',
+          justifyContent: 'flex-end',
+        }}
+      >
+        <TextField
+          sx={{ width: { xs: '100%', sm: 320, md: 360 } }}
+          placeholder="Search by booking, couple, vendor, or reason"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+        />
+      </Box>
+
       <TableContainer component={Paper} elevation={2}>
         <Table>
           <TableHead>
-            <TableRow sx={{ bgcolor: 'grey.100' }}>
-              <TableCell><strong>Booking ID</strong></TableCell>
-              <TableCell><strong>Couple</strong></TableCell>
-              <TableCell><strong>Vendor</strong></TableCell>
-              <TableCell><strong>Cancellation Reason</strong></TableCell>
-              <TableCell><strong>Refund Required</strong></TableCell>
-              <TableCell><strong>Refund Amount</strong></TableCell>
-              <TableCell><strong>Refund Status</strong></TableCell>
-              <TableCell><strong>Cancelled Date</strong></TableCell>
-              <TableCell><strong>Actions</strong></TableCell>
-            </TableRow>
+              <TableRow sx={{ bgcolor: 'grey.100' }}>
+                <TableCell><strong>Booking ID</strong></TableCell>
+                <TableCell><strong>Couple</strong></TableCell>
+                <TableCell><strong>Vendor</strong></TableCell>
+                <TableCell><strong>Cancellation Reason</strong></TableCell>
+                <TableCell><strong>Refund Required</strong></TableCell>
+                <TableCell sortDirection={orderBy === 'refundAmount' ? orderDirection : false}>
+                  <TableSortLabel
+                    active={orderBy === 'refundAmount'}
+                    direction={orderBy === 'refundAmount' ? orderDirection : 'asc'}
+                    onClick={() => handleRequestSort('refundAmount')}
+                  >
+                    <strong>Refund Amount</strong>
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={orderBy === 'refundStatus' ? orderDirection : false}>
+                  <TableSortLabel
+                    active={orderBy === 'refundStatus'}
+                    direction={orderBy === 'refundStatus' ? orderDirection : 'asc'}
+                    onClick={() => handleRequestSort('refundStatus')}
+                  >
+                    <strong>Refund Status</strong>
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell sortDirection={orderBy === 'cancelledAt' ? orderDirection : false}>
+                  <TableSortLabel
+                    active={orderBy === 'cancelledAt'}
+                    direction={orderBy === 'cancelledAt' ? orderDirection : 'desc'}
+                    onClick={() => handleRequestSort('cancelledAt')}
+                  >
+                    <strong>Cancelled Date</strong>
+                  </TableSortLabel>
+                </TableCell>
+                <TableCell><strong>Actions</strong></TableCell>
+              </TableRow>
           </TableHead>
           <TableBody>
-            {cancellations.length === 0 ? (
+            {filteredCancellations.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                   <Typography variant="body2" color="text.secondary">
@@ -168,7 +267,7 @@ const RefundsAndCancellations = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              cancellations.map((cancellation) => (
+              filteredCancellations.map((cancellation) => (
                 <TableRow key={cancellation.id} hover>
                   <TableCell>
                     <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem">

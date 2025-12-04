@@ -6,7 +6,11 @@ const TngForm = ({ onChange, errors }) => {
   const [phoneNumber, setPhoneNumber] = useState('');
 
   const handlePhoneChange = (e) => {
-    const value = e.target.value;
+    // Allow only digits, max 11 characters (e.g. 01XXXXXXXXX)
+    let value = e.target.value.replace(/\D/g, '');
+    if (value.length > 11) {
+      value = value.slice(0, 11);
+    }
     setPhoneNumber(value);
     onChange({ phoneNumber: value });
   };

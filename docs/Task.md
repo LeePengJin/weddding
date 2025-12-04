@@ -122,6 +122,8 @@ _Last updated: November 18, 2025_
 - [x] (Pricing Policy) Add hourly rate input field for time_based pricing in listing creation form
 - [x] (Pricing Policy) Add tiered pricing configuration UI (tier name, price, min/max guests) in listing creation form
 - [x] (Pricing Policy) Update booking confirmation to show calculated prices based on pricing model
+- [x] (Couple) 3D venue design: When the user submit booking requests for a particular elements in the 3D venue design, it cannot be removed from the 3D venue design. Only can be removed if the booking is rejected.
+- [x] Check OTP, not functioning right now (SMTP sendMail failed, falling back to console log: Error: Invalid login: 535-5.7.8 Username and Password not accepted.)
 - [ ] What if the items in the venue is booked, but the venue suddenly become unavailable. Let the vendor cancel before making it unavailable?
 - [ ] If the items in the venue is already sent booking request, the system shall not allow the user to submit the booking request again, unless the previous booking request is rejected. If not it will cause redundant record, where 2 booking requests if for the same item in the same venue design.
 - [ ] Support parent-child attachments for stacked elements so children follow the surface when it moves.
@@ -133,12 +135,11 @@ _Last updated: November 18, 2025_
 - [ ] Remove service availability in database
 - [ ] Add grouping, duplicate functionality in 3D venue design
 - [ ] Try to enhance the 3D venue design functionality
-- [ ] Check OTP, not functioning right now (SMTP sendMail failed, falling back to console log: Error: Invalid login: 535-5.7.8 Username and Password not accepted.)
 - [ ] Change all IDs in database to be meaningful (have prefix)
 - [ ] For the listing image, if there is 3D model, take a screenshot of the 3D model and make it its listing image. But if the vendor choose to upload themselve, use the image uploaded. If none of them is provided, put a default image (need to be appropriate).
 - [ ] Allow pan for adjusting dimension.
 - [ ] Do one more list that store the 3D element that can be added into the 3D space. My idea is like there will be two option, if they click on the add button, the 3D item is added to something like a list that keep all the selected items choose by the user because there might be bundle service that contains many elements. Another option is they directly drag from the catalog to the 3D venue, this will directly put all the elements in the 3D venue instead of the list.
-- [ ] (Couple) 3D venue design: When the user submit booking requests for a particular elements in the 3D venue design, it cannot be removed from the 3D venue design. Only can be removed if the booking is rejected.
+- [x] Add search function in booking request (vendor)
 
 
 ## Payment & Cancellation System

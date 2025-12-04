@@ -91,6 +91,10 @@ export function getVenueAvailability(projectId, serviceListingIds = []) {
   return apiFetch(`/venue-designs/${projectId}/availability?${params.toString()}`);
 }
 
+export function getCheckoutSummary(projectId) {
+  return apiFetch(`/venue-designs/${projectId}/checkout-summary`);
+}
+
 export function getTableCount(venueDesignId, serviceListingId = null) {
   const params = new URLSearchParams();
   if (serviceListingId) {

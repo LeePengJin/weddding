@@ -500,7 +500,7 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
       }
 
       // When accepting a booking (pending_vendor_confirmation -> pending_deposit_payment)
-      // Create a time slot for the reserved date
+      // Create a time slot for the reserved date and set deposit due date
       if (currentStatus === 'pending_vendor_confirmation' && newStatus === 'pending_deposit_payment') {
         const reservedDate = existingBooking.reservedDate;
         const dateStr = reservedDate.toISOString().split('T')[0];
@@ -523,6 +523,33 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
               status: 'booked',
             },
           });
+        }
+        
+        // Set deposit due date to 7 days from now (vendor acceptance date)
+        if (!updatePayload.depositDueDate) {
+          const depositDueDate = new Date();
+          depositDueDate.setDate(depositDueDate.getDate() + 7);
+          updatePayload.depositDueDate = depositDueDate;
+        }
+      }
+      
+      // When deposit is paid (pending_deposit_payment -> confirmed)
+      // Set final payment due date to 1 week before wedding date
+      if (currentStatus === 'pending_deposit_payment' && newStatus === 'confirmed') {
+        const project = await prisma.weddingProject.findUnique({
+          where: { id: existingBooking.projectId },
+          select: { weddingDate: true },
+        });
+        
+        if (project && project.weddingDate) {
+          const weddingDate = new Date(project.weddingDate);
+          const finalDueDate = new Date(weddingDate);
+          finalDueDate.setDate(finalDueDate.getDate() - 7); // 1 week before wedding
+          
+          // Only set if it's in the future
+          if (finalDueDate > new Date()) {
+            updatePayload.finalDueDate = finalDueDate;
+          }
         }
       }
     }
@@ -576,6 +603,17 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
         payments: {
           orderBy: { paymentDate: 'desc' },
         },
+        vendor: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -598,6 +636,15 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
         amount: payment.amount.toString(),
       })),
     };
+
+    // Send email when vendor accepts booking (moves to pending_deposit_payment)
+    if (currentStatus === 'pending_vendor_confirmation' && newStatus === 'pending_deposit_payment') {
+      notificationService
+        .sendBookingAcceptedCoupleNotification(bookingWithStringPrices)
+        .catch((err) => {
+          console.error('Error sending booking accepted notification to couple:', err);
+        });
+    }
 
     res.json(bookingWithStringPrices);
   } catch (err) {
@@ -857,6 +904,14 @@ router.post('/', requireAuth, async (req, res, next) => {
       })),
     };
 
+    // Send email notifications to couple and vendor
+    notificationService.sendBookingRequestCreatedCoupleNotification(booking).catch((err) => {
+      console.error('Error sending booking request created notification to couple:', err);
+    });
+    notificationService.sendBookingRequestReceivedVendorNotification(booking).catch((err) => {
+      console.error('Error sending booking request received notification to vendor:', err);
+    });
+
     res.status(201).json(bookingWithStringPrices);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -929,16 +984,37 @@ router.post('/:id/payments', requireAuth, async (req, res, next) => {
 
     // Update booking status based on payment type
     let newStatus = booking.status;
+    const updateData = { status: newStatus };
+    
     if (data.paymentType === 'deposit') {
       newStatus = 'confirmed';
+      updateData.status = newStatus;
+      
+      // Set final payment due date to 1 week before wedding date
+      const project = await prisma.weddingProject.findUnique({
+        where: { id: booking.projectId },
+        select: { weddingDate: true },
+      });
+      
+      if (project && project.weddingDate) {
+        const weddingDate = new Date(project.weddingDate);
+        const finalDueDate = new Date(weddingDate);
+        finalDueDate.setDate(finalDueDate.getDate() - 7); // 1 week before wedding
+        
+        // Only set if it's in the future
+        if (finalDueDate > new Date()) {
+          updateData.finalDueDate = finalDueDate;
+        }
+      }
     } else if (data.paymentType === 'final') {
       newStatus = 'completed';
+      updateData.status = newStatus;
     }
 
     // Update booking status and linked design items
     const updatedBooking = await prisma.booking.update({
       where: { id: booking.id },
-      data: { status: newStatus },
+      data: updateData,
     });
 
     await updateLinkedDesignItemsForBooking(updatedBooking.id, updatedBooking.status);
@@ -1250,8 +1326,14 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
       where,
       include: {
         vendor: {
-          select: {
-            category: true,
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
           },
         },
         selectedServices: {
@@ -1331,13 +1413,11 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
     let cancellationFee = null;
     let cancellationFeePaymentId = null;
 
-    // For couple cancellations, a reason is required
-    if (!isVendorCancelling) {
-      if (!data.reason || !data.reason.trim()) {
-        return res.status(400).json({
-          error: 'Cancellation reason is required',
-        });
-      }
+    // Require a cancellation reason for both couple and vendor cancellations
+    if (!data.reason || !data.reason.trim()) {
+      return res.status(400).json({
+        error: 'Cancellation reason is required',
+      });
     }
 
     // Calculate fee only for couple cancellations
@@ -1437,6 +1517,46 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
       }
 
       console.log(`⚠️ Venue booking ${booking.id} cancelled. ${booking.dependentBookings.length} dependent booking(s) will be auto-cancelled on wedding date if no replacement venue is selected.`);
+    }
+
+    const updatedBooking = await prisma.booking.findUnique({
+      where: { id: booking.id },
+      include: {
+        selectedServices: true,
+        vendor: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+        couple: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+        payments: true,
+      },
+    });
+
+    notificationService.sendCancellationCompletedNotification(updatedBooking, cancellation).catch((err) => {
+      console.error('Error sending cancellation completed notification:', err);
+    });
+
+    if (!isVendorCancelling) {
+      notificationService.sendCancellationVendorNotification(updatedBooking, cancellation).catch((err) => {
+        console.error('Error sending cancellation vendor notification:', err);
+      });
     }
 
     res.status(201).json({
@@ -1611,6 +1731,7 @@ router.post('/:id/cancellation-fee-payment', requireAuth, async (req, res, next)
               select: {
                 id: true,
                 name: true,
+                email: true,
               },
             },
           },

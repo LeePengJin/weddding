@@ -6,6 +6,7 @@ const { PrismaClient } = require('@prisma/client');
 
 const { requireAuth } = require('../middleware/auth');
 const { prefixedUlid } = require('../utils/id');
+const { calculatePrice, calculateEventDuration } = require('../utils/pricingCalculator');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -823,6 +824,24 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
 
     if (!serviceListing) {
       return res.status(404).json({ error: 'Service listing not found or inactive' });
+    }
+
+    // If the project has a wedding date, ensure the service is available for that date.
+    // This prevents adding exclusive or otherwise unavailable services to the design
+    // after they have already been booked for the selected date.
+    if (project.weddingDate) {
+      const weddingDateIso =
+        project.weddingDate instanceof Date
+          ? project.weddingDate.toISOString().slice(0, 10)
+          : project.weddingDate.toString().slice(0, 10);
+
+      const availability = await checkServiceAvailabilityForDate(serviceListing.id, weddingDateIso);
+
+      if (availability && availability.available === false) {
+        return res.status(400).json({
+          error: availability.reason || 'Service is unavailable on the selected wedding date',
+        });
+      }
     }
 
     if (serviceListing.category === 'Venue') {
@@ -1798,6 +1817,370 @@ router.post('/:venueDesignId/untag-tables', requireAuth, async (req, res, next) 
       return res.status(err.statusCode).json({ error: err.message });
     }
     next(err);
+  }
+});
+
+// GET /venue-designs/:projectId/checkout-summary - Get checkout summary with calculated quantities and prices
+router.get('/:projectId/checkout-summary', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'couple') {
+      return res.status(403).json({ error: 'Couple access required' });
+    }
+
+    const project = await fetchProject(req.params.projectId, req.user.sub);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    if (!project.weddingDate) {
+      return res.status(400).json({ error: 'Wedding date is not set for this project' });
+    }
+
+    const venueDesign = await getOrCreateVenueDesign(project);
+    const layoutData = venueDesign.layoutData || {};
+    const placementsMeta = layoutData.placementsMeta || {};
+
+    // Get all placements with their service listings
+    const placements = await prisma.placedElement.findMany({
+      where: { venueDesignId: venueDesign.id },
+      include: {
+        designElement: {
+          include: {
+            vendor: {
+              select: {
+                userId: true,
+                user: {
+                  select: {
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Get project services (non-3D services)
+    const projectServices = await prisma.projectService.findMany({
+      where: { projectId: project.id },
+      include: {
+        serviceListing: {
+          include: {
+            vendor: {
+              select: {
+                userId: true,
+                user: {
+                  select: {
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Get active bookings for this project and wedding date
+    const weddingDate = project.weddingDate instanceof Date ? project.weddingDate : new Date(project.weddingDate);
+    const startOfDay = new Date(weddingDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(weddingDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const activeBookings = await prisma.booking.findMany({
+      where: {
+        projectId: project.id,
+        reservedDate: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+        status: {
+          notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
+        },
+      },
+      include: {
+        selectedServices: {
+          select: {
+            serviceListingId: true,
+            quantity: true,
+          },
+        },
+      },
+    });
+
+    // Calculate already booked quantities per service listing
+    const bookedQuantities = {};
+    activeBookings.forEach((booking) => {
+      booking.selectedServices.forEach((service) => {
+        const serviceId = service.serviceListingId;
+        if (!bookedQuantities[serviceId]) {
+          bookedQuantities[serviceId] = 0;
+        }
+        bookedQuantities[serviceId] += service.quantity || 0;
+      });
+    });
+
+    // Get service listings for placements and project services
+    const serviceListingIds = new Set();
+    placements.forEach((placement) => {
+      const meta = placementsMeta[placement.id];
+      if (meta?.serviceListingId) {
+        serviceListingIds.add(meta.serviceListingId);
+      }
+    });
+    projectServices.forEach((ps) => {
+      if (ps.serviceListingId) {
+        serviceListingIds.add(ps.serviceListingId);
+      }
+    });
+
+    // Check if venue has an active booking
+    let venueBookingStatus = null;
+    if (project.venueServiceListingId && project.weddingDate) {
+      const venueBooking = await prisma.booking.findFirst({
+        where: {
+          projectId: project.id,
+          reservedDate: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+          status: {
+            notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
+          },
+          selectedServices: {
+            some: {
+              serviceListingId: project.venueServiceListingId,
+            },
+          },
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      if (venueBooking) {
+        venueBookingStatus = {
+          isBooked: true,
+          bookingId: venueBooking.id,
+          status: venueBooking.status,
+        };
+      }
+    }
+
+    // Include venue if not booked
+    if (project.venueServiceListingId && !venueBookingStatus?.isBooked) {
+      serviceListingIds.add(project.venueServiceListingId);
+    }
+
+    const serviceListings = await prisma.serviceListing.findMany({
+      where: { id: { in: Array.from(serviceListingIds) } },
+      include: {
+        vendor: {
+          select: {
+            userId: true,
+            user: {
+              select: {
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const serviceListingMap = {};
+    serviceListings.forEach((listing) => {
+      serviceListingMap[listing.id] = listing;
+    });
+
+    // Calculate design quantities per service listing
+    const designQuantities = {};
+    const bundleTracker = new Map(); // Track bundles to avoid double-counting
+
+    // Count 3D placements
+    placements.forEach((placement) => {
+      const meta = placementsMeta[placement.id];
+      if (!meta?.serviceListingId) return;
+
+      const bundleId = meta.bundleId;
+      if (bundleId) {
+        // For bundles, count once per bundle
+        if (!bundleTracker.has(bundleId)) {
+          bundleTracker.set(bundleId, true);
+          if (!designQuantities[meta.serviceListingId]) {
+            designQuantities[meta.serviceListingId] = 0;
+          }
+          designQuantities[meta.serviceListingId] += 1;
+        }
+      } else {
+        // Individual placement
+        if (!designQuantities[meta.serviceListingId]) {
+          designQuantities[meta.serviceListingId] = 0;
+        }
+        designQuantities[meta.serviceListingId] += 1;
+      }
+    });
+
+    // Count non-3D project services
+    const { getTableCount } = require('../services/tableCountService');
+    for (const ps of projectServices) {
+      if (!ps.serviceListingId) continue;
+      const listing = serviceListingMap[ps.serviceListingId];
+      if (!listing) continue;
+
+      if (listing.pricingPolicy === 'per_table') {
+        // For per_table services, use the table count service
+        try {
+          const tableCount = await getTableCount(venueDesign.id, ps.serviceListingId);
+          designQuantities[ps.serviceListingId] = tableCount;
+        } catch (err) {
+          console.warn(`[checkout-summary] Failed to get table count for ${ps.serviceListingId}:`, err.message);
+          designQuantities[ps.serviceListingId] = 0;
+        }
+      } else {
+        // For other services, use ProjectService quantity
+        if (!designQuantities[ps.serviceListingId]) {
+          designQuantities[ps.serviceListingId] = 0;
+        }
+        designQuantities[ps.serviceListingId] += ps.quantity || 1;
+      }
+    }
+
+    // Include venue if not booked
+    if (project.venueServiceListingId && !venueBookingStatus?.isBooked) {
+      designQuantities[project.venueServiceListingId] = 1;
+    }
+
+    // Calculate event duration for time_based pricing
+    let eventDuration = null;
+    if (project.eventStartTime && project.eventEndTime) {
+      try {
+        eventDuration = calculateEventDuration(project.eventStartTime, project.eventEndTime);
+      } catch (err) {
+        console.warn('[checkout-summary] Failed to calculate event duration:', err.message);
+      }
+    }
+
+    // Build checkout items with calculated quantities and prices
+    const checkoutItems = [];
+    const vendorMap = {};
+
+    Object.entries(designQuantities).forEach(([serviceListingId, designQuantity]) => {
+      const listing = serviceListingMap[serviceListingId];
+      if (!listing) return;
+
+      const alreadyBooked = bookedQuantities[serviceListingId] || 0;
+      const additionalQuantity = Math.max(0, designQuantity - alreadyBooked);
+
+      // Skip if no additional quantity to book
+      if (additionalQuantity <= 0) return;
+
+      const vendorId = listing.vendor?.userId;
+      const vendorName = listing.vendor?.user?.name || 'Unknown Vendor';
+
+      if (!vendorMap[vendorId]) {
+        vendorMap[vendorId] = {
+          vendorId,
+          vendorName,
+          items: [],
+          total: 0,
+        };
+      }
+
+      // Calculate price for additional quantity
+      let additionalPrice = 0;
+      try {
+        const pricingContext = {};
+        
+        if (listing.pricingPolicy === 'per_unit') {
+          pricingContext.quantity = additionalQuantity;
+        } else if (listing.pricingPolicy === 'per_table') {
+          // For per_table, use the designQuantity (total tables tagged)
+          // The price is calculated based on total tables, not additional
+          pricingContext.tableCount = designQuantity;
+        } else if (listing.pricingPolicy === 'time_based') {
+          if (eventDuration !== null) {
+            pricingContext.eventDuration = eventDuration;
+          } else {
+            throw new Error('Event duration is required for time_based pricing');
+          }
+        } else if (listing.pricingPolicy === 'tiered_package') {
+          // For tiered packages, we'd need to know which tier was selected
+          // For now, use the first tier or base price
+          pricingContext.selectedTierIndex = 0;
+        }
+        // fixed_package doesn't need context
+
+        const calculatedPrice = calculatePrice(listing, pricingContext);
+        additionalPrice = parseFloat(calculatedPrice.toString());
+        
+        // For per_table, if we have booked tables, we need to calculate the price
+        // for only the additional tables. Since per_table pricing is linear,
+        // we can calculate: price_per_table * additionalQuantity
+        if (listing.pricingPolicy === 'per_table' && alreadyBooked > 0) {
+          const pricePerTable = parseFloat(listing.price?.toString() || '0');
+          additionalPrice = pricePerTable * additionalQuantity;
+        }
+      } catch (err) {
+        console.error(`[checkout-summary] Failed to calculate price for ${listing.id}:`, err.message);
+        // Fallback to base price * quantity for per_unit, or base price for others
+        const basePrice = parseFloat(listing.price?.toString() || '0');
+        if (listing.pricingPolicy === 'per_unit' || listing.pricingPolicy === 'per_table') {
+          additionalPrice = basePrice * additionalQuantity;
+        } else {
+          additionalPrice = basePrice;
+        }
+      }
+
+      const unitPrice = parseFloat(listing.price?.toString() || '0');
+      const displayName = additionalQuantity > 1 ? `${listing.name} x ${additionalQuantity}` : listing.name;
+
+      const item = {
+        key: `item_${serviceListingId}`,
+        serviceListingId,
+        name: listing.name,
+        displayName,
+        quantity: additionalQuantity,
+        designQuantity,
+        alreadyBookedQuantity: alreadyBooked,
+        unitPrice,
+        price: additionalPrice,
+        pricingPolicy: listing.pricingPolicy,
+        serviceListing: {
+          id: listing.id,
+          name: listing.name,
+          category: listing.category,
+          price: listing.price?.toString() || null,
+          pricingPolicy: listing.pricingPolicy,
+          hourlyRate: listing.hourlyRate?.toString() || null,
+        },
+      };
+
+      vendorMap[vendorId].items.push(item);
+      vendorMap[vendorId].total += additionalPrice;
+    });
+
+    // Convert vendor map to array
+    const groupedByVendor = Object.values(vendorMap);
+
+    return res.json({
+      groupedByVendor,
+      weddingDate: project.weddingDate instanceof Date ? project.weddingDate.toISOString() : project.weddingDate,
+      eventStartTime: project.eventStartTime || null,
+      eventEndTime: project.eventEndTime || null,
+    });
+  } catch (err) {
+    console.error('[checkout-summary] Error:', err);
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return next(err);
   }
 });
 

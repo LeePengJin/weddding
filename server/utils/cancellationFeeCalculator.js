@@ -21,10 +21,11 @@ function calculateCancellationFee(serviceListing, reservedDate, totalBookingAmou
 
   // Default fee tiers if not set
   const defaultTiers = {
-    '>90': 0.0,      // No fee if cancelled >90 days before
-    '30-90': 0.10,  // 10% fee if cancelled 30-90 days before
-    '7-30': 0.25,   // 25% fee if cancelled 7-30 days before
-    '<7': 0.50,     // 50% fee if cancelled <7 days before
+    '>90': 0.0,     // No fee if cancelled >90 days before
+    '60-90': 0.30,  // At least equal to deposit (30%)
+    '30-59': 0.50,
+    '7-29': 0.70,
+    '<7': 1.0,      // 100% within 7 days
   };
 
   // Get fee tiers from service listing or use defaults
@@ -40,17 +41,39 @@ function calculateCancellationFee(serviceListing, reservedDate, totalBookingAmou
     }
   }
 
+  // Normalize tiers and enforce minimums relative to deposit (30%)
+  const depositPercentage = 0.30;
+  const normalizedTiers = {
+    '>90': Math.max(0, feeTiers['>90'] ?? defaultTiers['>90']),
+    '60-90': Math.max(depositPercentage, feeTiers['60-90'] ?? defaultTiers['60-90']),
+    '30-59': Math.max(depositPercentage, feeTiers['30-59'] ?? defaultTiers['30-59']),
+    '7-29': Math.max(depositPercentage, feeTiers['7-29'] ?? defaultTiers['7-29']),
+    '<7': Math.max(depositPercentage, feeTiers['<7'] ?? defaultTiers['<7']),
+  };
+
+  // Ensure monotonic non-decreasing percentages as wedding gets closer
+  const orderedKeys = ['>90', '60-90', '30-59', '7-29', '<7'];
+  let last = 0;
+  for (const key of orderedKeys) {
+    if (normalizedTiers[key] < last) {
+      normalizedTiers[key] = last;
+    }
+    last = normalizedTiers[key];
+  }
+
   // Determine fee percentage based on days until wedding
   let feePercentage = 0;
-  
+
   if (daysUntilWedding > 90) {
-    feePercentage = feeTiers['>90'] || 0;
+    feePercentage = normalizedTiers['>90'];
+  } else if (daysUntilWedding >= 60) {
+    feePercentage = normalizedTiers['60-90'];
   } else if (daysUntilWedding >= 30) {
-    feePercentage = feeTiers['30-90'] || 0.10;
+    feePercentage = normalizedTiers['30-59'];
   } else if (daysUntilWedding >= 7) {
-    feePercentage = feeTiers['7-30'] || 0.25;
+    feePercentage = normalizedTiers['7-29'];
   } else if (daysUntilWedding >= 0) {
-    feePercentage = feeTiers['<7'] || 0.50;
+    feePercentage = normalizedTiers['<7'];
   } else {
     // Wedding date has passed - no fee (shouldn't happen, but handle gracefully)
     feePercentage = 0;
@@ -64,8 +87,9 @@ function calculateCancellationFee(serviceListing, reservedDate, totalBookingAmou
     feeAmount: Math.round(feeAmount * 100) / 100, // Round to 2 decimal places
     daysUntilWedding,
     tier: daysUntilWedding > 90 ? '>90' : 
-          daysUntilWedding >= 30 ? '30-90' : 
-          daysUntilWedding >= 7 ? '7-30' : 
+          daysUntilWedding >= 60 ? '60-90' : 
+          daysUntilWedding >= 30 ? '30-59' : 
+          daysUntilWedding >= 7 ? '7-29' : 
           daysUntilWedding >= 0 ? '<7' : 'past',
   };
 }

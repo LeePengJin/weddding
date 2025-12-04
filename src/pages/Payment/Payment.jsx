@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Box, Typography, Button, CircularProgress, Alert, Container, Modal, Fade, Paper, IconButton, ThemeProvider, createTheme, Link } from '@mui/material';
 import { CheckCircle, Close, Description, Security, Download, ArrowBack } from '@mui/icons-material';
@@ -84,6 +84,8 @@ const Payment = () => {
   const [searchParams] = useSearchParams();
   const bookingId = searchParams.get('bookingId');
   const paymentType = searchParams.get('type') || 'deposit';
+  const cancellationReasonParam = searchParams.get('reason') || '';
+  const cancellationReason = cancellationReasonParam.trim();
   const navigate = useNavigate();
 
   const [booking, setBooking] = useState(null);
@@ -96,6 +98,8 @@ const Payment = () => {
   const [activeModal, setActiveModal] = useState(null);
   const [formData, setFormData] = useState({});
   const [formErrors, setFormErrors] = useState({});
+  const [cancellationPreview, setCancellationPreview] = useState(null);
+  const [loadingCancellationPreview, setLoadingCancellationPreview] = useState(false);
 
   useEffect(() => {
     if (bookingId) {
@@ -114,6 +118,27 @@ const Payment = () => {
       setLoading(false);
     }
   };
+
+  const fetchCancellationPreview = useCallback(async () => {
+    if (!bookingId || paymentType !== 'cancellation_fee') {
+      setCancellationPreview(null);
+      setLoadingCancellationPreview(false);
+      return;
+    }
+    try {
+      setLoadingCancellationPreview(true);
+      const preview = await apiFetch(`/bookings/${bookingId}/cancellation-fee`);
+      setCancellationPreview(preview);
+    } catch (err) {
+      setError(err.message || 'Failed to load cancellation fee details');
+    } finally {
+      setLoadingCancellationPreview(false);
+    }
+  }, [bookingId, paymentType]);
+
+  useEffect(() => {
+    fetchCancellationPreview();
+  }, [fetchCancellationPreview]);
 
   const calculateAmounts = () => {
     if (!booking) return { subtotal: 0, tax: 0, total: 0, vendorName: '', services: [] };
@@ -140,12 +165,26 @@ const Payment = () => {
         description: `Deposit for ${services.map(s => s.name).join(', ')} with ${vendorName}`,
         price: amountToPay
       }];
-    } else {
+    } else if (paymentType === 'final') {
       amountToPay = remaining;
       lineItems = [{
         id: 'final',
         name: 'Final Payment',
         description: `Remaining balance for ${services.map(s => s.name).join(', ')} with ${vendorName}`,
+        price: amountToPay
+      }];
+    } else if (paymentType === 'cancellation_fee') {
+      const feeDifference = Math.max(0, cancellationPreview?.feeDifference || 0);
+      amountToPay = feeDifference;
+      const reasonSnippet = cancellationReason
+        ? `Reason provided: "${cancellationReason}".`
+        : 'Reason provided during cancellation.';
+      lineItems = [{
+        id: 'cancellation_fee',
+        name: 'Cancellation Fee',
+        description: cancellationPreview
+          ? `Cancellation fee for ${services.map((s) => s.name).join(', ')} with ${vendorName}. ${reasonSnippet}`
+          : 'Calculating cancellation fee...',
         price: amountToPay
       }];
     }
@@ -167,18 +206,79 @@ const Payment = () => {
   const handlePay = async () => {
     setFormErrors({});
     if (paymentMethod === 'card') {
-      if (!formData.cardNumber || !formData.expiry || !formData.cvc || !formData.name) {
-        setFormErrors({
-          cardNumber: !formData.cardNumber ? 'Required' : '',
-          expiry: !formData.expiry ? 'Required' : '',
-          cvc: !formData.cvc ? 'Required' : '',
-          name: !formData.name ? 'Required' : '',
-        });
+      const errors = {};
+      const cardNumber = (formData.cardNumber || '').replace(/\s+/g, '');
+      const expiry = (formData.expiry || '').trim();
+      const cvc = (formData.cvc || '').trim();
+      const name = (formData.name || '').trim();
+
+      if (!cardNumber) {
+        errors.cardNumber = 'Required';
+      } else if (!/^\d{13,19}$/.test(cardNumber)) {
+        errors.cardNumber = 'Card number must be 13-19 digits';
+      }
+
+      const luhnCheck = (num) => {
+        let sum = 0;
+        let shouldDouble = false;
+        for (let i = num.length - 1; i >= 0; i--) {
+          let digit = parseInt(num.charAt(i), 10);
+          if (shouldDouble) {
+            digit *= 2;
+            if (digit > 9) digit -= 9;
+          }
+          sum += digit;
+          shouldDouble = !shouldDouble;
+        }
+        return sum % 10 === 0;
+      };
+
+      if (!errors.cardNumber && !luhnCheck(cardNumber)) {
+        errors.cardNumber = 'Invalid card number';
+      }
+
+      if (!expiry) {
+        errors.expiry = 'Required';
+      } else if (!/^\d{2}\/\d{2}$/.test(expiry)) {
+        errors.expiry = 'Use MM/YY format';
+      } else {
+        const [mm, yy] = expiry.split('/').map((s) => parseInt(s, 10));
+        const now = new Date();
+        const currentYear = now.getFullYear() % 100;
+        const currentMonth = now.getMonth() + 1;
+        if (mm < 1 || mm > 12) {
+          errors.expiry = 'Invalid month';
+        } else if (yy < currentYear || (yy === currentYear && mm < currentMonth)) {
+          errors.expiry = 'Card has expired';
+        }
+      }
+
+      if (!cvc) {
+        errors.cvc = 'Required';
+      } else if (!/^\d{3,4}$/.test(cvc)) {
+        errors.cvc = 'CVC must be 3-4 digits';
+      }
+
+      if (!name) {
+        errors.name = 'Required';
+      }
+
+      if (Object.keys(errors).length > 0) {
+        setFormErrors(errors);
         return;
       }
     } else {
-      if (!formData.phoneNumber) {
-        setFormErrors({ phoneNumber: 'Required' });
+      const phone = (formData.phoneNumber || '').trim();
+      const errors = {};
+      if (!phone) {
+        errors.phoneNumber = 'Required';
+      } else if (!/^1\d{8,9}$/.test(phone)) {
+        // User enters only the local mobile part (e.g. 123456789), prefix +60 is rendered separately
+        errors.phoneNumber = 'Enter a valid Malaysian mobile number (e.g. 123456789 or 1234567890)';
+      }
+
+      if (Object.keys(errors).length > 0) {
+        setFormErrors(errors);
         return;
       }
     }
@@ -188,42 +288,68 @@ const Payment = () => {
     
     try {
       const orderDetails = calculateAmounts();
+      const payableTotal =
+        paymentType === 'cancellation_fee' && cancellationPreview
+          ? cancellationPreview.feeDifference
+          : orderDetails.total;
       
       // Ensure amount is a valid number
-      const amount = parseFloat(orderDetails.total.toFixed(2));
+      const amount = parseFloat(payableTotal.toFixed(2));
       if (isNaN(amount) || amount <= 0) {
         throw new Error('Invalid payment amount');
       }
 
-      // Validate booking status matches payment type
-      if (paymentType === 'deposit' && booking.status !== 'pending_deposit_payment') {
-        throw new Error(`Cannot pay deposit. Booking status is: ${booking.status}. Please contact support if you believe this is an error.`);
+      if (paymentType === 'cancellation_fee') {
+        if (loadingCancellationPreview || !cancellationPreview) {
+          throw new Error('Cancellation fee details are still loading. Please try again in a moment.');
+        }
+        if (!cancellationPreview.requiresPayment || cancellationPreview.feeDifference <= 0) {
+          throw new Error('No cancellation fee is due for this booking.');
+        }
+        if (!cancellationReason) {
+          throw new Error('Cancellation reason is missing. Please restart the cancellation process from the My Bookings page.');
+        }
+      } else {
+        // Validate booking status matches payment type
+        if (paymentType === 'deposit' && booking.status !== 'pending_deposit_payment') {
+          throw new Error(`Cannot pay deposit. Booking status is: ${booking.status}. Please contact support if you believe this is an error.`);
+        }
+        
+        if (paymentType === 'final' && booking.status !== 'pending_final_payment') {
+          throw new Error(`Cannot pay final payment. Booking status is: ${booking.status}. Please contact support if you believe this is an error.`);
+        }
       }
       
-      if (paymentType === 'final' && booking.status !== 'pending_final_payment') {
-        throw new Error(`Cannot pay final payment. Booking status is: ${booking.status}. Please contact support if you believe this is an error.`);
+      let paymentResponse;
+      if (paymentType === 'cancellation_fee') {
+        paymentResponse = await apiFetch(`/bookings/${bookingId}/cancellation-fee-payment`, {
+          method: 'POST',
+          body: JSON.stringify({
+            amount,
+            paymentMethod: paymentMethod === 'card' ? 'credit_card' : 'touch_n_go',
+            receipt: null,
+            reason: cancellationReason,
+          }),
+        });
+      } else {
+        paymentResponse = await apiFetch(`/bookings/${bookingId}/payments`, {
+          method: 'POST',
+          body: JSON.stringify({
+            paymentType,
+            amount,
+            paymentMethod: paymentMethod === 'card' ? 'credit_card' : 'touch_n_go',
+            receipt: null,
+          }),
+        });
       }
-      
-      const paymentResponse = await apiFetch(`/bookings/${bookingId}/payments`, {
-        method: 'POST',
-        body: JSON.stringify({
-          paymentType,
-          amount: amount,
-          paymentMethod: paymentMethod === 'card' ? 'credit_card' : 'touch_n_go',
-          receipt: null,
-        }),
-      });
 
       // Store payment data for receipt
       setPayment(paymentResponse);
-      
-      // Refresh booking to get updated data
-      await fetchBooking();
+      // Optionally refresh booking data in the background (no full-page loading flash)
+      fetchBooking().catch(() => {});
 
-      setTimeout(() => {
-        setIsProcessing(false);
-        setIsSuccess(true);
-      }, 2000);
+      setIsProcessing(false);
+      setIsSuccess(true);
     } catch (err) {
       console.error('Payment error:', err);
       console.error('Error body:', err.body);
@@ -247,10 +373,22 @@ const Payment = () => {
     }
   };
 
-  if (loading) return <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh"><CircularProgress /></Box>;
+  if (loading || (paymentType === 'cancellation_fee' && loadingCancellationPreview)) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
   if (!booking) return <Alert severity="error">Booking not found</Alert>;
 
   const orderDetails = calculateAmounts();
+  const cancellationPaymentDisabled =
+    paymentType === 'cancellation_fee' &&
+    (loadingCancellationPreview ||
+      !cancellationPreview ||
+      !cancellationPreview.requiresPayment ||
+      cancellationPreview.feeDifference <= 0);
 
   if (isSuccess) {
     const orderDetails = calculateAmounts();
@@ -293,9 +431,13 @@ const Payment = () => {
             }}>
               <CheckCircle sx={{ fontSize: 40, color: 'white' }} />
             </Box>
-            <Typography variant="h4" color="primary.main" gutterBottom>Payment Successful!</Typography>
+            <Typography variant="h4" color="primary.main" gutterBottom>
+              {paymentType === 'cancellation_fee' ? 'Cancellation Fee Paid' : 'Payment Successful!'}
+            </Typography>
             <Typography color="text.secondary" sx={{ mb: 4 }}>
-              Thank you for your payment. A receipt has been sent to your email.
+              {paymentType === 'cancellation_fee'
+                ? 'Your cancellation fee has been recorded. We will notify the vendor immediately.'
+                : 'Thank you for your payment. A receipt has been sent to your email.'}
             </Typography>
             
             <Box sx={{ bgcolor: 'background.paper', border: 1, borderColor: 'divider', borderRadius: 2, p: 3, mb: 4, textAlign: 'left' }}>
@@ -356,7 +498,13 @@ const Payment = () => {
         <Container maxWidth="xl">
           <Button 
             startIcon={<ArrowBack />} 
-            onClick={() => navigate(-1)} 
+            onClick={() => {
+              if (isSuccess) {
+                navigate('/my-bookings');
+              } else {
+                navigate(-1);
+              }
+            }} 
             sx={{ mb: 2, color: 'text.secondary', '&:hover': { bgcolor: 'transparent', color: 'primary.main' } }}
           >
             Back
@@ -391,13 +539,30 @@ const Payment = () => {
                   )}
                 </Box>
 
+                {paymentType === 'cancellation_fee' && (
+                  <Alert
+                    severity={cancellationPaymentDisabled ? 'info' : 'warning'}
+                    sx={{ mb: 3 }}
+                  >
+                    {loadingCancellationPreview
+                      ? 'Calculating cancellation fee...'
+                      : !cancellationPreview
+                      ? 'Cancellation fee details are unavailable. Please return to My Bookings and try again.'
+                      : !cancellationPreview.requiresPayment || cancellationPreview.feeDifference <= 0
+                      ? 'This booking no longer requires a cancellation fee. Close this page and refresh your bookings.'
+                      : cancellationReason
+                      ? 'Please review the amount below and complete the payment to finalize your cancellation.'
+                      : 'Cancellation reason missing. Please restart the cancellation flow from My Bookings.'}
+                  </Alert>
+                )}
+
                 <Button
                   fullWidth
                   size="large"
                   variant="contained"
                   color="primary"
                   onClick={handlePay}
-                  disabled={isProcessing}
+                  disabled={isProcessing || cancellationPaymentDisabled}
                   sx={{
                     py: 2,
                     fontSize: '1rem',
@@ -460,19 +625,44 @@ const Payment = () => {
                 
                 {activeModal === 'tos' ? (
                   <>
-                    <Typography>Welcome to BlissfulPay. By processing a payment on our platform, you agree to the following terms regarding your wedding service booking.</Typography>
+                    <Typography sx={{ textAlign: 'justify' }}>
+                      By processing a payment on our platform, you agree to the following terms regarding your wedding service booking.
+                    </Typography>
                     <Typography variant="subtitle2" color="text.primary" sx={{ mt: 1 }}>1. Payment Processing</Typography>
-                    <Typography>All transactions are processed securely. Cancellations made within 24 hours of payment are subject to a full refund. Cancellations made after 24 hours may incur a service fee as per the vendor's individual contract.</Typography>
-                    <Typography variant="subtitle2" color="text.primary" sx={{ mt: 1 }}>2. Vendor Liability</Typography>
-                    <Typography>Weddding acts as an intermediary platform. Specific service delivery issues should be resolved directly with the vendor (e.g., photographer, venue).</Typography>
+                    <Typography sx={{ textAlign: 'justify' }}>
+                      All transactions are processed securely through our platform. Once a payment is made, any refunds or
+                      adjustments are handled according to the vendor&apos;s cancellation policy and the booking&apos;s
+                      cancellation rules shown in your booking details. Our platform facilitates payments between couples
+                      and vendors and does not guarantee refunds beyond these policies.
+                    </Typography>
+                    <Typography variant="subtitle2" color="text.primary" sx={{ mt: 1 }}>2. Vendor Responsibility</Typography>
+                    <Typography sx={{ textAlign: 'justify' }}>
+                      Weddding acts as an intermediary platform that connects couples with independent vendors. Each vendor
+                      is solely responsible for the delivery and quality of their services. Service disputes (e.g. late
+                      arrival, quality of work, or changes to scope) should be resolved directly with the vendor.
+                    </Typography>
+                    <Typography variant="subtitle2" color="text.primary" sx={{ mt: 1 }}>3. Misuse &amp; Illegal Activity</Typography>
+                    <Typography sx={{ textAlign: 'justify' }}>
+                      We reserve the right to investigate and take appropriate action (including suspending accounts,
+                      freezing payments, or cancelling bookings) if we detect fraud, abuse of the payment system,
+                      money laundering, or any activity that violates applicable laws or our platform policies.
+                    </Typography>
                   </>
                 ) : (
                   <>
-                    <Typography>Your privacy is paramount. This policy outlines how we handle your personal and financial information.</Typography>
+                    <Typography sx={{ textAlign: 'justify' }}>
+                      Your privacy is paramount. This policy outlines how we handle your personal and financial information.
+                    </Typography>
                     <Typography variant="subtitle2" color="text.primary" sx={{ mt: 1 }}>1. Information Collection</Typography>
-                    <Typography>We collect only the necessary information required to process your payment and validate your booking: Name, Contact Number, and Payment Credentials (tokenized).</Typography>
+                    <Typography sx={{ textAlign: 'justify' }}>
+                      We collect only the necessary information required to process your payment and validate your booking:
+                      Name, Contact Number, and Payment Credentials (tokenized).
+                    </Typography>
                     <Typography variant="subtitle2" color="text.primary" sx={{ mt: 1 }}>2. Data Security</Typography>
-                    <Typography>We use industry-standard encryption to protect your data in transit and at rest. We do not store full credit card numbers.</Typography>
+                    <Typography sx={{ textAlign: 'justify' }}>
+                      We use industry-standard encryption to protect your data in transit and at rest. We do not store full
+                      credit card numbers.
+                    </Typography>
                   </>
                 )}
               </Box>

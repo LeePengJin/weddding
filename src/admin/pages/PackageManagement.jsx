@@ -28,11 +28,13 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TableSortLabel,
   TextField,
   Tooltip,
   Typography,
+  InputAdornment,
 } from '@mui/material';
-import { Add, Close, Edit, ErrorOutline, Loop, Refresh, Verified, WarningAmber } from '@mui/icons-material';
+import { Add, Close, Edit, ErrorOutline, Loop, Refresh, Verified, WarningAmber, Search } from '@mui/icons-material';
 import { apiFetch, getPackageDesign, getPackageVenues, setPackageVenue } from '../../lib/api';
 import { formatImageUrl } from '../../utils/image';
 
@@ -153,6 +155,9 @@ const PackageManagement = () => {
   const [availableVenues, setAvailableVenues] = useState([]);
   const [venuesLoading, setVenuesLoading] = useState(false);
   const [syncingDesign, setSyncingDesign] = useState(false);
+  const [packageSearch, setPackageSearch] = useState('');
+  const [orderBy, setOrderBy] = useState('updatedAt');
+  const [orderDirection, setOrderDirection] = useState('desc');
 
   const closeSnackbar = () => setSnackbar({ open: false, message: '', severity: 'success' });
 
@@ -454,6 +459,42 @@ const PackageManagement = () => {
   }, [packages]);
 
   const pillButtonSx = { textTransform: 'none', borderRadius: '999px', fontWeight: 600 };
+  const searchValue = packageSearch.trim().toLowerCase();
+  const visiblePackages = [...packages]
+    .filter((pkg) => {
+      if (!searchValue) return true;
+      const name = pkg.packageName?.toLowerCase() || '';
+      const description = pkg.description?.toLowerCase() || '';
+      const status = pkg.status?.toLowerCase() || '';
+      return name.includes(searchValue) || description.includes(searchValue) || status.includes(searchValue);
+    })
+    .sort((a, b) => {
+      const direction = orderDirection === 'asc' ? 1 : -1;
+      if (orderBy === 'packageName') {
+        return ((a.packageName || '').localeCompare(b.packageName || '')) * direction;
+      }
+      if (orderBy === 'items') {
+        const itemsA = a.healthSummary?.total || 0;
+        const itemsB = b.healthSummary?.total || 0;
+        return (itemsA - itemsB) * direction;
+      }
+      if (orderBy === 'status') {
+        return (a.status || '').localeCompare(b.status || '') * direction;
+      }
+      // default: updatedAt
+      const updatedA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+      const updatedB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+      return (updatedA - updatedB) * direction;
+    });
+
+  const handleRequestSort = (property) => {
+    if (orderBy === property) {
+      setOrderDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setOrderBy(property);
+      setOrderDirection('asc');
+    }
+  };
 
   return (
     <Box sx={{ p: 3 }}>
@@ -546,6 +587,28 @@ const PackageManagement = () => {
         ))}
       </Stack>
 
+      <Box
+        sx={{
+          mb: 2,
+          display: 'flex',
+          justifyContent: 'flex-end',
+        }}
+      >
+        <TextField
+          sx={{ width: { xs: '100%', sm: 320, md: 360 } }}
+          placeholder="Search packages"
+          value={packageSearch}
+          onChange={(e) => setPackageSearch(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+        />
+      </Box>
+
       <Card
         sx={{
           borderRadius: 2,
@@ -563,16 +626,64 @@ const PackageManagement = () => {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Package</TableCell>
-                  <TableCell>Status</TableCell>
+                  <TableCell sortDirection={orderBy === 'packageName' ? orderDirection : false}>
+                    <TableSortLabel
+                      active={orderBy === 'packageName'}
+                      direction={orderBy === 'packageName' ? orderDirection : 'asc'}
+                      onClick={() => handleRequestSort('packageName')}
+                    >
+                      Package
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell sortDirection={orderBy === 'status' ? orderDirection : false}>
+                    <TableSortLabel
+                      active={orderBy === 'status'}
+                      direction={orderBy === 'status' ? orderDirection : 'asc'}
+                      onClick={() => handleRequestSort('status')}
+                    >
+                      Status
+                    </TableSortLabel>
+                  </TableCell>
                   <TableCell>Template</TableCell>
-                  <TableCell align="center">Items</TableCell>
-                  <TableCell>Last Validated</TableCell>
+                  <TableCell
+                    align="center"
+                    sortDirection={orderBy === 'items' ? orderDirection : false}
+                  >
+                    <TableSortLabel
+                      active={orderBy === 'items'}
+                      direction={orderBy === 'items' ? orderDirection : 'asc'}
+                      onClick={() => handleRequestSort('items')}
+                    >
+                      Items
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell sortDirection={orderBy === 'updatedAt' ? orderDirection : false}>
+                    <TableSortLabel
+                      active={orderBy === 'updatedAt'}
+                      direction={orderBy === 'updatedAt' ? orderDirection : 'desc'}
+                      onClick={() => handleRequestSort('updatedAt')}
+                    >
+                      Last Validated
+                    </TableSortLabel>
+                  </TableCell>
                   <TableCell align="right">Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {packages.map((pkg) => (
+                {visiblePackages.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6}>
+                      <Box textAlign="center" py={5}>
+                        <Typography variant="body1" color="text.secondary">
+                          {packages.length === 0
+                            ? 'No packages yet. Create your first curated experience.'
+                            : 'No packages match your filters. Try adjusting your search or sort.'}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  visiblePackages.map((pkg) => (
                   <TableRow key={pkg.id} hover>
                     <TableCell>
                       <Typography fontWeight={600}>{pkg.packageName}</Typography>
@@ -671,18 +782,8 @@ const PackageManagement = () => {
                         </Tooltip>
                       </Stack>
                     </TableCell>
-                  </TableRow>
-                ))}
-                {packages.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6}>
-                      <Box textAlign="center" py={5}>
-                        <Typography variant="body1" color="text.secondary">
-                          No packages yet. Create your first curated experience.
-                        </Typography>
-                      </Box>
-                    </TableCell>
-                  </TableRow>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
             </Table>

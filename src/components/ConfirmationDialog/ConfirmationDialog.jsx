@@ -2,7 +2,16 @@ import React from 'react';
 import { Box, Typography, Button } from '@mui/material';
 import './ConfirmationDialog.css';
 
-const ConfirmationDialog = ({ open, onClose, onConfirm, title, description, confirmText = 'Confirm', cancelText = 'Cancel' }) => {
+const ConfirmationDialog = ({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  description,
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  children,
+}) => {
   if (!open) return null;
 
   return (
@@ -15,7 +24,22 @@ const ConfirmationDialog = ({ open, onClose, onConfirm, title, description, conf
         </button>
         <Box className="confirmation-dialog-content">
           <Typography className="confirmation-dialog-heading">{title}</Typography>
-          <Typography className="confirmation-dialog-description">{description}</Typography>
+          {description && (
+            <Typography className="confirmation-dialog-description">{description}</Typography>
+          )}
+          {children && (
+            <Box
+              sx={{
+                mt: 2,
+                width: '100%',
+                pointerEvents: 'auto',
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {children}
+            </Box>
+          )}
         </Box>
         <Box className="confirmation-dialog-button-wrapper">
           <Button className="confirmation-dialog-button secondary" onClick={onClose}>
@@ -31,4 +55,3 @@ const ConfirmationDialog = ({ open, onClose, onConfirm, title, description, conf
 };
 
 export default ConfirmationDialog;
-
