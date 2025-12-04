@@ -275,10 +275,12 @@ const VenueDesigner = () => {
     async (item) => {
       if (!resourceId) return;
       try {
+        const payload = { serviceListingId: item.id };
+        
         const response =
           designerMode === 'package'
-            ? await addPackageDesignElement(packageId, { serviceListingId: item.id })
-            : await addDesignElement(projectId, { serviceListingId: item.id });
+            ? await addPackageDesignElement(packageId, payload)
+            : await addDesignElement(projectId, payload);
         
         // If non-3D service was added (projectService: true), reload the design to get updated projectServices
         if (response.projectService) {
@@ -634,6 +636,8 @@ const VenueDesigner = () => {
         <DesignSummary
           open={showCheckout}
           onClose={() => setShowCheckout(false)}
+          eventStartTime={eventStartTime}
+          eventEndTime={eventEndTime}
           onProceedToCheckout={() => {
             setShowCheckout(false);
             setShowCheckoutModal(true);

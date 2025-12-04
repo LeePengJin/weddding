@@ -202,6 +202,13 @@ export function deleteProjectService(projectId, serviceListingId) {
   });
 }
 
+export function updateProjectVenue(projectId, venueServiceListingId) {
+  return apiFetch(`/projects/${projectId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ venueServiceListingId }),
+  });
+}
+
 // Booking APIs
 export function createBooking(payload) {
   return apiFetch('/bookings', {

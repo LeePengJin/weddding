@@ -43,7 +43,11 @@ const ServiceListingCard = ({ item, onAdd, onShowDetails }) => {
         </Typography>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
           <Typography variant="subtitle2" component="p" className="catalog-card-price">
-            RM {Number(item.price).toLocaleString()}
+            {item.pricingPolicy === 'time_based' ? (
+              <>RM {Number(item.hourlyRate || 0).toLocaleString()}/hr</>
+            ) : (
+              <>RM {Number(item.price || 0).toLocaleString()}</>
+            )}
           </Typography>
           {item.averageRating && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

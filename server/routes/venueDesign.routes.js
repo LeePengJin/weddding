@@ -412,6 +412,7 @@ function serializeListingForCatalog(listing, availability) {
     customCategory: listing.customCategory,
     price: listing.price.toString(),
     pricingPolicy: listing.pricingPolicy,
+    hourlyRate: listing.hourlyRate ? listing.hourlyRate.toString() : null,
     isActive: listing.isActive,
     averageRating: averageRating ? averageRating.toFixed(2) : null,
     reviewCount: listing.reviews ? listing.reviews.length : 0,
@@ -2110,10 +2111,6 @@ router.get('/:projectId/checkout-summary', requireAuth, async (req, res, next) =
           } else {
             throw new Error('Event duration is required for time_based pricing');
           }
-        } else if (listing.pricingPolicy === 'tiered_package') {
-          // For tiered packages, we'd need to know which tier was selected
-          // For now, use the first tier or base price
-          pricingContext.selectedTierIndex = 0;
         }
         // fixed_package doesn't need context
 

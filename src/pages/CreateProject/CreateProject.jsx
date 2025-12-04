@@ -15,8 +15,9 @@ const CreateProject = () => {
   const [error, setError] = useState(null);
   
   const [formData, setFormData] = useState({
-    weddingDate: null, // ISO date string
-    weddingTime: '', // HH:mm format
+    weddingDate: null, // ISO date string (date only)
+    eventStartTime: '', // HH:mm format
+    eventEndTime: '', // HH:mm format
     venueServiceListingId: null,
     venue: null, // Full venue object
     weddingType: '', // 'self_organized' or 'prepackaged'
@@ -45,8 +46,35 @@ const CreateProject = () => {
         setError('Please select a wedding date');
         return;
       }
-      if (!formData.weddingTime) {
-        setError('Please select a wedding time');
+      if (!formData.eventStartTime) {
+        setError('Please select a start time');
+        return;
+      }
+      if (!formData.eventEndTime) {
+        setError('Please select an end time');
+        return;
+      }
+      
+      // Validate business hours (8 AM - 11 PM)
+      const startHour = parseInt(formData.eventStartTime.split(':')[0]);
+      const endHour = parseInt(formData.eventEndTime.split(':')[0]);
+      const startMinute = parseInt(formData.eventStartTime.split(':')[1]);
+      const endMinute = parseInt(formData.eventEndTime.split(':')[1]);
+      
+      if (startHour < 8 || (startHour === 23 && startMinute > 0) || startHour >= 23) {
+        setError('Start time must be between 8:00 AM and 11:00 PM');
+        return;
+      }
+      if (endHour < 8 || (endHour === 23 && endMinute > 0) || endHour >= 23) {
+        setError('End time must be between 8:00 AM and 11:00 PM');
+        return;
+      }
+      
+      // Validate end time is after start time
+      const startTimeMinutes = startHour * 60 + startMinute;
+      const endTimeMinutes = endHour * 60 + endMinute;
+      if (endTimeMinutes <= startTimeMinutes) {
+        setError('End time must be after start time');
         return;
       }
     } else if (step === 2) {
@@ -83,21 +111,24 @@ const CreateProject = () => {
       setError(null);
 
       // Final validation
-      if (!formData.weddingDate || !formData.weddingTime || !formData.venueServiceListingId || 
-          !formData.weddingType || !formData.projectName.trim()) {
+      if (!formData.weddingDate || !formData.eventStartTime || !formData.eventEndTime || 
+          !formData.venueServiceListingId || !formData.weddingType || !formData.projectName.trim()) {
         setError('Please complete all required fields');
         setLoading(false);
         return;
       }
 
-      // Combine date and time into ISO string
-      const dateTime = new Date(`${formData.weddingDate}T${formData.weddingTime}`);
-      const weddingDateTime = dateTime.toISOString();
+      // Combine date with start and end times into ISO strings
+      const startDateTime = new Date(`${formData.weddingDate}T${formData.eventStartTime}`);
+      const endDateTime = new Date(`${formData.weddingDate}T${formData.eventEndTime}`);
+      const weddingDateOnly = new Date(`${formData.weddingDate}T00:00:00`);
 
       // Prepare project data
       const projectData = {
         projectName: formData.projectName.trim(),
-        weddingDate: weddingDateTime,
+        weddingDate: weddingDateOnly.toISOString(),
+        eventStartTime: startDateTime.toISOString(),
+        eventEndTime: endDateTime.toISOString(),
         weddingType: formData.weddingType,
         venueServiceListingId: formData.venueServiceListingId,
         basePackageId: formData.basePackageId || null

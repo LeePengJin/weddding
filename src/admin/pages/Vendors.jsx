@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Card, CardContent, Typography, Tabs, Tab, TextField, InputAdornment, IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Button, Stack, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Divider, List, ListItem, ListItemText, TableSortLabel } from '@mui/material';
+import { Box, Card, CardContent, Typography, Tabs, Tab, TextField, InputAdornment, IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Button, Stack, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Divider, List, ListItem, ListItemText, TableSortLabel, Snackbar, Alert } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
@@ -25,6 +25,10 @@ export default function Vendors() {
   const [category, setCategory] = useState('');
   const [selected, setSelected] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectingUserId, setRejectingUserId] = useState(null);
+  const [toastNotification, setToastNotification] = useState({ open: false, message: '', severity: 'success' });
   const [sortField, setSortField] = useState('name');
   const [sortDirection, setSortDirection] = useState('asc');
 
@@ -113,19 +117,54 @@ export default function Vendors() {
   const onApprove = async (userId) => {
     try {
       await apiFetch(`/admin/vendors/${userId}/approve`, { method: 'POST' });
+      const vendor = rows.find((r) => r.id === userId);
       setRows((prev) => prev.filter((r) => r.id !== userId));
+      setToastNotification({
+        open: true,
+        message: `Vendor account "${vendor?.name || vendor?.email}" has been approved successfully.`,
+        severity: 'success',
+      });
     } catch (e) {
-      setError(e.message || 'Approve failed');
+      setToastNotification({
+        open: true,
+        message: e.message || 'Failed to approve vendor account',
+        severity: 'error',
+      });
     }
   };
 
-  const onReject = async (userId) => {
-    const reason = window.prompt('Optional reason for rejection:');
+  const handleRejectClick = (userId) => {
+    setRejectingUserId(userId);
+    setRejectReason('');
+    setRejectDialogOpen(true);
+  };
+
+  const handleRejectCancel = () => {
+    setRejectDialogOpen(false);
+    setRejectReason('');
+    setRejectingUserId(null);
+  };
+
+  const onReject = async () => {
+    if (!rejectingUserId) return;
+    
     try {
-      await apiFetch(`/admin/vendors/${userId}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
-      setRows((prev) => prev.filter((r) => r.id !== userId));
+      const reason = rejectReason.trim() || undefined;
+      const vendor = rows.find((r) => r.id === rejectingUserId);
+      await apiFetch(`/admin/vendors/${rejectingUserId}/reject`, { method: 'POST', body: JSON.stringify({ reason }) });
+      setRows((prev) => prev.filter((r) => r.id !== rejectingUserId));
+      handleRejectCancel();
+      setToastNotification({
+        open: true,
+        message: `Vendor account "${vendor?.name || vendor?.email}" has been rejected.`,
+        severity: 'success',
+      });
     } catch (e) {
-      setError(e.message || 'Reject failed');
+      setToastNotification({
+        open: true,
+        message: e.message || 'Failed to reject vendor account',
+        severity: 'error',
+      });
     }
   };
 
@@ -301,7 +340,7 @@ export default function Vendors() {
                       {tab === 'pending_verification' && (
                         <>
                           <IconButton color="success" onClick={() => onApprove(row.id)} title="Approve"><CheckIcon /></IconButton>
-                          <IconButton color="error" onClick={() => onReject(row.id)} title="Reject"><CloseIcon /></IconButton>
+                          <IconButton color="error" onClick={() => handleRejectClick(row.id)} title="Reject"><CloseIcon /></IconButton>
                         </>
                       )}
                     </Stack>
@@ -361,13 +400,62 @@ export default function Vendors() {
         <DialogActions>
           {selected && tab === 'pending_verification' ? (
             <Stack direction="row" spacing={1} sx={{ mr: 1 }}>
-              <Button variant="outlined" color="error" onClick={() => { closeDialog(); onReject(selected.id); }}>Reject</Button>
+              <Button variant="outlined" color="error" onClick={() => { closeDialog(); handleRejectClick(selected.id); }}>Reject</Button>
               <Button variant="contained" color="success" onClick={() => { closeDialog(); onApprove(selected.id); }}>Approve</Button>
             </Stack>
           ) : null}
           <Button onClick={closeDialog}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Rejection Reason Dialog */}
+      <Dialog open={rejectDialogOpen} onClose={handleRejectCancel} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700, color: '#b91c1c' }}>
+          Reject Vendor Account
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2, color: '#4b5563' }}>
+            Please provide an optional reason for rejecting this vendor account. This reason will be included in the email notification sent to the vendor.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            rows={4}
+            label="Reason for rejection (optional)"
+            placeholder="e.g., Missing required documentation, incomplete business information..."
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            inputProps={{ maxLength: 500 }}
+            helperText={`${rejectReason.length}/500 characters`}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleRejectCancel} variant="outlined">
+            Cancel
+          </Button>
+          <Button onClick={onReject} variant="contained" color="error" sx={{ ml: 1 }}>
+            Confirm Rejection
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Toast Notification */}
+      <Snackbar
+        open={toastNotification.open}
+        autoHideDuration={6000}
+        onClose={() => setToastNotification({ ...toastNotification, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setToastNotification({ ...toastNotification, open: false })}
+          severity={toastNotification.severity}
+          sx={{ width: '100%' }}
+        >
+          {toastNotification.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

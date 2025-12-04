@@ -1326,7 +1326,9 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
       where,
       include: {
         vendor: {
-          include: {
+          select: {
+            userId: true,
+            category: true,
             user: {
               select: {
                 id: true,
@@ -1362,6 +1364,16 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
                     id: true,
                     name: true,
                     email: true,
+                  },
+                },
+              },
+            },
+            selectedServices: {
+              include: {
+                serviceListing: {
+                  select: {
+                    id: true,
+                    name: true,
                   },
                 },
               },

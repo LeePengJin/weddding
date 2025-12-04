@@ -28,7 +28,7 @@ import './DesignSummary.styles.css';
 import { useVenueDesigner } from './VenueDesignerContext';
 import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
 
-const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
+const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eventEndTime }) => {
   const {
     placements = [],
     projectServices = [],
@@ -39,6 +39,21 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
     projectId,
     venueInfo,
   } = useVenueDesigner();
+
+  // Calculate event duration in hours
+  const eventDuration = React.useMemo(() => {
+    if (!eventStartTime || !eventEndTime) return null;
+    try {
+      const start = new Date(eventStartTime);
+      const end = new Date(eventEndTime);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+      const durationMs = end - start;
+      const durationHours = durationMs / (1000 * 60 * 60);
+      return Math.round(durationHours * 100) / 100; // Round to 2 decimal places
+    } catch (err) {
+      return null;
+    }
+  }, [eventStartTime, eventEndTime]);
   const [expandedVendors, setExpandedVendors] = useState(new Set());
   const [confirmationDialog, setConfirmationDialog] = useState({
     open: false,
@@ -210,8 +225,21 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
       }
       
       group.quantity = quantity; // Set quantity (don't add, replace)
-      const price = listing.price ? parseFloat(listing.price) : 0;
-      group.price += price * quantity;
+      
+      // Calculate price based on pricing policy
+      if (listing.pricingPolicy === 'time_based' && listing.hourlyRate && eventDuration !== null) {
+        // For time-based, price = hourlyRate * eventDuration (not multiplied by quantity)
+        const hourlyRate = parseFloat(listing.hourlyRate);
+        const totalPrice = hourlyRate * eventDuration;
+        group.price = totalPrice; // For time-based, price is already total (not per unit)
+        group.eventDuration = eventDuration; // Store duration for display
+        group.hourlyRate = hourlyRate; // Store hourly rate for display
+        group.isTimeBased = true; // Mark as time-based for display
+      } else {
+        // For other pricing policies, use base price * quantity
+        const price = listing.price ? parseFloat(listing.price) : 0;
+        group.price = price * quantity;
+      }
 
       if (ps.serviceListingId && availabilityMap[ps.serviceListingId]?.available === false) {
         group.isUnavailable = true;
@@ -619,7 +647,9 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout }) => {
                               }
                               secondary={
                                 <Typography variant="caption" color="text.secondary">
-                                  {item.isVenue ? 'Venue' : item.isBundle ? 'Bundle' : 'Individual Item'}
+                                  {item.serviceListing?.pricingPolicy === 'time_based' && item.eventDuration !== undefined
+                                    ? `${item.eventDuration} hours × RM${item.hourlyRate?.toLocaleString()}/hr`
+                                    : item.isVenue ? 'Venue' : item.isBundle ? 'Bundle' : 'Individual Item'}
                                 </Typography>
                               }
                             />

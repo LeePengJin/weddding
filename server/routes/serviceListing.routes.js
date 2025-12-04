@@ -101,7 +101,8 @@ const serviceListingSchema = z
     price: z
       .number()
       .min(0, 'Price cannot be less than 0')
-      .max(1000000, 'Price cannot exceed RM 1,000,000'),
+      .max(1000000, 'Price cannot exceed RM 1,000,000')
+      .optional(),
     isActive: z.boolean().optional().default(true),
     availabilityType: z.enum(['exclusive', 'reusable', 'quantity_based']).optional().default('exclusive'),
     maxQuantity: z
@@ -110,22 +111,11 @@ const serviceListingSchema = z
       .positive('Max quantity must be a positive integer')
       .optional()
       .nullable(),
-    pricingPolicy: z.enum(['per_unit', 'per_table', 'fixed_package', 'tiered_package', 'time_based']).optional().default('fixed_package'),
+    pricingPolicy: z.enum(['per_unit', 'per_table', 'fixed_package', 'time_based']).optional().default('fixed_package'),
     hourlyRate: z
       .number()
       .min(0, 'Hourly rate cannot be less than 0')
       .max(10000, 'Hourly rate cannot exceed RM 10,000 per hour')
-      .optional()
-      .nullable(),
-    tieredPricing: z
-      .array(
-        z.object({
-          name: z.string().min(1, 'Tier name is required'),
-          price: z.number().min(0, 'Tier price cannot be less than 0'),
-          minGuests: z.number().int().positive().optional().nullable(),
-          maxGuests: z.number().int().positive().optional().nullable(),
-        })
-      )
       .optional()
       .nullable(),
     designElementId: z.string().uuid('Invalid design element ID').nullable().optional(),
@@ -196,15 +186,16 @@ const serviceListingSchema = z
   )
   .refine(
     (data) => {
-      // If pricingPolicy is tiered_package, tieredPricing is required
-      if (data.pricingPolicy === 'tiered_package') {
-        return data.tieredPricing && Array.isArray(data.tieredPricing) && data.tieredPricing.length > 0;
+      // Price is required for all policies except time_based
+      if (data.pricingPolicy !== 'time_based') {
+        return data.price !== undefined && data.price !== null && data.price >= 0;
       }
+      // For time_based, price is optional (can be 0 or undefined)
       return true;
     },
     {
-      message: 'Tiered pricing rules are required when pricing policy is tiered_package',
-      path: ['tieredPricing'],
+      message: 'Price is required for this pricing policy',
+      path: ['price'],
     }
   );
 
@@ -333,14 +324,15 @@ router.post('/', requireAuth, async (req, res, next) => {
         description: listingData.description || null,
         category: listingData.category,
         customCategory: listingData.category === 'Other' ? listingData.customCategory : null,
-        price: parseFloat(listingData.price),
+        price: listingData.price !== undefined && listingData.price !== null 
+          ? parseFloat(listingData.price) 
+          : (listingData.pricingPolicy === 'time_based' ? 0 : 0),
         isActive: listingData.isActive !== undefined ? listingData.isActive : true,
         images: [],
         availabilityType: listingData.availabilityType || 'exclusive',
         maxQuantity: listingData.availabilityType === 'quantity_based' ? listingData.maxQuantity : null,
         pricingPolicy: listingData.pricingPolicy || 'fixed_package',
         hourlyRate: listingData.pricingPolicy === 'time_based' && listingData.hourlyRate ? parseFloat(listingData.hourlyRate) : null,
-        tieredPricing: listingData.pricingPolicy === 'tiered_package' && listingData.tieredPricing ? listingData.tieredPricing : null,
         cancellationPolicy: listingData.cancellationPolicy || null,
         cancellationFeeTiers: listingData.cancellationFeeTiers || null,
         designElementId: listingData.designElementId || null,
@@ -477,22 +469,11 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
           .positive('Max quantity must be a positive integer')
           .optional()
           .nullable(),
-        pricingPolicy: z.enum(['per_unit', 'per_table', 'fixed_package', 'tiered_package', 'time_based']).optional(),
+        pricingPolicy: z.enum(['per_unit', 'per_table', 'fixed_package', 'time_based']).optional(),
         hourlyRate: z
           .number()
           .min(0, 'Hourly rate cannot be less than 0')
           .max(10000, 'Hourly rate cannot exceed RM 10,000 per hour')
-          .optional()
-          .nullable(),
-        tieredPricing: z
-          .array(
-            z.object({
-              name: z.string().min(1, 'Tier name is required'),
-              price: z.number().min(0, 'Tier price cannot be less than 0'),
-              minGuests: z.number().int().positive().optional().nullable(),
-              maxGuests: z.number().int().positive().optional().nullable(),
-            })
-          )
           .optional()
           .nullable(),
         designElementId: z.string().uuid('Invalid design element ID').nullable().optional(),
@@ -565,15 +546,11 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       )
       .refine(
         (data) => {
-          // If pricingPolicy is tiered_package, tieredPricing is required
-          if (data.pricingPolicy === 'tiered_package') {
-            return data.tieredPricing && Array.isArray(data.tieredPricing) && data.tieredPricing.length > 0;
-          }
           return true;
         },
         {
-          message: 'Tiered pricing rules are required when pricing policy is tiered_package',
-          path: ['tieredPricing'],
+          message: 'Price is required for this pricing policy',
+          path: ['price'],
         }
       );
 
@@ -619,7 +596,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       }
     }
 
-    // Handle hourlyRate and tieredPricing based on pricingPolicy
+    // Handle hourlyRate based on pricingPolicy
     if (updateData.pricingPolicy !== undefined) {
       if (updateData.pricingPolicy === 'time_based') {
         // Ensure hourlyRate is set
@@ -627,20 +604,12 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
           return res.status(400).json({ error: 'Hourly rate is required when pricing policy is time_based' });
         }
         updateData.hourlyRate = parseFloat(updateData.hourlyRate);
-        updateData.tieredPricing = null; // Clear tiered pricing
-      } else if (updateData.pricingPolicy === 'tiered_package') {
-        // Ensure tieredPricing is set
-        if (!updateData.tieredPricing || !Array.isArray(updateData.tieredPricing) || updateData.tieredPricing.length === 0) {
-          return res.status(400).json({ error: 'Tiered pricing rules are required when pricing policy is tiered_package' });
-        }
-        updateData.hourlyRate = null; // Clear hourly rate
       } else {
-        // Clear both for other pricing policies
+        // Clear hourly rate for other pricing policies
         updateData.hourlyRate = null;
-        updateData.tieredPricing = null;
       }
     } else {
-      // If pricingPolicy is not being updated, handle hourlyRate and tieredPricing if they're being updated
+      // If pricingPolicy is not being updated, handle hourlyRate if it's being updated
       if (updateData.hourlyRate !== undefined) {
         updateData.hourlyRate = updateData.hourlyRate !== null ? parseFloat(updateData.hourlyRate) : null;
       }

@@ -31,18 +31,58 @@ const BASE_PACKAGE_INCLUDE = {
 const createProjectSchema = z.object({
   projectName: z.string().min(1, 'Project name is required').max(100, 'Project name is too long'),
   weddingDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
+  eventStartTime: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)).optional().nullable(),
+  eventEndTime: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)).optional().nullable(),
   weddingType: z.enum(['self_organized', 'prepackaged']),
   venueServiceListingId: z.string().uuid().optional().nullable(),
   basePackageId: z.string().uuid().optional().nullable(),
+}).refine((data) => {
+  // If eventStartTime is provided, eventEndTime must also be provided
+  if (data.eventStartTime && !data.eventEndTime) {
+    return false;
+  }
+  if (data.eventEndTime && !data.eventStartTime) {
+    return false;
+  }
+  // If both are provided, end time must be after start time
+  if (data.eventStartTime && data.eventEndTime) {
+    const start = new Date(data.eventStartTime);
+    const end = new Date(data.eventEndTime);
+    return end > start;
+  }
+  return true;
+}, {
+  message: 'Event end time must be after start time',
+  path: ['eventEndTime'],
 });
 
 const updateProjectSchema = z.object({
   projectName: z.string().min(1).max(100).optional(),
   weddingDate: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)).optional(),
+  eventStartTime: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)).optional().nullable(),
+  eventEndTime: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)).optional().nullable(),
   weddingType: z.enum(['self_organized', 'prepackaged']).optional(),
   venueServiceListingId: z.string().uuid().optional().nullable(),
   basePackageId: z.string().uuid().optional().nullable(),
   status: z.enum(['draft', 'ready_to_book', 'booked']).optional(),
+}).refine((data) => {
+  // If eventStartTime is provided, eventEndTime must also be provided
+  if (data.eventStartTime !== undefined && data.eventEndTime === undefined) {
+    return false;
+  }
+  if (data.eventEndTime !== undefined && data.eventStartTime === undefined) {
+    return false;
+  }
+  // If both are provided, end time must be after start time
+  if (data.eventStartTime && data.eventEndTime) {
+    const start = new Date(data.eventStartTime);
+    const end = new Date(data.eventEndTime);
+    return end > start;
+  }
+  return true;
+}, {
+  message: 'Event end time must be after start time',
+  path: ['eventEndTime'],
 });
 
 /**
@@ -131,7 +171,9 @@ router.get('/:id', requireAuth, async (req, res, next) => {
         bookings: {
           include: {
             vendor: {
-              include: {
+              select: {
+                userId: true,
+                category: true,
                 user: {
                   select: {
                     name: true,
@@ -139,6 +181,20 @@ router.get('/:id', requireAuth, async (req, res, next) => {
                 },
               },
             },
+            selectedServices: {
+              include: {
+                serviceListing: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+            cancellation: true,
+          },
+          orderBy: {
+            bookingDate: 'desc',
           },
         },
       },
@@ -222,6 +278,8 @@ router.post('/', requireAuth, async (req, res, next) => {
         coupleId: req.user.sub,
         projectName: data.projectName,
         weddingDate: new Date(data.weddingDate),
+        eventStartTime: data.eventStartTime ? new Date(data.eventStartTime) : null,
+        eventEndTime: data.eventEndTime ? new Date(data.eventEndTime) : null,
         weddingType: data.weddingType,
         venueServiceListingId: data.venueServiceListingId || null,
         basePackageId: data.basePackageId || null,
@@ -359,6 +417,8 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     const updateData = {};
     if (data.projectName) updateData.projectName = data.projectName;
     if (data.weddingDate) updateData.weddingDate = new Date(data.weddingDate);
+    if (data.eventStartTime !== undefined) updateData.eventStartTime = data.eventStartTime ? new Date(data.eventStartTime) : null;
+    if (data.eventEndTime !== undefined) updateData.eventEndTime = data.eventEndTime ? new Date(data.eventEndTime) : null;
     if (data.weddingType) updateData.weddingType = data.weddingType;
     if (data.venueServiceListingId !== undefined) updateData.venueServiceListingId = data.venueServiceListingId || null;
     if (data.basePackageId !== undefined) updateData.basePackageId = data.basePackageId || null;
@@ -387,6 +447,22 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
         },
       },
     });
+
+    // If venue is being updated, also update the venueDesign venueName if it exists
+    if (data.venueServiceListingId !== undefined && project.venueServiceListing) {
+      const venueDesign = await prisma.venueDesign.findUnique({
+        where: { projectId: project.id },
+      });
+      
+      if (venueDesign) {
+        await prisma.venueDesign.update({
+          where: { id: venueDesign.id },
+          data: {
+            venueName: project.venueServiceListing.name,
+          },
+        });
+      }
+    }
 
     if (data.basePackageId) {
       await applyPackageDesignToProject(prisma, data.basePackageId, project.id);

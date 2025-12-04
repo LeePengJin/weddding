@@ -32,7 +32,7 @@ All test accounts use the password: **`password123`**
   - Services: Grand Ballroom A (fixed_package), Premium Table Set (per_unit)
   
 - **Caterer**: `caterer@example.com` / `password123`
-  - Service: Premium Buffet Catering (tiered_package)
+  - Service: Premium Buffet Catering (fixed_package)
   
 - **Florist**: `florist@example.com` / `password123`
   - Service: Premium Rose Centerpieces (per_table)
@@ -57,7 +57,7 @@ The seed script creates:
   - `fixed_package`: Photographer, Venue
   - `per_table`: Centerpieces
   - `per_unit`: Table Set (with components)
-  - `tiered_package`: Catering (with tiered pricing JSON)
+  - `fixed_package`: Catering
   - `time_based`: DJ (with hourly rate)
 - **3 Design Elements**: Table, Chair, Centerpiece (with 3D model references)
 - **2 Wedding Projects**: With budgets, categories, expenses, and tasks
@@ -71,8 +71,7 @@ The database supports 5 pricing models:
 1. **`fixed_package`**: One unit per booking (e.g., photographer, venue)
 2. **`per_table`**: Units = number of tables placed in design (e.g., centerpieces)
 3. **`per_unit`**: Units = number of items placed (e.g., table sets)
-4. **`tiered_package`**: Advanced volume pricing with JSON rules
-5. **`time_based`**: Pricing based on event duration (uses `hourlyRate`)
+4. **`time_based`**: Pricing based on event duration (uses `hourlyRate`)
 
 ## Development
 

@@ -74,7 +74,6 @@ const PRICING_POLICIES = {
   fixed_package: 'Fixed Package',
   per_table: 'Per Table',
   per_unit: 'Per Unit',
-  tiered_package: 'Tiered Package',
   time_based: 'Time Based',
 };
 
@@ -126,7 +125,6 @@ const ManageListings = () => {
     maxQuantity: '',
     pricingPolicy: 'fixed_package',
     hourlyRate: '',
-    tieredPricing: [],
     cancellationPolicy: '',
     cancellationFeeTiers: {
       '>90': 0,
@@ -279,7 +277,6 @@ const ManageListings = () => {
         maxQuantity: listing.maxQuantity ? listing.maxQuantity.toString() : '',
         pricingPolicy: listing.pricingPolicy || 'fixed_package',
         hourlyRate: listing.hourlyRate ? parseFloat(listing.hourlyRate).toString() : '',
-        tieredPricing: listing.tieredPricing || [],
         cancellationPolicy: listing.cancellationPolicy || '',
         cancellationFeeTiers: listing.cancellationFeeTiers ? (
           typeof listing.cancellationFeeTiers === 'string'
@@ -356,7 +353,6 @@ const ManageListings = () => {
         maxQuantity: '',
         pricingPolicy: 'fixed_package',
         hourlyRate: '',
-        tieredPricing: [],
         cancellationPolicy: '',
         cancellationFeeTiers: {
           '>90': 0,
@@ -469,10 +465,41 @@ const ManageListings = () => {
 
   const handleInputChange = (field, value) => {
     // Update formData
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setFormData((prev) => {
+      const updated = { ...prev, [field]: value };
+      
+      // Reset pricing policy if availabilityType changes and current policy is not available
+      if (field === 'availabilityType') {
+        const availablePolicies = getAvailablePricingPolicies(updated.category, value);
+        const availablePolicyKeys = Object.keys(availablePolicies);
+        // If current pricing policy is not available for the new availabilityType, reset it
+        if (!availablePolicyKeys.includes(updated.pricingPolicy)) {
+          // Reset to the first available policy (or 'fixed_package' as default)
+          updated.pricingPolicy = availablePolicyKeys[0] || 'fixed_package';
+          // Clear pricing-specific fields when policy changes
+          if (updated.pricingPolicy !== 'time_based') {
+            updated.hourlyRate = '';
+          }
+        }
+      }
+      
+      // Reset pricing policy if category changes and current policy is not available
+      if (field === 'category') {
+        const availablePolicies = getAvailablePricingPolicies(value, updated.availabilityType);
+        const availablePolicyKeys = Object.keys(availablePolicies);
+        // If current pricing policy is not available for the new category, reset it
+        if (!availablePolicyKeys.includes(updated.pricingPolicy)) {
+          // Reset to the first available policy (or 'fixed_package' as default)
+          updated.pricingPolicy = availablePolicyKeys[0] || 'fixed_package';
+          // Clear pricing-specific fields when policy changes
+          if (updated.pricingPolicy !== 'time_based') {
+            updated.hourlyRate = '';
+          }
+        }
+      }
+      
+      return updated;
+    });
     setError('');
 
     // Real-time validation - only validate the field being changed
@@ -592,7 +619,11 @@ const ManageListings = () => {
     // If field has a value, validate it; if empty, show required error
     const nameError = name && name.length > 0 ? validateServiceName(name) : (!name || name.length === 0 ? 'Service name is required' : '');
     const descriptionError = description && description.length > 0 ? validateServiceDescription(description) : '';
-    const priceError = price && price.length > 0 ? validateServicePrice(price) : (!price || price.length === 0 ? 'Price is required' : '');
+    const priceError = price && price.length > 0 
+      ? validateServicePrice(price) 
+      : (!price || price.length === 0 && data?.pricingPolicy !== 'time_based' 
+        ? 'Price is required' 
+        : '');
     const categoryError = !category || category.length === 0 ? 'Category is required' : '';
     const customCategoryError =
       category === 'Other' && (!data?.customCategory || String(data?.customCategory || '').trim().length < 2)
@@ -687,7 +718,6 @@ const ManageListings = () => {
           maxQuantity: dataToUse.availabilityType === 'quantity_based' ? parseInt(dataToUse.maxQuantity) : null,
           pricingPolicy: dataToUse.pricingPolicy,
           hourlyRate: dataToUse.pricingPolicy === 'time_based' && dataToUse.hourlyRate ? parseFloat(dataToUse.hourlyRate) : null,
-          tieredPricing: dataToUse.pricingPolicy === 'tiered_package' && dataToUse.tieredPricing ? dataToUse.tieredPricing : null,
           cancellationPolicy: dataToUse.cancellationPolicy || formData.cancellationPolicy || null,
           cancellationFeeTiers: dataToUse.cancellationFeeTiers || formData.cancellationFeeTiers || null,
           // Include designElementId for non-bundle services
@@ -868,7 +898,6 @@ const ManageListings = () => {
           maxQuantity: dataToUse.availabilityType === 'quantity_based' ? parseInt(dataToUse.maxQuantity) : null,
           pricingPolicy: dataToUse.pricingPolicy,
           hourlyRate: dataToUse.pricingPolicy === 'time_based' && dataToUse.hourlyRate ? parseFloat(dataToUse.hourlyRate) : null,
-          tieredPricing: dataToUse.pricingPolicy === 'tiered_package' && dataToUse.tieredPricing ? dataToUse.tieredPricing : null,
           cancellationPolicy: dataToUse.cancellationPolicy || formData.cancellationPolicy || null,
           cancellationFeeTiers: dataToUse.cancellationFeeTiers || formData.cancellationFeeTiers || null,
           // Include designElementId for non-bundle services
@@ -1692,7 +1721,20 @@ const ManageListings = () => {
                       </Typography>
                     </TableCell>
                     <TableCell align="center" sx={{ width: 120 }}>
-                      RM {parseFloat(listing.price).toLocaleString()}
+                      {listing.pricingPolicy === 'time_based' ? (
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            RM {parseFloat(listing.hourlyRate || 0).toLocaleString()}/hr
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Time-based
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          RM {parseFloat(listing.price || 0).toLocaleString()}
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell align="center" sx={{ width: 100 }}>
                       <Chip
@@ -2088,16 +2130,21 @@ const ManageListings = () => {
               sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
             />
 
-            {/* Price */}
+            {/* Price - Not required for time_based */}
             <TextField
               fullWidth
-              label="Price (RM)"
+              label="Base Price (RM)"
               type="number"
               value={formData.price}
               onChange={(e) => handleInputChange('price', e.target.value)}
               error={!!fieldErrors.price}
-              helperText={fieldErrors.price || 'Price cannot be less than 0'}
-              required
+              helperText={
+                fieldErrors.price || 
+                (formData.pricingPolicy === 'time_based' 
+                  ? 'Not required for this pricing policy' 
+                  : 'Base price for this service')
+              }
+              required={formData.pricingPolicy !== 'time_based'}
               inputProps={{ min: 0, step: 0.01 }}
               sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
             />
@@ -2172,82 +2219,6 @@ const ManageListings = () => {
               />
             )}
 
-            {/* Tiered Pricing - Only show when tiered_package pricing is selected */}
-            {formData.pricingPolicy === 'tiered_package' && (
-              <Box sx={{ p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f8f9fa' }}>
-                <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
-                  Pricing Tiers
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-                  Define different prices for different quantities or guest counts.
-                </Typography>
-
-                <Stack spacing={2}>
-                  {formData.tieredPricing.map((tier, index) => (
-                    <Box key={index} sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                      <TextField
-                        label="Tier Name"
-                        size="small"
-                        value={tier.name}
-                        onChange={(e) => {
-                          const newTiers = [...formData.tieredPricing];
-                          newTiers[index] = { ...tier, name: e.target.value };
-                          handleInputChange('tieredPricing', newTiers);
-                        }}
-                        error={!!fieldErrors[`tier_${index}_name`]}
-                        helperText={fieldErrors[`tier_${index}_name`]}
-                        required
-                        sx={{ flex: 2 }}
-                      />
-                      <TextField
-                        label="Price (RM)"
-                        type="number"
-                        size="small"
-                        value={tier.price}
-                        onChange={(e) => {
-                          const newTiers = [...formData.tieredPricing];
-                          newTiers[index] = { ...tier, price: e.target.value };
-                          handleInputChange('tieredPricing', newTiers);
-                        }}
-                        error={!!fieldErrors[`tier_${index}_price`]}
-                        helperText={fieldErrors[`tier_${index}_price`]}
-                        required
-                        inputProps={{ min: 0, step: 0.01 }}
-                        sx={{ flex: 1 }}
-                      />
-                      <IconButton
-                        onClick={() => {
-                          const newTiers = formData.tieredPricing.filter((_, i) => i !== index);
-                          handleInputChange('tieredPricing', newTiers);
-                        }}
-                        color="error"
-                        size="small"
-                      >
-                        <CloseIcon />
-                      </IconButton>
-                    </Box>
-                  ))}
-                </Stack>
-
-                <Button
-                  startIcon={<AddIcon />}
-                  onClick={() => {
-                    const newTiers = [...formData.tieredPricing, { name: '', price: '' }];
-                    handleInputChange('tieredPricing', newTiers);
-                  }}
-                  variant="outlined"
-                  sx={{ mt: 2, textTransform: 'none' }}
-                >
-                  Add Tier
-                </Button>
-
-                {fieldErrors.tieredPricing && (
-                  <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
-                    {fieldErrors.tieredPricing}
-                  </Typography>
-                )}
-              </Box>
-            )}
 
             {/* Bundle Toggle */}
             <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#fafafa' }}>

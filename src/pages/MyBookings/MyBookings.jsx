@@ -762,9 +762,6 @@ const MyBookings = () => {
                         case 'fixed_package':
                           breakdownText = `Fixed package: RM${totalPrice.toLocaleString()}`;
                           break;
-                        case 'tiered_package':
-                          breakdownText = `Tiered pricing: RM${totalPrice.toLocaleString()} (Quantity: ${quantity})`;
-                          break;
                         case 'time_based':
                           const hourlyRate = parseFloat(service.serviceListing?.hourlyRate || basePrice);
                           const hours = totalPrice / hourlyRate;

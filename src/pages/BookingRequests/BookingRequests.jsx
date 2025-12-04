@@ -692,19 +692,33 @@ const BookingRequests = () => {
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {selectedBooking.selectedServices.map((service, index) => (
-                          <TableRow key={index}>
-                            <TableCell>{service.serviceListing.name}</TableCell>
-                            <TableCell>{service.serviceListing.category}</TableCell>
-                            <TableCell align="right">{service.quantity}</TableCell>
-                            <TableCell align="right">
-                              RM {parseFloat(service.serviceListing.price).toLocaleString()}
-                            </TableCell>
-                            <TableCell align="right">
-                              RM {parseFloat(service.totalPrice).toLocaleString()}
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {selectedBooking.selectedServices.map((service, index) => {
+                          const pricingPolicy = service.serviceListing?.pricingPolicy || 'fixed_package';
+                          const hourlyRate = parseFloat(service.serviceListing?.hourlyRate || 0);
+                          const totalPrice = parseFloat(service.totalPrice || 0);
+                          const isTimeBased = pricingPolicy === 'time_based';
+                          const hours = isTimeBased && hourlyRate > 0 ? (totalPrice / hourlyRate).toFixed(1) : null;
+                          
+                          return (
+                            <TableRow key={index}>
+                              <TableCell>{service.serviceListing.name}</TableCell>
+                              <TableCell>{service.serviceListing.category}</TableCell>
+                              <TableCell align="right">
+                                {isTimeBased ? `${hours} hours` : service.quantity}
+                              </TableCell>
+                              <TableCell align="right">
+                                {isTimeBased ? (
+                                  <>RM {hourlyRate.toLocaleString()}/hr</>
+                                ) : (
+                                  <>RM {parseFloat(service.serviceListing.price || 0).toLocaleString()}</>
+                                )}
+                              </TableCell>
+                              <TableCell align="right">
+                                RM {totalPrice.toLocaleString()}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                       <TableFooter>
                         <TableRow>

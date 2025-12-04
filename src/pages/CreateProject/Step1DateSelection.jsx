@@ -9,7 +9,8 @@ import './CreateProject.styles.css';
 
 const Step1DateSelection = ({ formData, updateFormData, error, setError }) => {
   const [dateError, setDateError] = useState('');
-  const [timeError, setTimeError] = useState('');
+  const [startTimeError, setStartTimeError] = useState('');
+  const [endTimeError, setEndTimeError] = useState('');
 
   const minDate = dayjs().add(1, 'day'); // Can't select today or past dates
 
@@ -26,21 +27,83 @@ const Step1DateSelection = ({ formData, updateFormData, error, setError }) => {
     setError(null);
   };
 
-  const handleTimeChange = (newTime) => {
+  const handleStartTimeChange = (newTime) => {
     if (!newTime) {
-      updateFormData('weddingTime', '');
-      setTimeError('');
+      updateFormData('eventStartTime', '');
+      setStartTimeError('');
       return;
     }
 
     const timeStr = newTime.format('HH:mm');
-    updateFormData('weddingTime', timeStr);
-    setTimeError('');
+    const hour = newTime.hour();
+    const minute = newTime.minute();
+    
+    // Validate business hours (8 AM - 11 PM)
+    if (hour < 8 || (hour === 23 && minute > 0) || hour >= 23) {
+      setStartTimeError('Start time must be between 8:00 AM and 11:00 PM');
+      updateFormData('eventStartTime', timeStr);
+      return;
+    }
+    
+    // Validate end time is after start time if end time is already set
+    if (formData.eventEndTime) {
+      const endHour = parseInt(formData.eventEndTime.split(':')[0]);
+      const endMinute = parseInt(formData.eventEndTime.split(':')[1]);
+      const startMinutes = hour * 60 + minute;
+      const endMinutes = endHour * 60 + endMinute;
+      if (endMinutes <= startMinutes) {
+        setStartTimeError('Start time must be before end time');
+      } else {
+        setStartTimeError('');
+      }
+    } else {
+      setStartTimeError('');
+    }
+    
+    updateFormData('eventStartTime', timeStr);
+    setError(null);
+  };
+
+  const handleEndTimeChange = (newTime) => {
+    if (!newTime) {
+      updateFormData('eventEndTime', '');
+      setEndTimeError('');
+      return;
+    }
+
+    const timeStr = newTime.format('HH:mm');
+    const hour = newTime.hour();
+    const minute = newTime.minute();
+    
+    // Validate business hours (8 AM - 11 PM)
+    if (hour < 8 || (hour === 23 && minute > 0) || hour >= 23) {
+      setEndTimeError('End time must be between 8:00 AM and 11:00 PM');
+      updateFormData('eventEndTime', timeStr);
+      return;
+    }
+    
+    // Validate end time is after start time if start time is already set
+    if (formData.eventStartTime) {
+      const startHour = parseInt(formData.eventStartTime.split(':')[0]);
+      const startMinute = parseInt(formData.eventStartTime.split(':')[1]);
+      const startMinutes = startHour * 60 + startMinute;
+      const endMinutes = hour * 60 + minute;
+      if (endMinutes <= startMinutes) {
+        setEndTimeError('End time must be after start time');
+      } else {
+        setEndTimeError('');
+      }
+    } else {
+      setEndTimeError('');
+    }
+    
+    updateFormData('eventEndTime', timeStr);
     setError(null);
   };
 
   const selectedDate = formData.weddingDate ? dayjs(formData.weddingDate) : null;
-  const selectedTime = formData.weddingTime ? dayjs(`2000-01-01 ${formData.weddingTime}`) : null;
+  const selectedStartTime = formData.eventStartTime ? dayjs(`2000-01-01 ${formData.eventStartTime}`) : null;
+  const selectedEndTime = formData.eventEndTime ? dayjs(`2000-01-01 ${formData.eventEndTime}`) : null;
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -53,7 +116,7 @@ const Step1DateSelection = ({ formData, updateFormData, error, setError }) => {
         </div>
 
         <div className="step-description">
-          <p>Select your wedding date and time</p>
+          <p>Select your wedding date and event duration</p>
         </div>
 
         <div className="date-time-selection">
@@ -154,15 +217,53 @@ const Step1DateSelection = ({ formData, updateFormData, error, setError }) => {
             </Paper>
           </div>
 
-          <div className="date-time-group time-group">
-            <label className="date-time-label">Select a Time</label>
+          <div className="date-time-group time-group" style={{ display: 'flex', gap: '16px', flexDirection: 'column' }}>
+            <div>
+              <label className="date-time-label">Event Start Time</label>
+              <TimePicker
+                value={selectedStartTime}
+                onChange={handleStartTimeChange}
+                slotProps={{
+                  textField: {
+                    error: !!startTimeError,
+                    helperText: startTimeError || 'Business hours: 8:00 AM - 11:00 PM',
+                    fullWidth: true,
+                    className: 'time-picker-input'
+                  }
+                }}
+                sx={{
+                  width: '100%',
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: '12px',
+                    fontFamily: 'Playfair Display, serif',
+                    fontSize: '16px',
+                    boxShadow: '0px 2px 6px rgba(0,0,0,0.1)',
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      boxShadow: '0px 4px 12px rgba(0,0,0,0.15)',
+                      borderColor: '#E16789',
+                    },
+                    '&.Mui-focused': {
+                      boxShadow: '0px 0px 0px 3px rgba(225, 103, 137, 0.1)',
+                      borderColor: '#E16789',
+                    },
+                    '& fieldset': {
+                      borderColor: '#e0e0e0',
+                      borderWidth: '1px',
+                    },
+                  },
+                }}
+              />
+            </div>
+            <div>
+              <label className="date-time-label">Event End Time</label>
             <TimePicker
-              value={selectedTime}
-              onChange={handleTimeChange}
+                value={selectedEndTime}
+                onChange={handleEndTimeChange}
               slotProps={{
                 textField: {
-                  error: !!timeError,
-                  helperText: timeError,
+                    error: !!endTimeError,
+                    helperText: endTimeError || 'Business hours: 8:00 AM - 11:00 PM',
                   fullWidth: true,
                   className: 'time-picker-input'
                 }
@@ -190,17 +291,18 @@ const Step1DateSelection = ({ formData, updateFormData, error, setError }) => {
                 },
               }}
             />
+            </div>
           </div>
         </div>
 
-        {formData.weddingDate && formData.weddingTime && (
+        {formData.weddingDate && formData.eventStartTime && formData.eventEndTime && (
           <div className="selected-date-time-preview">
             <div className="preview-card">
               <i className="fas fa-check-circle"></i>
               <div className="preview-content">
                 <p className="preview-label">Selected Date & Time</p>
                 <p className="preview-value">
-                  {dayjs(formData.weddingDate).format('MMMM DD, YYYY')} at {dayjs(`2000-01-01 ${formData.weddingTime}`).format('h:mm A')}
+                  {dayjs(formData.weddingDate).format('MMMM DD, YYYY')} from {dayjs(`2000-01-01 ${formData.eventStartTime}`).format('h:mm A')} to {dayjs(`2000-01-01 ${formData.eventEndTime}`).format('h:mm A')}
                 </p>
               </div>
             </div>

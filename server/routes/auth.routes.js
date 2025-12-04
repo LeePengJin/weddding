@@ -6,7 +6,7 @@ const { PrismaClient } = require('@prisma/client');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { sendEmail } = require('../utils/mailer');
+const { sendEmail, generateOtpEmail } = require('../utils/mailer');
 const { passwordPolicy, generateOtpCode } = require('../utils/security');
 const { prefixedUlid } = require('../utils/id');
 const { requireAuth } = require('../middleware/auth');
@@ -89,36 +89,7 @@ router.post('/register/request', async (req, res, next) => {
     });
 
     const subject = 'Your Weddding OTP Code';
-    const text = `Your OTP is: ${code} (valid for 10 minutes)`;
-    const html = `
-      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f7; padding:24px;">
-        <table align="center" width="100%" style="max-width:480px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
-          <tr>
-            <td style="padding:20px 28px; background:linear-gradient(135deg,#f9739b,#ec4899); color:#ffffff;">
-              <h1 style="margin:0; font-size:22px; letter-spacing:0.06em; text-transform:uppercase;">Verify Your Email</h1>
-              <p style="margin:8px 0 0; opacity:0.9;">Complete your Weddding account setup.</p>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:24px 28px 20px;">
-              <p style="margin:0 0 16px; color:#111827;">Hi ${name},</p>
-              <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
-                Use the one-time code below to verify your email address. This code is valid for <strong>10 minutes</strong>.
-              </p>
-              <div style="margin:16px 0 20px; text-align:center;">
-                <div style="display:inline-block; padding:10px 20px; border-radius:999px; background:#111827; color:#ffffff; font-size:20px; font-weight:700; letter-spacing:0.3em;">
-                  ${code}
-                </div>
-              </div>
-              <p style="margin:0 0 12px; color:#9ca3af; font-size:12px;">
-                If you didn&apos;t request this code, you can safely ignore this email.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </div>
-    `;
-
+    const { text, html } = generateOtpEmail(name, code, 'register');
     await sendEmail(email, subject, { text, html });
     return res.json({ ok: true });
   } catch (err) {
@@ -217,10 +188,8 @@ router.post('/register/vendor/request', async (req, res, next) => {
             expiresAt,
           },
         });
-        await sendEmail(email, 'Vendor Resubmission OTP', {
-          text: `Your OTP is: ${code} (valid for 10 minutes)`,
-          html: `<p>Your OTP is: <strong>${code}</strong> (valid for 10 minutes)</p>`,
-        });
+        const { text, html } = generateOtpEmail(name, code, 'resubmit_vendor');
+        await sendEmail(email, 'Vendor Resubmission OTP', { text, html });
         return res.json({ ok: true, purpose: 'resubmit_vendor' });
       }
       return res.status(409).json({ error: 'Email in use' });
@@ -241,10 +210,9 @@ router.post('/register/vendor/request', async (req, res, next) => {
       },
     });
 
-    await sendEmail(email, 'Your Weddding Vendor OTP Code', {
-      text: `Your OTP is: ${code} (valid for 10 minutes)`,
-      html: `<p>Your OTP is: <strong>${code}</strong> (valid for 10 minutes)</p>`,
-    });
+    const subject = 'Your Weddding Vendor OTP Code';
+    const { text, html } = generateOtpEmail(name, code, 'register_vendor');
+    await sendEmail(email, subject, { text, html });
     return res.json({ ok: true, purpose: 'register_vendor' });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -330,13 +298,20 @@ router.post('/otp/resend', async (req, res, next) => {
       },
     });
 
+    // Get user name for greeting
+    const user = await prisma.user.findUnique({ where: { email } });
+    const userName = user?.name || email.split('@')[0];
+
     const subject = purpose === 'reset'
       ? 'Your Weddding Password Reset OTP'
+      : purpose === 'register_vendor'
+      ? 'Your Weddding Vendor OTP Code'
+      : purpose === 'resubmit_vendor'
+      ? 'Vendor Resubmission OTP'
       : 'Your Weddding OTP Code';
-    await sendEmail(email, subject, {
-      text: `Your OTP is: ${code} (valid for 10 minutes)`,
-      html: `<p>Your OTP is: <strong>${code}</strong> (valid for 10 minutes)</p>`,
-    });
+    
+    const { text, html } = generateOtpEmail(userName, code, purpose);
+    await sendEmail(email, subject, { text, html });
     return res.json({ ok: true });
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
@@ -394,10 +369,9 @@ router.post('/vendor/resubmit/request', async (req, res, next) => {
       },
     });
 
-    await sendEmail(email, 'Vendor Resubmission OTP', {
-      text: `Your OTP is: ${code} (valid for 10 minutes)`,
-      html: `<p>Your OTP is: <strong>${code}</strong> (valid for 10 minutes)</p>`,
-    });
+    const userName = user.name || email.split('@')[0];
+    const { text, html } = generateOtpEmail(userName, code, 'resubmit_vendor');
+    await sendEmail(email, 'Vendor Resubmission OTP', { text, html });
     return res.json({ ok: true });
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
@@ -460,10 +434,9 @@ router.post('/forgot/request', async (req, res, next) => {
     const code = generateOtpCode();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await prisma.otpToken.create({ data: { email, code, purpose: 'reset', expiresAt } });
-    await sendEmail(email, 'Your Weddding Password Reset OTP', {
-      text: `Your OTP is: ${code} (valid for 10 minutes)`,
-      html: `<p>Your OTP is: <strong>${code}</strong> (valid for 10 minutes)</p>`,
-    });
+    const userName = user.name || email.split('@')[0];
+    const { text, html } = generateOtpEmail(userName, code, 'reset');
+    await sendEmail(email, 'Your Weddding Password Reset OTP', { text, html });
     return res.json({ ok: true });
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });

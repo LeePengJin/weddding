@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { Button, IconButton, Stack, Typography, Dialog, Box, Rating, Divider, Chip } from '@mui/material';
+import { Button, IconButton, Stack, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Box, Rating, Divider, Chip, RadioGroup, FormControlLabel, Radio, Card, CardContent } from '@mui/material';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -170,6 +170,12 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
     }
   };
 
+  const handleAddClick = () => {
+    // Add directly
+    onAdd?.(item);
+  };
+
+
   return (
     <div className="catalog-detail-panel">
       <div className="detail-header">
@@ -270,7 +276,11 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
           <Typography variant="h6">{item.name}</Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Typography variant="subtitle2" color="text.secondary">
-              RM {Number(item.price).toLocaleString()}
+              {item.pricingPolicy === 'time_based' ? (
+                <>RM {Number(item.hourlyRate || 0).toLocaleString()}/hr</>
+              ) : (
+                <>RM {Number(item.price || 0).toLocaleString()}</>
+              )}
             </Typography>
             {item.averageRating && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -292,7 +302,6 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
                 item.pricingPolicy === 'fixed_package' ? 'Fixed Package' :
                 item.pricingPolicy === 'per_table' ? 'Per Table' :
                 item.pricingPolicy === 'per_unit' ? 'Per Unit' :
-                item.pricingPolicy === 'tiered_package' ? 'Tiered Package' :
                 item.pricingPolicy === 'time_based' ? `Time Based (RM${Number(item.hourlyRate || 0).toLocaleString()}/hr)` :
                 item.pricingPolicy
               }
@@ -386,7 +395,7 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
           variant="contained"
           fullWidth
           startIcon={<AddIcon />}
-          onClick={() => onAdd?.(item)}
+          onClick={handleAddClick}
           disabled={isUnavailable}
         >
           Add to Design
@@ -462,6 +471,7 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
           </Typography>
         </Box>
       </Dialog>
+
     </div>
   );
 };

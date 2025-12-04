@@ -121,7 +121,6 @@ model ServiceListing {
   // Pricing model for this listing
   pricingPolicy PricingPolicy @default(fixed_package)
   hourlyRate    Decimal?      @db.Decimal(12, 2) // For time_based pricing
-  tieredPricing Json?                     // For tiered_package pricing rules
 
   // Cancellation policy
   cancellationPolicy String? // Text description of cancellation policy
@@ -288,7 +287,7 @@ model WeddingProject {
   id             String        @id @default(uuid())
   coupleId       String
   projectName    String
-  weddingDate    DateTime
+  weddingDate    DateTime      @db.Date
   weddingType    WeddingType
   basePackageId  String?
   // Link selected venue service listing (specific ballroom/venue space)
@@ -387,7 +386,6 @@ enum PricingPolicy {
   per_unit        // General per-unit pricing (e.g., per guest, per chair)
   per_table       // Units = number of tables placed in design (e.g., centerpieces)
   fixed_package   // Fixed price package per booking
-  tiered_package  // Tiered pricing based on quantity or hours
   time_based      // Time-based pricing (e.g., hourly)
 }
 
