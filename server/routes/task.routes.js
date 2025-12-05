@@ -6,6 +6,54 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+/**
+ * Helper function to check if a project can be modified
+ * Projects with 'completed' status or past their wedding date cannot be modified
+ * Throws an error with statusCode if project is completed/past wedding date or not found
+ */
+async function checkProjectCanBeModified(projectId, coupleId) {
+  const project = await prisma.weddingProject.findFirst({
+    where: {
+      id: projectId,
+      coupleId,
+    },
+    select: {
+      id: true,
+      status: true,
+      weddingDate: true,
+    },
+  });
+
+  if (!project) {
+    const error = new Error('Project not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Check if project is completed
+  if (project.status === 'completed') {
+    const error = new Error('Completed projects cannot be modified');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  // Check if wedding date has passed
+  if (project.weddingDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weddingDate = new Date(project.weddingDate);
+    weddingDate.setHours(0, 0, 0, 0);
+
+    if (weddingDate < today) {
+      const error = new Error('Projects past their wedding date cannot be modified');
+      error.statusCode = 403;
+      throw error;
+    }
+  }
+
+  return project;
+}
+
 // Helper function to check for SQL injection patterns
 const containsSQLInjection = (str) => {
   if (!str) return false;
@@ -178,6 +226,9 @@ router.post('/', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(data.projectId, req.user.sub);
+
     const task = await prisma.task.create({
       data: {
         projectId: data.projectId,
@@ -196,6 +247,9 @@ router.post('/', requireAuth, async (req, res, next) => {
     if (err instanceof z.ZodError) {
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
+    }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
     }
     next(err);
   }
@@ -228,6 +282,9 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     if (task.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(task.projectId, req.user.sub);
 
     const data = updateTaskSchema.parse(req.body);
     const updateData = {};
@@ -262,6 +319,9 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
     }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -294,6 +354,9 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(task.projectId, req.user.sub);
+
     // Delete task (subtasks will be deleted automatically due to cascade)
     await prisma.task.delete({
       where: { id: req.params.id },
@@ -301,6 +364,9 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
 
     res.json({ message: 'Task deleted successfully' });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -333,6 +399,9 @@ router.post('/:taskId/subtasks', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(task.projectId, req.user.sub);
+
     const data = createSubtaskSchema.parse({ ...req.body, taskId: req.params.taskId });
 
     const subtask = await prisma.subtask.create({
@@ -361,6 +430,9 @@ router.post('/:taskId/subtasks', requireAuth, async (req, res, next) => {
     if (err instanceof z.ZodError) {
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
+    }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
     }
     next(err);
   }
@@ -393,6 +465,9 @@ router.patch('/:taskId/subtasks/:subtaskId', requireAuth, async (req, res, next)
     if (task.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(task.projectId, req.user.sub);
 
     const subtask = await prisma.subtask.findFirst({
       where: {
@@ -435,6 +510,9 @@ router.patch('/:taskId/subtasks/:subtaskId', requireAuth, async (req, res, next)
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
     }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -466,6 +544,9 @@ router.delete('/:taskId/subtasks/:subtaskId', requireAuth, async (req, res, next
     if (task.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(task.projectId, req.user.sub);
 
     const subtask = await prisma.subtask.findFirst({
       where: {
@@ -499,6 +580,9 @@ router.delete('/:taskId/subtasks/:subtaskId', requireAuth, async (req, res, next
 
     res.json({ message: 'Subtask deleted successfully' });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     next(err);
   }
 });

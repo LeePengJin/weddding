@@ -10,6 +10,7 @@ import {
   addDesignElement,
   updateDesignElement,
   deleteDesignElement,
+  duplicateDesignElement,
   saveVenueDesign,
   getVenueCatalog,
   getVenueAvailability,
@@ -414,6 +415,146 @@ const VenueDesigner = () => {
     [resourceId, designerMode, packageId, projectId]
   );
 
+  const handleDuplicatePlacement = useCallback(
+    async (placementId) => {
+      if (!resourceId || designerMode === 'package') {
+        // Duplication not supported for package mode yet
+        setToastNotification({ open: true, message: 'Duplication not available in package mode', severity: 'info' });
+        return null;
+      }
+      try {
+        const response = await duplicateDesignElement(projectId, placementId);
+        // Handle both single placement and bundle (array of placements)
+        const newPlacements = response.placements || (response.placement ? [response.placement] : []);
+        if (newPlacements.length > 0) {
+          setPlacements((prev) => [...prev, ...newPlacements]);
+          const itemCount = newPlacements.length > 1 ? `${newPlacements.length} elements` : 'element';
+          if (response.warning) {
+            setToastNotification({ open: true, message: response.warning, severity: 'warning' });
+          } else {
+            setToastNotification({ 
+              open: true, 
+              message: `Duplicated ${itemCount} successfully`, 
+              severity: 'success' 
+            });
+          }
+          return newPlacements;
+        }
+      } catch (err) {
+        const errorMsg = err.message || 'Unable to duplicate element';
+        // Check if it's a warning (exclusive service)
+        if (errorMsg.includes('exclusive') || errorMsg.includes('maximum quantity')) {
+          setToastNotification({ open: true, message: errorMsg, severity: 'warning' });
+        } else {
+          setToastNotification({ open: true, message: errorMsg, severity: 'error' });
+        }
+        throw err;
+      }
+    },
+    [resourceId, designerMode, projectId]
+  );
+
+  const handleDuplicateMultiple = useCallback(
+    async (placementIds) => {
+      if (!placementIds || placementIds.length === 0) return;
+      
+      // Group placements by bundleId to avoid duplicating the same bundle multiple times
+      const bundleGroups = new Map();
+      const singlePlacements = [];
+      
+      placementIds.forEach((id) => {
+        const placement = placements.find((p) => p.id === id);
+        if (placement?.metadata?.bundleId) {
+          const bundleId = placement.metadata.bundleId;
+          if (!bundleGroups.has(bundleId)) {
+            bundleGroups.set(bundleId, id); // Store one representative ID per bundle
+          }
+        } else {
+          singlePlacements.push(id);
+        }
+      });
+      
+      const uniqueIds = [...Array.from(bundleGroups.values()), ...singlePlacements];
+      const results = [];
+      
+      for (const id of uniqueIds) {
+        try {
+          const result = await handleDuplicatePlacement(id);
+          if (result) {
+            // result can be an array (for bundles) or a single placement
+            if (Array.isArray(result)) {
+              results.push(...result);
+            } else {
+              results.push(result);
+            }
+          }
+        } catch (err) {
+          // Continue with other elements even if one fails
+          console.error(`Failed to duplicate element ${id}:`, err);
+        }
+      }
+      
+      if (results.length > 0) {
+        const itemCount = results.length > 1 ? `${results.length} elements` : 'element';
+        setToastNotification({
+          open: true,
+          message: `Duplicated ${itemCount}`,
+          severity: 'success',
+        });
+      }
+    },
+    [handleDuplicatePlacement, placements]
+  );
+
+  const handleDeleteMultiple = useCallback(
+    async (placementIds) => {
+      if (!placementIds || placementIds.length === 0) return;
+      const results = [];
+      for (const id of placementIds) {
+        try {
+          await handleRemovePlacement(id);
+          results.push(id);
+        } catch (err) {
+          console.error(`Failed to delete element ${id}:`, err);
+        }
+      }
+      if (results.length > 0) {
+        setToastNotification({
+          open: true,
+          message: `Deleted ${results.length} element(s)`,
+          severity: 'success',
+        });
+      }
+    },
+    [handleRemovePlacement]
+  );
+
+  const handleLockMultiple = useCallback(
+    async (placementIds, lockState) => {
+      if (!placementIds || placementIds.length === 0) return;
+      const results = [];
+      for (const id of placementIds) {
+        try {
+          const placement = placements.find((p) => p.id === id);
+          if (placement && placement.isLocked !== lockState) {
+            await handleToggleLock(placement);
+            results.push(id);
+          }
+        } catch (err) {
+          console.error(`Failed to ${lockState ? 'lock' : 'unlock'} element ${id}:`, err);
+        }
+      }
+      if (results.length > 0) {
+        setToastNotification({
+          open: true,
+          message: `${lockState ? 'Locked' : 'Unlocked'} ${results.length} element(s)`,
+          severity: 'success',
+        });
+      }
+    },
+    [placements, handleToggleLock]
+  );
+
   const handleSidebarToggle = () => {
     const nextCollapsed = !sidebarCollapsed;
     setSidebarCollapsed(nextCollapsed);
@@ -455,12 +596,18 @@ const VenueDesigner = () => {
       onToggleLock: handleToggleLock,
       onRemovePlacement: handleRemovePlacement,
       onRemoveProjectService: handleRemoveProjectService,
+      setToastNotification,
       onUpdatePlacement: handleUpdatePlacement,
+      onDuplicatePlacement: handleDuplicatePlacement,
+      onDuplicateMultiple: handleDuplicateMultiple,
+      onDeleteMultiple: handleDeleteMultiple,
+      onLockMultiple: handleLockMultiple,
       onReloadDesign: loadDesign,
       savingState,
       designLayout,
       setDesignLayout,
       sceneOptions: {},
+      setToastNotification,
     }),
     [
       projectId,
@@ -478,6 +625,10 @@ const VenueDesigner = () => {
       handleRemovePlacement,
       handleRemoveProjectService,
       handleUpdatePlacement,
+      handleDuplicatePlacement,
+      handleDuplicateMultiple,
+      handleDeleteMultiple,
+      handleLockMultiple,
       loadDesign,
       savingState,
       designLayout,

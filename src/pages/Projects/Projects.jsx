@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../lib/api';
 import dayjs from 'dayjs';
+import { Snackbar, Alert } from '@mui/material';
 import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
 import './Projects.styles.css';
 
@@ -11,6 +12,7 @@ const Projects = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [deleteDialog, setDeleteDialog] = useState({ open: false, projectId: null, projectName: '' });
+  const [toast, setToast] = useState({ open: false, message: '', severity: 'error' });
 
   useEffect(() => {
     fetchProjects();
@@ -57,8 +59,10 @@ const Projects = () => {
       // Refresh projects list
       fetchProjects();
       setDeleteDialog({ open: false, projectId: null, projectName: '' });
+      setToast({ open: true, message: 'Project deleted successfully', severity: 'success' });
     } catch (err) {
-      setError(err.message || 'Failed to delete project');
+      const errorMessage = err.message || 'Failed to delete project';
+      setToast({ open: true, message: errorMessage, severity: 'error' });
       setDeleteDialog({ open: false, projectId: null, projectName: '' });
     }
   };
@@ -138,6 +142,21 @@ const Projects = () => {
         confirmText="Delete"
         cancelText="Cancel"
       />
+
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={6000}
+        onClose={() => setToast({ ...toast, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setToast({ ...toast, open: false })}
+          severity={toast.severity}
+          sx={{ width: '100%' }}
+        >
+          {toast.message}
+        </Alert>
+      </Snackbar>
     </div>
   );
 };

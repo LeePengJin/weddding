@@ -3,9 +3,58 @@ const { z } = require('zod');
 const { PrismaClient } = require('@prisma/client');
 const { requireAuth } = require('../middleware/auth');
 const { applyPackageDesignToProject } = require('../services/package.service');
+const notificationService = require('../services/notificationService');
 
 const router = express.Router();
 const prisma = new PrismaClient();
+
+/**
+ * Helper function to check if a project can be modified
+ * Projects with 'completed' status or past their wedding date cannot be modified
+ * Throws an error with statusCode if project is completed/past wedding date or not found
+ */
+async function checkProjectCanBeModified(projectId, coupleId) {
+  const project = await prisma.weddingProject.findFirst({
+    where: {
+      id: projectId,
+      coupleId,
+    },
+    select: {
+      id: true,
+      status: true,
+      weddingDate: true,
+    },
+  });
+
+  if (!project) {
+    const error = new Error('Project not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Check if project is completed
+  if (project.status === 'completed') {
+    const error = new Error('Completed projects cannot be modified');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  // Check if wedding date has passed (should be caught by status check, but double-check)
+  if (project.weddingDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weddingDate = new Date(project.weddingDate);
+    weddingDate.setHours(0, 0, 0, 0);
+
+    if (weddingDate < today) {
+      const error = new Error('Projects past their wedding date cannot be modified');
+      error.statusCode = 403;
+      throw error;
+    }
+  }
+
+  return project;
+}
 const BASE_PACKAGE_INCLUDE = {
   items: {
     include: {
@@ -64,7 +113,7 @@ const updateProjectSchema = z.object({
   weddingType: z.enum(['self_organized', 'prepackaged']).optional(),
   venueServiceListingId: z.string().uuid().optional().nullable(),
   basePackageId: z.string().uuid().optional().nullable(),
-  status: z.enum(['draft', 'ready_to_book', 'booked']).optional(),
+  status: z.enum(['draft', 'ready_to_book', 'booked', 'completed']).optional(),
 }).refine((data) => {
   // If eventStartTime is provided, eventEndTime must also be provided
   if (data.eventStartTime !== undefined && data.eventEndTime === undefined) {
@@ -88,12 +137,32 @@ const updateProjectSchema = z.object({
 /**
  * GET /projects
  * Get all wedding projects for the authenticated couple
+ * Auto-updates projects past their wedding date to 'completed' status
  */
 router.get('/', requireAuth, async (req, res, next) => {
   try {
     if (req.user.role !== 'couple') {
       return res.status(403).json({ error: 'Couple access required' });
     }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set to start of day for comparison
+
+    // Auto-update projects past their wedding date to 'completed' status
+    await prisma.weddingProject.updateMany({
+      where: {
+        coupleId: req.user.sub,
+        weddingDate: {
+          lt: today,
+        },
+        status: {
+          not: 'completed',
+        },
+      },
+      data: {
+        status: 'completed',
+      },
+    });
 
     const projects = await prisma.weddingProject.findMany({
       where: { coupleId: req.user.sub },
@@ -357,6 +426,22 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // Prevent modifications to completed projects or projects past wedding date
+    if (existingProject.status === 'completed') {
+      return res.status(403).json({ error: 'Completed projects cannot be modified' });
+    }
+    
+    if (existingProject.weddingDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const weddingDate = new Date(existingProject.weddingDate);
+      weddingDate.setHours(0, 0, 0, 0);
+      
+      if (weddingDate < today) {
+        return res.status(403).json({ error: 'Projects past their wedding date cannot be modified' });
+      }
+    }
+
     const data = updateProjectSchema.parse(req.body);
 
     // If updating project name, check uniqueness
@@ -462,6 +547,157 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
           },
         });
       }
+
+      // Handle replacement venue logic for dependent bookings
+      if (project.weddingDate) {
+        const weddingDate = project.weddingDate instanceof Date ? project.weddingDate : new Date(project.weddingDate);
+        const startOfDay = new Date(weddingDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(weddingDate);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // Find active venue booking for the new venue
+        // Only consider bookings that are accepted or later (pending_deposit_payment or later)
+        // This is consistent with the venue-first rule: venue is "booked" when accepted
+        // Note: Dependent bookings are primarily updated when venue booking is accepted (in status update route)
+        // This check serves as a fallback in case project is updated after venue acceptance
+        const newVenueBooking = await prisma.booking.findFirst({
+          where: {
+            projectId: project.id,
+            reservedDate: {
+              gte: startOfDay,
+              lte: endOfDay,
+            },
+            status: {
+              in: ['pending_deposit_payment', 'confirmed', 'pending_final_payment', 'completed'],
+            },
+            selectedServices: {
+              some: {
+                serviceListing: {
+                  category: 'Venue',
+                },
+              },
+            },
+          },
+          include: {
+            selectedServices: {
+              include: {
+                serviceListing: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        // If there's an active venue booking, update dependent bookings
+        if (newVenueBooking) {
+          // Find all dependent bookings waiting for venue replacement
+          const dependentBookings = await prisma.booking.findMany({
+            where: {
+              projectId: project.id,
+              isPendingVenueReplacement: true,
+              status: {
+                notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected', 'completed'],
+              },
+            },
+            include: {
+              vendor: {
+                include: {
+                  user: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true,
+                    },
+                  },
+                },
+              },
+              selectedServices: {
+                include: {
+                  serviceListing: {
+                    select: {
+                      id: true,
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+          // Update each dependent booking
+          for (const dependentBooking of dependentBookings) {
+            const today = new Date();
+            const weddingDateObj = weddingDate instanceof Date ? weddingDate : new Date(weddingDate);
+
+            // Recalculate deposit due date
+            let newDepositDueDate = null;
+            if (dependentBooking.originalDepositDueDate && dependentBooking.venueCancellationDate) {
+              const originalDepositDue = new Date(dependentBooking.originalDepositDueDate);
+              const cancellationDate = new Date(dependentBooking.venueCancellationDate);
+              
+              // Calculate remaining days from cancellation to original due date
+              const remainingDays = Math.ceil((originalDepositDue - cancellationDate) / (1000 * 60 * 60 * 24));
+              
+              // New due date = today + remaining days
+              newDepositDueDate = new Date(today);
+              newDepositDueDate.setDate(today.getDate() + remainingDays);
+              
+              // Cap at wedding date - 1 day
+              const maxDepositDue = new Date(weddingDateObj);
+              maxDepositDue.setDate(weddingDateObj.getDate() - 1);
+              if (newDepositDueDate > maxDepositDue) {
+                newDepositDueDate = maxDepositDue;
+              }
+            } else if (dependentBooking.depositDueDate) {
+              // Fallback: use current deposit due date or set to standard policy
+              newDepositDueDate = new Date(today);
+              newDepositDueDate.setDate(today.getDate() + 7); // 7 days standard
+            }
+
+            // Recalculate final due date (always one week before wedding)
+            let newFinalDueDate = new Date(weddingDateObj);
+            newFinalDueDate.setDate(weddingDateObj.getDate() - 7);
+            
+            // If final due date already passed, set to wedding date - 1 day
+            if (newFinalDueDate < today) {
+              newFinalDueDate = new Date(weddingDateObj);
+              newFinalDueDate.setDate(weddingDateObj.getDate() - 1);
+            }
+
+            // Update booking
+            await prisma.booking.update({
+              where: { id: dependentBooking.id },
+              data: {
+                isPendingVenueReplacement: false,
+                dependsOnVenueBookingId: newVenueBooking.id,
+                depositDueDate: newDepositDueDate,
+                finalDueDate: newFinalDueDate,
+                originalDepositDueDate: null,
+                originalFinalDueDate: null,
+                venueCancellationDate: null,
+                gracePeriodEndDate: null,
+              },
+            });
+
+            // Send notification to vendor
+            notificationService.sendVenueReplacementFoundNotification(
+              dependentBooking,
+              newVenueBooking
+            ).catch((err) => {
+              console.error(`Error sending venue replacement notification to vendor for booking ${dependentBooking.id}:`, err);
+            });
+          }
+
+          if (dependentBookings.length > 0) {
+            console.log(`✅ Updated ${dependentBookings.length} dependent booking(s) with new venue booking ${newVenueBooking.id}`);
+          }
+        }
+      }
     }
 
     if (data.basePackageId) {
@@ -500,10 +736,19 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // Only allow deletion of draft projects
-    if (project.status !== 'draft') {
-      return res.status(400).json({ error: 'Only draft projects can be deleted' });
+    // Check if project has any bookings - projects with bookings cannot be deleted
+    const bookingCount = await prisma.booking.count({
+      where: {
+        projectId: req.params.id,
+      },
+    });
+
+    if (bookingCount > 0) {
+      return res.status(400).json({
+        error: 'Cannot delete project with bookings. Projects with bookings are kept as records.',
+      });
     }
+
 
     await prisma.weddingProject.delete({
       where: { id: req.params.id },
@@ -542,6 +787,22 @@ router.patch('/:projectId/services/:serviceListingId', requireAuth, async (req, 
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Check if project is completed or past wedding date
+    if (project.status === 'completed') {
+      return res.status(403).json({ error: 'Completed projects cannot be modified' });
+    }
+    
+    if (project.weddingDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const weddingDate = new Date(project.weddingDate);
+      weddingDate.setHours(0, 0, 0, 0);
+      
+      if (weddingDate < today) {
+        return res.status(403).json({ error: 'Projects past their wedding date cannot be modified' });
+      }
     }
 
     const projectService = await prisma.projectService.findUnique({
@@ -620,6 +881,22 @@ router.delete('/:projectId/services/:serviceListingId', requireAuth, async (req,
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Check if project is completed or past wedding date
+    if (project.status === 'completed') {
+      return res.status(403).json({ error: 'Completed projects cannot be modified' });
+    }
+    
+    if (project.weddingDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const weddingDate = new Date(project.weddingDate);
+      weddingDate.setHours(0, 0, 0, 0);
+      
+      if (weddingDate < today) {
+        return res.status(403).json({ error: 'Projects past their wedding date cannot be modified' });
+      }
     }
 
     const projectService = await prisma.projectService.findUnique({

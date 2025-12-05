@@ -2738,8 +2738,8 @@ const ManageListings = () => {
                     </>
                   )}
 
-                  {/* Dimensions and Settings */}
-                  {((!useExistingDesignElement && (model3DPreview || floorplanData)) || (useExistingDesignElement && selectedDesignElementId)) && (
+                  {/* Dimensions and Settings (creation only; edits managed in Design Elements) */}
+                  {!editingListing && (((!useExistingDesignElement && (model3DPreview || floorplanData)) || (useExistingDesignElement && selectedDesignElementId))) && (
                     <Box sx={{ mt: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f8f9fa' }}>
                       <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
                         3D Model Settings

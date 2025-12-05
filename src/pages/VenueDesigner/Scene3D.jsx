@@ -48,8 +48,6 @@ const SceneGround = ({ size = 160 }) => (
         polygonOffset
         polygonOffsetFactor={1}
         polygonOffsetUnits={1}
-        transparent
-        opacity={0.3}
       />
     </mesh>
   </group>
@@ -206,6 +204,10 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     onUpdatePlacement,
     onRemovePlacement,
     onToggleLock,
+    onDuplicatePlacement,
+    onDuplicateMultiple,
+    onDeleteMultiple,
+    onLockMultiple,
     venueInfo,
     venueDesignId,
     projectId,
@@ -213,12 +215,14 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     sceneOptions = {},
   } = useVenueDesigner();
 
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]); // Changed from selectedId to selectedIds array
   const [orbitEnabled, setOrbitEnabled] = useState(true);
   const [viewMode, setViewMode] = useState('orbit'); // 'orbit' | 'walk'
   const [pointerLocked, setPointerLocked] = useState(false);
   const [venueBounds, setVenueBounds] = useState(null);
   const [taggingModalPlacement, setTaggingModalPlacement] = useState(null);
+  const [boxSelectionStart, setBoxSelectionStart] = useState(null); // For box selection
+  const [boxSelectionEnd, setBoxSelectionEnd] = useState(null);
   const venueModelUrl = useMemo(() => normalizeUrl(venueInfo?.modelFile), [venueInfo?.modelFile]);
   const orbitControlsRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -264,7 +268,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   }, [effectiveGrid.size]);
 
   const handleCloseSelection = useCallback(() => {
-    setSelectedId(null);
+    setSelectedIds([]);
   }, []);
 
   const handleOpenTaggingModal = useCallback((placement) => {
@@ -292,13 +296,69 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     }
   }, [placements, taggingModalPlacement]);
 
-  const handleSelect = useCallback((placementId) => {
-    setSelectedId(placementId);
+  const handleSelect = useCallback((placementId, isShiftKey = false) => {
+    if (isShiftKey) {
+      // Toggle selection: add if not selected, remove if already selected
+      setSelectedIds((prev) => {
+        if (prev.includes(placementId)) {
+          return prev.filter((id) => id !== placementId);
+        } else {
+          return [...prev, placementId];
+        }
+      });
+    } else {
+      // Single selection: replace current selection
+      setSelectedIds([placementId]);
+    }
   }, []);
 
-  const handleCanvasPointerMiss = useCallback(() => {
-    handleCloseSelection();
+  const handleCanvasPointerMiss = useCallback((event) => {
+    // Only clear selection if not starting box selection
+    if (!event.shiftKey) {
+      handleCloseSelection();
+    }
   }, [handleCloseSelection]);
+
+  // Box selection handlers
+  const handleCanvasPointerDown = useCallback((event) => {
+    // Start box selection if Shift is held and clicking on empty space
+    if (event.shiftKey && event.button === 0) {
+      const rect = event.target.getBoundingClientRect();
+      setBoxSelectionStart({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+      setBoxSelectionEnd(null);
+    }
+  }, []);
+
+  const handleCanvasPointerMove = useCallback((event) => {
+    if (boxSelectionStart && event.shiftKey) {
+      const rect = event.target.getBoundingClientRect();
+      setBoxSelectionEnd({ x: event.clientX - rect.left, y: event.clientY - rect.top });
+    }
+  }, [boxSelectionStart]);
+
+  const handleCanvasPointerUp = useCallback((event) => {
+    if (boxSelectionStart && boxSelectionEnd) {
+      // Calculate selection rectangle
+      const rect = event.target.getBoundingClientRect();
+      const startX = Math.min(boxSelectionStart.x, boxSelectionEnd.x);
+      const endX = Math.max(boxSelectionStart.x, boxSelectionEnd.x);
+      const startY = Math.min(boxSelectionStart.y, boxSelectionEnd.y);
+      const endY = Math.max(boxSelectionStart.y, boxSelectionEnd.y);
+
+      // Use raycaster to find elements within selection rectangle
+      // We'll need to check each placement's screen position
+      const newSelections = [];
+      // This will be handled by checking element positions in 2D screen space
+      // For now, we'll implement a simpler version that selects based on bounding box overlap
+      
+      setBoxSelectionStart(null);
+      setBoxSelectionEnd(null);
+    } else if (boxSelectionStart) {
+      // Click without drag - cancel box selection
+      setBoxSelectionStart(null);
+      setBoxSelectionEnd(null);
+    }
+  }, [boxSelectionStart, boxSelectionEnd]);
 
   const handleDeletePlacement = useCallback(
     (placementId) => {
@@ -308,11 +368,19 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
       } else if (onUpdatePlacement) {
         onUpdatePlacement(placementId, { remove: true });
       }
-      if (selectedId === placementId) {
-        setSelectedId(null);
+      // Remove from selection if it was selected
+      setSelectedIds((prev) => prev.filter((id) => id !== placementId));
+    },
+    [onRemovePlacement, onUpdatePlacement, sceneOptions.allowRemoval]
+  );
+
+  const handleDuplicatePlacement = useCallback(
+    async (placementId) => {
+      if (onDuplicatePlacement) {
+        await onDuplicatePlacement(placementId);
       }
     },
-    [onRemovePlacement, onUpdatePlacement, selectedId, sceneOptions.allowRemoval]
+    [onDuplicatePlacement]
   );
 
   const handleTogglePlacementLock = useCallback(
@@ -332,14 +400,56 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
       if (typeof nextState.rotation === 'number') {
         payload.rotation = nextState.rotation;
       }
+      if (nextState.parentElementId !== undefined) {
+        payload.parentElementId = nextState.parentElementId;
+      }
       if (Object.keys(payload).length === 0) return;
       try {
         await onUpdatePlacement?.(placementId, payload);
+        // If this element has children, update their positions/rotations
+        const placement = placements.find((p) => p.id === placementId);
+        if (placement && nextState.position) {
+          // Find all child elements
+          const children = placements.filter((p) => p.parentElementId === placementId);
+          for (const child of children) {
+            // Calculate relative offset from parent
+            const relativeX = child.position.x - placement.position.x;
+            const relativeZ = child.position.z - placement.position.z;
+            const relativeY = child.position.y - placement.position.y;
+            
+            // Apply parent's new position with relative offset
+            const newChildPosition = {
+              x: nextState.position.x + relativeX,
+              y: nextState.position.y + relativeY,
+              z: nextState.position.z + relativeZ,
+            };
+            
+            // If parent rotated, rotate child position around parent center
+            if (typeof nextState.rotation === 'number' && placement.rotation !== undefined) {
+              const rotationDelta = (nextState.rotation - placement.rotation) * (Math.PI / 180);
+              const cos = Math.cos(rotationDelta);
+              const sin = Math.sin(rotationDelta);
+              const rotatedX = relativeX * cos - relativeZ * sin;
+              const rotatedZ = relativeX * sin + relativeZ * cos;
+              newChildPosition.x = nextState.position.x + rotatedX;
+              newChildPosition.z = nextState.position.z + rotatedZ;
+              
+              // Also rotate child's rotation
+              const newChildRotation = (child.rotation || 0) + (nextState.rotation - (placement.rotation || 0));
+              await onUpdatePlacement?.(child.id, {
+                position: newChildPosition,
+                rotation: newChildRotation,
+              });
+            } else {
+              await onUpdatePlacement?.(child.id, { position: newChildPosition });
+            }
+          }
+        }
       } catch (err) {
         // Errors already handled upstream, no-op to keep interaction smooth
       }
     },
-    [onUpdatePlacement]
+    [onUpdatePlacement, placements]
   );
 
   const updateGridSetting = useCallback(
@@ -363,7 +473,10 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     updateGridSetting('snapToGrid', !effectiveGrid?.snapToGrid);
   };
 
-  const selectedPlacement = placements.find((placement) => placement.id === selectedId) || null;
+  const selectedPlacements = useMemo(() => {
+    return placements.filter((placement) => selectedIds.includes(placement.id));
+  }, [placements, selectedIds]);
+  const selectedPlacement = selectedPlacements.length === 1 ? selectedPlacements[0] : null; // For backward compatibility with single-selection UI
 
   const handleViewModeChange = useCallback(
     (mode) => {
@@ -540,6 +653,9 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
         camera={{ position: [14, 22, 18], fov: 42, near: 0.1, far: 500 }}
         dpr={[1, 2]}
         onPointerMissed={handleCanvasPointerMiss}
+        onPointerDown={handleCanvasPointerDown}
+        onPointerMove={handleCanvasPointerMove}
+        onPointerUp={handleCanvasPointerUp}
       >
         <CaptureBridge onRegisterCapture={onRegisterCapture} controlsRef={orbitControlsRef} />
         <color attach="background" args={['#cbd2de']} />
@@ -565,13 +681,15 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
           <gridHelper args={[160, gridDivisions, '#d8d2cc', '#ece7e2']} position={[0, 0.05, 0]} />
         )}
 
+        {/* ContactShadows positioned very low to prevent overlay on elements */}
         <ContactShadows
-          position={[0, 0.02, 0]}
-          opacity={0.35}
-          width={160}
-          height={160}
-          blur={1.8}
+          position={[0, 0.001, 0]}
+          opacity={0.12}
+          width={200}
+          height={200}
+          blur={3.5}
           far={50}
+          scale={1.2}
         />
 
         <Suspense fallback={null}>
@@ -579,7 +697,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
               <PlacedElement
                 key={placement.id}
                 placement={placement}
-                isSelected={selectedId === placement.id}
+                isSelected={selectedIds.includes(placement.id)}
                 onSelect={handleSelect}
                 availability={availabilityMap[placement.metadata?.serviceListingId]}
                 snapIncrement={effectiveGrid.snapToGrid ? effectiveGrid.size || 1 : null}
@@ -588,6 +706,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
                 allPlacements={placements}
                 removable={true}
                 onDelete={handleDeletePlacement}
+                onDuplicate={onDuplicatePlacement ? handleDuplicatePlacement : undefined}
                 onToggleLock={handleTogglePlacementLock}
                 onShowDetails={sceneOptions.onShowDetails}
                 onClose={handleCloseSelection}

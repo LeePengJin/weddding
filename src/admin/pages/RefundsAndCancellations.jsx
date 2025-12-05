@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -25,6 +25,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  TablePagination,
 } from '@mui/material';
 import { Edit, Close, Search } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
@@ -50,6 +51,8 @@ const RefundsAndCancellations = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [orderBy, setOrderBy] = useState('cancelledAt');
   const [orderDirection, setOrderDirection] = useState('desc');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   useEffect(() => {
     fetchCancellations();
@@ -59,14 +62,25 @@ const RefundsAndCancellations = () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiFetch('/admin/cancellations');
-      setCancellations(data || []);
+      const response = await apiFetch(`/admin/cancellations?page=${page + 1}&limit=${rowsPerPage}`);
+      if (response.data) {
+        setCancellations(response.data || []);
+      } else {
+        // Backward compatibility
+        setCancellations(response || []);
+      }
     } catch (err) {
       setError(err.message || 'Failed to fetch cancellations');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (page >= 0) {
+      fetchCancellations();
+    }
+  }, [page, rowsPerPage]);
 
   const handleEdit = (cancellation) => {
     setSelectedCancellation(cancellation);
@@ -130,7 +144,8 @@ const RefundsAndCancellations = () => {
 
   const searchValue = searchTerm.trim().toLowerCase();
 
-  const filteredCancellations = [...cancellations]
+  const filteredCancellations = useMemo(() => {
+    return [...cancellations]
     .filter((cancellation) => {
       if (!searchValue) return true;
       const bookingId = cancellation.bookingId?.toLowerCase() || '';
@@ -166,6 +181,14 @@ const RefundsAndCancellations = () => {
       const dateB = b.cancelledAt ? new Date(b.cancelledAt).getTime() : 0;
       return (dateA - dateB) * direction;
     });
+  }, [cancellations, searchValue, orderBy, orderDirection]);
+
+  const paginatedCancellations = useMemo(() => {
+    return filteredCancellations.slice(
+      page * rowsPerPage,
+      page * rowsPerPage + rowsPerPage
+    );
+  }, [filteredCancellations, page, rowsPerPage]);
 
   const handleRequestSort = (property) => {
     if (orderBy === property) {
@@ -267,7 +290,7 @@ const RefundsAndCancellations = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredCancellations.map((cancellation) => (
+              paginatedCancellations.map((cancellation) => (
                 <TableRow key={cancellation.id} hover>
                   <TableCell>
                     <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem">
@@ -327,6 +350,18 @@ const RefundsAndCancellations = () => {
           </TableBody>
         </Table>
       </TableContainer>
+      <TablePagination
+        component="div"
+        count={filteredCancellations.length}
+        page={page}
+        onPageChange={(event, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(event) => {
+          setRowsPerPage(parseInt(event.target.value, 10));
+          setPage(0);
+        }}
+        rowsPerPageOptions={[10, 20, 50, 100]}
+      />
 
       {/* Edit Dialog */}
       <Dialog

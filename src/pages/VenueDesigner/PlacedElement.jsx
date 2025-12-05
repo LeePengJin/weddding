@@ -187,6 +187,7 @@ const PlacedElement = ({
   onOrbitToggle,
   onTransformCommit,
   onDelete,
+  onDuplicate,
   onToggleLock,
   onShowDetails,
   onClose,
@@ -208,6 +209,7 @@ const PlacedElement = ({
     startRotation: 0,
     pointerId: null,
     captureTarget: null,
+    parentElementId: null, // Track parent element when stacking
   });
   const [isLockedLocal, setIsLockedLocal] = useState(Boolean(placement.isLocked));
   const [interactionMode, setInteractionMode] = useState('translate'); // 'translate' | 'rotate'
@@ -272,7 +274,9 @@ const PlacedElement = ({
     (event) => {
       event.stopPropagation();
       if (!isSelected) {
-        onSelect?.(placement.id);
+        // Check if Shift key is pressed for multi-selection
+        const isShiftKey = event.nativeEvent?.shiftKey || false;
+        onSelect?.(placement.id, isShiftKey);
         return;
       }
       if (!groupRef.current || isLockedLocal) return;
@@ -321,6 +325,11 @@ const PlacedElement = ({
           let nextY = 0;
           
           // Perform raycast to find surfaces below
+          // Initialize parent tracking at start of drag if not already set
+          if (state.mode === 'translate' && dragStateRef.current.parentElementId === null && placement.parentElementId) {
+            dragStateRef.current.parentElementId = placement.parentElementId;
+          }
+          
           if (isStackable(placement)) {
              // Manually update raycaster from pointer for reliable intersection
              // Note: event.pointer is normalized device coordinates
@@ -356,9 +365,27 @@ const PlacedElement = ({
                  const box = new THREE.Box3().setFromObject(hit.object);
                  // Stack on top
                  nextY = box.max.y;
+                 
+                 // Find the parent placement ID by traversing up to find the placement group
+                 let parentGroup = hit.object;
+                 while (parentGroup && !parentGroup.userData?.placementId) {
+                   if (!parentGroup.parent) break;
+                   parentGroup = parentGroup.parent;
+                 }
+                 if (parentGroup?.userData?.placementId && parentGroup.userData.placementId !== placement.id) {
+                   dragStateRef.current.parentElementId = parentGroup.userData.placementId;
+                 } else {
+                   // If we couldn't find parent or it's self, clear parent
+                   dragStateRef.current.parentElementId = null;
+                 }
                  break; // Stop at first valid surface (closest to camera)
                }
              }
+          } else {
+            // If not stackable and we're on the ground, clear parent
+            if (nextY < 0.1) {
+              dragStateRef.current.parentElementId = null;
+            }
           }
 
           let collisionFound = false;
@@ -466,6 +493,7 @@ const PlacedElement = ({
       ref={groupRef}
       position={position}
       rotation={[0, rotationY, 0]}
+      renderOrder={1}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -559,6 +587,17 @@ const PlacedElement = ({
                     Tag Services
                   </button>
                 )}
+                {onDuplicate && (
+                  <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      onDuplicate?.(placement.id); 
+                    }} 
+                    aria-label="Duplicate placement"
+                  >
+                    Duplicate
+                  </button>
+                )}
                 {removable && (
                   <button onClick={(e) => { e.stopPropagation(); onDelete?.(placement.id); }} aria-label="Delete placement">
                     Delete
@@ -598,6 +637,7 @@ PlacedElement.propTypes = {
   onOrbitToggle: PropTypes.func,
   onTransformCommit: PropTypes.func,
   onDelete: PropTypes.func,
+  onDuplicate: PropTypes.func,
   onToggleLock: PropTypes.func,
   onShowDetails: PropTypes.func,
   onClose: PropTypes.func,

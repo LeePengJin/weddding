@@ -57,6 +57,12 @@ export function deleteDesignElement(projectId, elementId, scope = 'single') {
   });
 }
 
+export function duplicateDesignElement(projectId, elementId) {
+  return apiFetch(`/venue-designs/${projectId}/elements/${elementId}/duplicate`, {
+    method: 'POST',
+  });
+}
+
 export function updateVenueCamera(projectId, payload) {
   return apiFetch(`/venue-designs/${projectId}/camera`, {
     method: 'PATCH',

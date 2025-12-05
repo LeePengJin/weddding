@@ -122,15 +122,24 @@ const MyBookings = () => {
   const [bookingSort, setBookingSort] = useState('date_desc');
 
   useEffect(() => {
+    if (projectId) {
     fetchBookings();
+    } else {
+      setError('Project ID is required');
+      setLoading(false);
+    }
   }, [projectId]);
 
   const fetchBookings = async () => {
     try {
       setLoading(true);
       setError(null);
-      const url = projectId ? `/bookings?projectId=${projectId}` : '/bookings';
-      const data = await apiFetch(url);
+      if (!projectId) {
+        setError('Project ID is required');
+        setLoading(false);
+        return;
+      }
+      const data = await apiFetch(`/bookings?projectId=${projectId}`);
       setBookings(data || []);
     } catch (err) {
       setError(err.message || 'Failed to fetch bookings');

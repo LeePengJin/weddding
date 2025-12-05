@@ -59,15 +59,24 @@ const BookedSuppliers = () => {
   const [supplierSort, setSupplierSort] = useState('date_desc');
 
   useEffect(() => {
+    if (projectId) {
     fetchBookings();
+    } else {
+      setError('Project ID is required');
+      setLoading(false);
+    }
   }, [projectId]);
 
   const fetchBookings = async () => {
     try {
       setLoading(true);
       setError(null);
-      const url = projectId ? `/bookings?projectId=${projectId}` : '/bookings';
-      const data = await apiFetch(url);
+      if (!projectId) {
+        setError('Project ID is required');
+        setLoading(false);
+        return;
+      }
+      const data = await apiFetch(`/bookings?projectId=${projectId}`);
       // Only show confirmed, pending_final_payment, and completed bookings
       const confirmedBookings = data.filter(
         (booking) =>
@@ -462,7 +471,7 @@ const BookedSuppliers = () => {
                     )}
                     <Button
                       variant="outlined"
-                      onClick={() => navigate(`/my-bookings?bookingId=${booking.id}`)}
+                      onClick={() => navigate(`/my-bookings?projectId=${projectId}&bookingId=${booking.id}`)}
                     >
                       View Details
                     </Button>

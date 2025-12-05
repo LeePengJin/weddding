@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Card, CardContent, Typography, Tabs, Tab, TextField, InputAdornment, IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Button, Stack, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Divider, List, ListItem, ListItemText, TableSortLabel, Snackbar, Alert } from '@mui/material';
+import { Box, Card, CardContent, Typography, Tabs, Tab, TextField, InputAdornment, IconButton, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Button, Stack, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, Divider, List, ListItem, ListItemText, TableSortLabel, Snackbar, Alert, TablePagination } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
@@ -31,6 +31,8 @@ export default function Vendors() {
   const [toastNotification, setToastNotification] = useState({ open: false, message: '', severity: 'success' });
   const [sortField, setSortField] = useState('name');
   const [sortDirection, setSortDirection] = useState('asc');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   // Set browser tab title
   useEffect(() => {
@@ -67,19 +69,47 @@ export default function Vendors() {
   useEffect(() => {
     setLoading(true);
     setError('');
-    apiFetch(`/admin/vendors?status=${encodeURIComponent(tab)}`)
-      .then((data) => setRows(data || []))
+    setPage(0); // Reset to first page when tab changes
+    apiFetch(`/admin/vendors?status=${encodeURIComponent(tab)}&page=1&limit=${rowsPerPage}`)
+      .then((response) => {
+        if (response.data) {
+          setRows(response.data || []);
+        } else {
+          // Backward compatibility: if response is array, treat as old format
+          setRows(response || []);
+        }
+      })
       .catch((e) => setError(e.message || 'Failed to load vendors'))
       .finally(() => setLoading(false));
-  }, [tab]);
+  }, [tab, rowsPerPage]);
 
-  const filtered = useMemo(() => {
+  useEffect(() => {
+    if (page > 0) {
+      setLoading(true);
+      setError('');
+      apiFetch(`/admin/vendors?status=${encodeURIComponent(tab)}&page=${page + 1}&limit=${rowsPerPage}`)
+        .then((response) => {
+          if (response.data) {
+            setRows(response.data || []);
+          } else {
+            setRows(response || []);
+          }
+        })
+      .catch((e) => setError(e.message || 'Failed to load vendors'))
+      .finally(() => setLoading(false));
+    }
+  }, [page, tab, rowsPerPage]);
+
+  const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filteredRows = rows.filter((r) => {
+    return rows.filter((r) => {
       const matchesQ = !q || [r.name, r.email, r.vendor?.location].some((v) => (v || '').toLowerCase().includes(q));
       const matchesCat = !category || r.vendor?.category === category;
       return matchesQ && matchesCat;
     });
+  }, [rows, query, category]);
+
+  const filtered = useMemo(() => {
 
     const compare = (a, b) => {
       const getValue = (row) => {
@@ -112,7 +142,14 @@ export default function Vendors() {
     };
 
     return [...filteredRows].sort(compare);
-  }, [rows, query, category, sortField, sortDirection]);
+  }, [filteredRows, sortField, sortDirection]);
+
+  const paginatedRows = useMemo(() => {
+    return filtered.slice(
+      page * rowsPerPage,
+      page * rowsPerPage + rowsPerPage
+    );
+  }, [filtered, page, rowsPerPage]);
 
   const onApprove = async (userId) => {
     try {
@@ -351,6 +388,18 @@ export default function Vendors() {
           </TableBody>
         </Table>
       </TableContainer>
+      <TablePagination
+        component="div"
+        count={filtered.length}
+        page={page}
+        onPageChange={(event, newPage) => setPage(newPage)}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={(event) => {
+          setRowsPerPage(parseInt(event.target.value, 10));
+          setPage(0);
+        }}
+        rowsPerPageOptions={[10, 20, 50, 100]}
+      />
 
       <Dialog open={dialogOpen && !!selected} onClose={closeDialog} maxWidth="md" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Vendor Details</DialogTitle>

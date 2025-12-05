@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Box, Typography, Button, CircularProgress, Alert, Container, Modal, Fade, Paper, IconButton, ThemeProvider, createTheme, Link } from '@mui/material';
+import { Box, Typography, Button, CircularProgress, Alert, Container, Modal, Fade, Paper, IconButton, ThemeProvider, createTheme, Link, Snackbar } from '@mui/material';
+import MuiAlert from '@mui/material/Alert';
 import { CheckCircle, Close, Description, Security, Download, ArrowBack } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
 import PaymentMethodSelector from './components/PaymentMethodSelector';
@@ -100,6 +101,7 @@ const Payment = () => {
   const [formErrors, setFormErrors] = useState({});
   const [cancellationPreview, setCancellationPreview] = useState(null);
   const [loadingCancellationPreview, setLoadingCancellationPreview] = useState(false);
+  const [toast, setToast] = useState({ open: false, message: '', severity: 'error' });
 
   useEffect(() => {
     if (bookingId) {
@@ -113,7 +115,7 @@ const Payment = () => {
       const data = await apiFetch(`/bookings/${bookingId}`);
       setBooking(data);
     } catch (err) {
-      setError(err.message || 'Failed to fetch booking');
+      setToast({ open: true, message: err.message || 'Failed to fetch booking', severity: 'error' });
     } finally {
       setLoading(false);
     }
@@ -130,7 +132,7 @@ const Payment = () => {
       const preview = await apiFetch(`/bookings/${bookingId}/cancellation-fee`);
       setCancellationPreview(preview);
     } catch (err) {
-      setError(err.message || 'Failed to load cancellation fee details');
+      setToast({ open: true, message: err.message || 'Failed to load cancellation fee details', severity: 'error' });
     } finally {
       setLoadingCancellationPreview(false);
     }
@@ -368,7 +370,7 @@ const Payment = () => {
       } else if (err.error) {
         errorMessage = typeof err.error === 'string' ? err.error : err.error.message || errorMessage;
       }
-      setError(errorMessage);
+      setToast({ open: true, message: errorMessage, severity: 'error' });
       setIsProcessing(false);
     }
   };
@@ -380,7 +382,20 @@ const Payment = () => {
       </Box>
     );
   }
-  if (!booking) return <Alert severity="error">Booking not found</Alert>;
+  if (!booking) {
+    return (
+      <>
+        <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+          <Typography color="error">Booking not found</Typography>
+        </Box>
+        <Snackbar open={true} autoHideDuration={6000} onClose={() => {}}>
+          <MuiAlert onClose={() => {}} severity="error" sx={{ width: '100%' }}>
+            Booking not found
+          </MuiAlert>
+        </Snackbar>
+      </>
+    );
+  }
 
   const orderDetails = calculateAmounts();
   const cancellationPaymentDisabled =
@@ -479,7 +494,10 @@ const Payment = () => {
               </Button>
               <Button 
                 variant="contained" 
-                onClick={() => navigate('/my-bookings')}
+                onClick={() => {
+                  const projectId = booking?.project?.id;
+                  navigate(projectId ? `/my-bookings?projectId=${projectId}` : '/my-bookings');
+                }}
                 fullWidth
                 sx={{ borderRadius: 3, py: 1.5, bgcolor: 'primary.dark', '&:hover': { bgcolor: 'primary.main' } }}
               >
@@ -500,7 +518,8 @@ const Payment = () => {
             startIcon={<ArrowBack />} 
             onClick={() => {
               if (isSuccess) {
-                navigate('/my-bookings');
+                const projectId = booking?.project?.id;
+                navigate(projectId ? `/my-bookings?projectId=${projectId}` : '/my-bookings');
               } else {
                 navigate(-1);
               }
@@ -517,11 +536,6 @@ const Payment = () => {
             </Typography>
           </Box>
 
-          {error && (
-            <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
-              {error}
-            </Alert>
-          )}
 
           <Box sx={{ display: 'flex', flexDirection: { xs: 'column', lg: 'row' }, gap: 6 }}>
             {/* Left Column */}
@@ -681,6 +695,22 @@ const Payment = () => {
             @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
           `}
         </style>
+
+        {/* Toast Notification */}
+        <Snackbar
+          open={toast.open}
+          autoHideDuration={6000}
+          onClose={() => setToast({ ...toast, open: false })}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          <MuiAlert
+            onClose={() => setToast({ ...toast, open: false })}
+            severity={toast.severity}
+            sx={{ width: '100%' }}
+          >
+            {toast.message}
+          </MuiAlert>
+        </Snackbar>
       </Box>
     </ThemeProvider>
   );

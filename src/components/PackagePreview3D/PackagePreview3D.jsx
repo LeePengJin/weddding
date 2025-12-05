@@ -182,7 +182,8 @@ const PackagePreview3D = ({ packageId, height = '500px' }) => {
           </Suspense>
         )}
 
-        <ContactShadows position={[0, 0.02, 0]} opacity={0.35} width={160} height={160} blur={1.8} far={50} />
+        {/* ContactShadows positioned very low to prevent overlay on elements */}
+        <ContactShadows position={[0, 0.001, 0]} opacity={0.12} width={200} height={200} blur={3.5} far={50} scale={1.2} />
 
         <Suspense fallback={null}>
           {placements.map((placement) => (

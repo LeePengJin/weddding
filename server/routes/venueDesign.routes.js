@@ -27,6 +27,7 @@ const UPDATE_ELEMENT_SCHEMA = z.object({
     position: VECTOR_SCHEMA.optional(),
     rotation: z.coerce.number().optional(),
     isLocked: z.boolean().optional(),
+    parentElementId: z.string().uuid().nullable().optional(),
     metadata: z
       .object({
         role: z.string().max(50).nullable().optional(),
@@ -35,7 +36,7 @@ const UPDATE_ELEMENT_SCHEMA = z.object({
       .optional(),
   })
   .refine(
-    (data) => data.position || data.rotation !== undefined || data.isLocked !== undefined || data.metadata,
+    (data) => data.position || data.rotation !== undefined || data.isLocked !== undefined || data.parentElementId !== undefined || data.metadata,
     { message: 'Nothing to update' }
   );
 
@@ -252,6 +253,54 @@ async function fetchProject(projectId, coupleId) {
       },
     },
   });
+}
+
+/**
+ * Helper function to check if a project can be modified
+ * Projects with 'completed' status or past their wedding date cannot be modified
+ * Throws an error with statusCode if project is completed/past wedding date or not found
+ */
+async function checkProjectCanBeModified(projectId, coupleId) {
+  const project = await prisma.weddingProject.findFirst({
+    where: {
+      id: projectId,
+      coupleId,
+    },
+    select: {
+      id: true,
+      status: true,
+      weddingDate: true,
+    },
+  });
+
+  if (!project) {
+    const error = new Error('Project not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Check if project is completed
+  if (project.status === 'completed') {
+    const error = new Error('Completed projects cannot be modified');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  // Check if wedding date has passed
+  if (project.weddingDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weddingDate = new Date(project.weddingDate);
+    weddingDate.setHours(0, 0, 0, 0);
+
+    if (weddingDate < today) {
+      const error = new Error('Projects past their wedding date cannot be modified');
+      error.statusCode = 403;
+      throw error;
+    }
+  }
+
+  return project;
 }
 
 async function checkServiceAvailabilityForDate(serviceListingId, isoDate) {
@@ -795,6 +844,9 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // Check if project is archived
+    await checkProjectCanBeModified(req.params.projectId, req.user.sub);
+
     const venueDesign = await getOrCreateVenueDesign(project);
 
     const serviceListing = await prisma.serviceListing.findFirst({
@@ -1113,6 +1165,9 @@ router.patch('/:projectId/elements/:elementId', requireAuth, async (req, res, ne
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // Check if project is archived
+    await checkProjectCanBeModified(req.params.projectId, req.user.sub);
+
     const venueDesign = await getOrCreateVenueDesign(project);
 
     const placement = await prisma.placedElement.findFirst({
@@ -1145,13 +1200,32 @@ router.patch('/:projectId/elements/:elementId', requireAuth, async (req, res, ne
         });
       }
 
-      if (payload.rotation !== undefined || payload.isLocked !== undefined) {
+      if (payload.rotation !== undefined || payload.isLocked !== undefined || payload.parentElementId !== undefined) {
+        const updateData = {};
+        if (payload.rotation !== undefined) updateData.rotation = payload.rotation;
+        if (payload.isLocked !== undefined) updateData.isLocked = payload.isLocked;
+        if (payload.parentElementId !== undefined) {
+          // Validate parent exists and is in same venue design
+          if (payload.parentElementId !== null) {
+            const parentExists = await tx.placedElement.findFirst({
+              where: {
+                id: payload.parentElementId,
+                venueDesignId: venueDesign.id,
+              },
+            });
+            if (!parentExists) {
+              throw new Error('Parent element not found');
+            }
+            // Prevent circular references
+            if (payload.parentElementId === placement.id) {
+              throw new Error('Element cannot be its own parent');
+            }
+          }
+          updateData.parentElementId = payload.parentElementId;
+        }
         await tx.placedElement.update({
           where: { id: placement.id },
-          data: {
-            rotation: payload.rotation !== undefined ? payload.rotation : placement.rotation,
-            isLocked: payload.isLocked !== undefined ? payload.isLocked : placement.isLocked,
-          },
+          data: updateData,
         });
       }
 
@@ -1239,6 +1313,9 @@ router.delete('/:projectId/elements/:elementId', requireAuth, async (req, res, n
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // Check if project is archived
+    await checkProjectCanBeModified(req.params.projectId, req.user.sub);
+
     const venueDesign = await getOrCreateVenueDesign(project);
 
     const layoutData = venueDesign.layoutData || {};
@@ -1319,6 +1396,329 @@ router.delete('/:projectId/elements/:elementId', requireAuth, async (req, res, n
   }
 });
 
+// Duplicate element endpoint
+router.post('/:projectId/elements/:elementId/duplicate', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'couple') {
+      return res.status(403).json({ error: 'Couple access required' });
+    }
+
+    const project = await fetchProject(req.params.projectId, req.user.sub);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    await checkProjectCanBeModified(req.params.projectId, req.user.sub);
+
+    const venueDesign = await getOrCreateVenueDesign(project);
+
+    const originalPlacement = await prisma.placedElement.findFirst({
+      where: {
+        id: req.params.elementId,
+        venueDesignId: venueDesign.id,
+      },
+      include: {
+        position: true,
+        designElement: true,
+      },
+    });
+
+    if (!originalPlacement) {
+      return res.status(404).json({ error: 'Placed element not found' });
+    }
+
+    const layoutData = venueDesign.layoutData || {};
+    const placementsMeta = { ...(layoutData.placementsMeta || {}) };
+    const originalMeta = placementsMeta[originalPlacement.id] || {};
+
+    // Check if this is part of a bundle - if so, duplicate the entire bundle
+    const bundleId = originalMeta.bundleId;
+    let bundlePlacements = [];
+    if (bundleId) {
+      // Find all placements in the same bundle
+      const allPlacements = await prisma.placedElement.findMany({
+        where: { venueDesignId: venueDesign.id },
+        include: { position: true, designElement: true },
+      });
+      
+      bundlePlacements = allPlacements.filter((p) => {
+        const meta = placementsMeta[p.id] || {};
+        return meta.bundleId === bundleId;
+      });
+    } else {
+      // Single element, not part of a bundle
+      bundlePlacements = [originalPlacement];
+    }
+
+    // Get service listing info to check availability type (use first placement's service)
+    const serviceListingId = originalMeta.serviceListingId;
+    let serviceListing = null;
+    if (serviceListingId) {
+      serviceListing = await prisma.serviceListing.findUnique({
+        where: { id: serviceListingId },
+        select: {
+          id: true,
+          availabilityType: true,
+          maxQuantity: true,
+          name: true,
+        },
+      });
+    }
+
+    // Check duplication limits based on service type
+    // For bundles, we count by bundle instances, not individual elements
+    if (serviceListing) {
+      if (serviceListing.availabilityType === 'exclusive') {
+        // Count unique bundles (not individual placements)
+        const uniqueBundles = new Set();
+        Object.values(placementsMeta).forEach((meta) => {
+          if (meta.serviceListingId === serviceListingId && meta.bundleId) {
+            uniqueBundles.add(meta.bundleId);
+          } else if (meta.serviceListingId === serviceListingId && !meta.bundleId) {
+            // Single element (not part of bundle) counts as one instance
+            uniqueBundles.add(`single_${Object.keys(placementsMeta).find(k => placementsMeta[k] === meta)}`);
+          }
+        });
+        
+        if (uniqueBundles.size >= 1) {
+          return res.status(400).json({
+            error: `This is an exclusive service (${serviceListing.name}). Only one instance can be placed in the design.`,
+            warning: true,
+          });
+        }
+      } else if (serviceListing.availabilityType === 'quantity_based' && serviceListing.maxQuantity) {
+        // Count unique bundles (not individual placements)
+        const uniqueBundles = new Set();
+        Object.values(placementsMeta).forEach((meta) => {
+          if (meta.serviceListingId === serviceListingId && meta.bundleId) {
+            uniqueBundles.add(meta.bundleId);
+          } else if (meta.serviceListingId === serviceListingId && !meta.bundleId) {
+            uniqueBundles.add(`single_${Object.keys(placementsMeta).find(k => placementsMeta[k] === meta)}`);
+          }
+        });
+        
+        if (uniqueBundles.size >= serviceListing.maxQuantity) {
+          return res.status(400).json({
+            error: `Maximum quantity (${serviceListing.maxQuantity}) for this service has been reached.`,
+            warning: true,
+          });
+        }
+      }
+      // 'reusable' services have no limit - allow unlimited duplication
+    }
+
+    // Calculate offset position for the bundle (use the first placement as reference)
+    const referencePlacement = bundlePlacements[0];
+    const COLLISION_RADIUS_DEFAULT = 0.4;
+    const CLEARANCE = 0.1;
+    
+    // Calculate bundle bounding box to determine offset distance
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    bundlePlacements.forEach((p) => {
+      if (p.position) {
+        minX = Math.min(minX, p.position.x);
+        maxX = Math.max(maxX, p.position.x);
+        minZ = Math.min(minZ, p.position.z);
+        maxZ = Math.max(maxZ, p.position.z);
+      }
+    });
+    const bundleWidth = Math.max(maxX - minX, 0.5);
+    const bundleDepth = Math.max(maxZ - minZ, 0.5);
+    const offsetDistance = Math.max(bundleWidth, bundleDepth) + CLEARANCE;
+
+    // Get existing placements to find non-overlapping position
+    const existingPlacements = await prisma.placedElement.findMany({
+      where: { venueDesignId: venueDesign.id },
+      include: { position: true, designElement: true },
+    });
+
+    const findNonOverlappingPosition = (desiredPos, existingPlacements, bundleBounds) => {
+      let testPos = { ...desiredPos };
+      let attempts = 0;
+      const maxAttempts = 50;
+      const angleStep = Math.PI / 4; // 45 degrees
+
+      while (attempts < maxAttempts) {
+        let hasCollision = false;
+
+        // Check if the bundle at this position would collide with any existing placement
+        for (const existing of existingPlacements) {
+          if (!existing.position) continue;
+          // Skip placements that are part of the original bundle we're duplicating
+          const existingMeta = placementsMeta[existing.id] || {};
+          if (existingMeta.bundleId === bundleId) continue;
+
+          // Check if bundle bounds overlap with existing placement
+          const bundleMinX = testPos.x - bundleWidth / 2;
+          const bundleMaxX = testPos.x + bundleWidth / 2;
+          const bundleMinZ = testPos.z - bundleDepth / 2;
+          const bundleMaxZ = testPos.z + bundleDepth / 2;
+
+          const existingRadius = COLLISION_RADIUS_DEFAULT;
+          const threshold = existingRadius + CLEARANCE;
+
+          if (
+            existing.position.x + threshold >= bundleMinX &&
+            existing.position.x - threshold <= bundleMaxX &&
+            existing.position.z + threshold >= bundleMinZ &&
+            existing.position.z - threshold <= bundleMaxZ
+          ) {
+            hasCollision = true;
+            break;
+          }
+        }
+
+        if (!hasCollision) {
+          return testPos;
+        }
+
+        attempts++;
+        const ring = Math.floor(Math.sqrt(attempts));
+        const angle = (attempts - ring * ring) * angleStep;
+        const radius = ring * offsetDistance;
+        testPos = {
+          x: referencePlacement.position.x + radius * Math.cos(angle),
+          y: referencePlacement.position.y,
+          z: referencePlacement.position.z + radius * Math.sin(angle),
+        };
+      }
+
+      return testPos; // Return last attempt if all failed
+    };
+
+    const bundleCenter = {
+      x: (minX + maxX) / 2,
+      y: referencePlacement.position.y,
+      z: (minZ + maxZ) / 2,
+    };
+
+    const newBundleCenter = findNonOverlappingPosition(
+      {
+        x: bundleCenter.x + offsetDistance,
+        y: bundleCenter.y,
+        z: bundleCenter.z,
+      },
+      existingPlacements,
+      { width: bundleWidth, depth: bundleDepth }
+    );
+
+    // Calculate offset from bundle center for each placement
+    const offsetX = newBundleCenter.x - bundleCenter.x;
+    const offsetZ = newBundleCenter.z - bundleCenter.z;
+
+    // Create new bundle ID for duplicated bundle
+    const newBundleId = bundleId ? prefixedUlid('bnd') : null;
+
+    // Duplicate all placements in the bundle
+    const duplicatedPlacements = await prisma.$transaction(async (tx) => {
+      const newPlacements = [];
+      
+      for (const originalPlacement of bundlePlacements) {
+        // Calculate new position maintaining relative position within bundle
+        const newPosition = {
+          x: originalPlacement.position.x + offsetX,
+          y: originalPlacement.position.y,
+          z: originalPlacement.position.z + offsetZ,
+        };
+
+        const newPositionRecord = await tx.coordinates.create({
+          data: {
+            x: newPosition.x,
+            y: newPosition.y,
+            z: newPosition.z,
+          },
+        });
+
+        const newPlacementRecord = await tx.placedElement.create({
+          data: {
+            venueDesignId: venueDesign.id,
+            designElementId: originalPlacement.designElementId,
+            positionId: newPositionRecord.id,
+            rotation: originalPlacement.rotation || 0,
+            isLocked: false,
+            parentElementId: originalPlacement.parentElementId, // Preserve parent if original had one
+            serviceListingIds: originalPlacement.serviceListingIds || [],
+            elementType: originalPlacement.elementType,
+          },
+        });
+
+        // Copy metadata with new bundleId
+        const originalMeta = placementsMeta[originalPlacement.id] || {};
+        const newMeta = { ...originalMeta };
+        if (newBundleId) {
+          newMeta.bundleId = newBundleId;
+        }
+        placementsMeta[newPlacementRecord.id] = newMeta;
+
+        newPlacements.push(newPlacementRecord);
+      }
+
+      await tx.venueDesign.update({
+        where: { id: venueDesign.id },
+        data: {
+          layoutData: {
+            ...layoutData,
+            placementsMeta,
+            lastSavedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      return newPlacements;
+    });
+
+    // Fetch all duplicated placements with includes
+    const fullPlacements = await Promise.all(
+      duplicatedPlacements.map((p) =>
+        prisma.placedElement.findUnique({
+          where: { id: p.id },
+          include: PLACEMENT_INCLUDE,
+        })
+      )
+    );
+
+    // Get service listing info for serialization
+    let serviceListingInfo = null;
+    if (serviceListingId) {
+      const fullServiceListing = await prisma.serviceListing.findUnique({
+        where: { id: serviceListingId },
+        include: {
+          vendor: {
+            select: {
+              userId: true,
+              user: {
+                select: {
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      serviceListingInfo = serializeServiceListing(fullServiceListing);
+    }
+
+    const serviceMap = serviceListingInfo ? { [serviceListingInfo.id]: serviceListingInfo } : {};
+    const responsePlacements = fullPlacements.map((placement) =>
+      serializePlacement(placement, placementsMeta[placement.id], serviceMap)
+    );
+
+    return res.json({
+      placements: responsePlacements, // Return array for bundles, single item for non-bundles
+      bundleId: newBundleId,
+      warning: serviceListing?.availabilityType === 'exclusive' 
+        ? 'This is an exclusive service. Only one instance can be booked per date.'
+        : null,
+    });
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return next(err);
+  }
+});
+
 router.patch('/:projectId/camera', requireAuth, async (req, res, next) => {
   try {
     if (req.user.role !== 'couple') {
@@ -1331,6 +1731,9 @@ router.patch('/:projectId/camera', requireAuth, async (req, res, next) => {
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
+
+    // Check if project is archived
+    await checkProjectCanBeModified(req.params.projectId, req.user.sub);
 
     const venueDesign = await getOrCreateVenueDesign(project);
 
@@ -1414,6 +1817,9 @@ router.post('/:projectId/save', requireAuth, async (req, res, next) => {
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
+
+    // Check if project is archived
+    await checkProjectCanBeModified(req.params.projectId, req.user.sub);
 
     const venueDesign = await getOrCreateVenueDesign(project);
     const layoutData = venueDesign.layoutData || {};
@@ -1655,7 +2061,9 @@ router.get('/:venueDesignId/table-count', requireAuth, async (req, res, next) =>
       include: {
         project: {
           select: {
+            id: true,
             coupleId: true,
+            status: true,
           },
         },
       },
@@ -1669,6 +2077,9 @@ router.get('/:venueDesignId/table-count', requireAuth, async (req, res, next) =>
     if (venueDesign.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    // Note: table count is read-only, so we allow it for completed projects
+    // But tag/untag operations are blocked above
 
     const count = await getTableCount(venueDesignId, serviceListingId || null);
 
@@ -1704,7 +2115,9 @@ router.post('/:venueDesignId/tag-tables', requireAuth, async (req, res, next) =>
       include: {
         project: {
           select: {
+            id: true,
             coupleId: true,
+            status: true,
           },
         },
       },
@@ -1718,6 +2131,9 @@ router.post('/:venueDesignId/tag-tables', requireAuth, async (req, res, next) =>
     if (venueDesign.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    // Check if project is archived
+    await checkProjectCanBeModified(venueDesign.project.id, req.user.sub);
 
     const updatedCount = await tagTables(
       venueDesignId,
@@ -1777,7 +2193,9 @@ router.post('/:venueDesignId/untag-tables', requireAuth, async (req, res, next) 
       include: {
         project: {
           select: {
+            id: true,
             coupleId: true,
+            status: true,
           },
         },
       },
@@ -1791,6 +2209,9 @@ router.post('/:venueDesignId/untag-tables', requireAuth, async (req, res, next) 
     if (venueDesign.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    // Check if project is archived
+    await checkProjectCanBeModified(venueDesign.project.id, req.user.sub);
 
     const updatedCount = await untagTables(
       venueDesignId,
@@ -1832,6 +2253,9 @@ router.get('/:projectId/checkout-summary', requireAuth, async (req, res, next) =
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
+
+    // Check if project is archived
+    await checkProjectCanBeModified(req.params.projectId, req.user.sub);
 
     if (!project.weddingDate) {
       return res.status(400).json({ error: 'Wedding date is not set for this project' });

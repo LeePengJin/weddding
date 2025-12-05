@@ -55,18 +55,35 @@ export default function VendorPayment() {
     document.title = 'Weddding Admin — Vendor Payment';
     // Ensure admin session
     apiFetch('/admin/auth/me')
-      .then(() => fetchPayments())
+      .then(() => {
+        setPage(0);
+        fetchPayments();
+      })
       .catch(() => {
         // Will be handled by AdminLayout or redirect
       });
   }, [statusFilter]);
 
+  useEffect(() => {
+    if (page >= 0) {
+      fetchPayments();
+    }
+  }, [page, rowsPerPage]);
+
   const fetchPayments = async () => {
     try {
       setLoading(true);
-      const params = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
-      const data = await apiFetch(`/admin/vendor-payments${params}`);
-      setPayments(data || []);
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.append('status', statusFilter);
+      params.append('page', page + 1);
+      params.append('limit', rowsPerPage);
+      const response = await apiFetch(`/admin/vendor-payments?${params.toString()}`);
+      if (response.data) {
+        setPayments(response.data || []);
+      } else {
+        // Backward compatibility
+        setPayments(response || []);
+      }
       setError('');
     } catch (err) {
       setError(err.message || 'Failed to fetch payments');
@@ -164,6 +181,7 @@ export default function VendorPayment() {
     }
   });
 
+  // Client-side pagination for sorted results
   const paginatedPayments = sortedPayments.slice(
     page * rowsPerPage,
     page * rowsPerPage + rowsPerPage
@@ -395,6 +413,7 @@ export default function VendorPayment() {
               )}
             </TableBody>
           </Table>
+        </TableContainer>
           <TablePagination
             component="div"
             count={sortedPayments.length}
@@ -402,9 +421,8 @@ export default function VendorPayment() {
             onPageChange={handleChangePage}
             rowsPerPage={rowsPerPage}
             onRowsPerPageChange={handleChangeRowsPerPage}
-            rowsPerPageOptions={[5, 10, 25, 50]}
+          rowsPerPageOptions={[10, 20, 50, 100]}
           />
-        </TableContainer>
       </Card>
 
       {/* Payment Details Dialog */}

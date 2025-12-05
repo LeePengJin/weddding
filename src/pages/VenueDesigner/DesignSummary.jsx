@@ -38,6 +38,7 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
     onReloadDesign,
     projectId,
     venueInfo,
+    setToastNotification,
   } = useVenueDesigner();
 
   // Calculate event duration in hours
@@ -331,7 +332,11 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
   const handleRemove = async (item) => {
     // Prevent removal of venue
     if (item.isVenue) {
+      if (setToastNotification) {
+        setToastNotification({ open: true, message: 'The venue cannot be removed from the design summary. To change the venue, please update your project settings.', severity: 'info' });
+      } else {
       window.alert('The venue cannot be removed from the design summary. To change the venue, please update your project settings.');
+      }
       return;
     }
     
@@ -339,21 +344,32 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
     if (item.isNon3DService) {
       // For per_table services, warn that tables need to be untagged first
       if (item.isPerTableService && item.quantity > 0) {
-        window.alert(
-          'This service uses per-table pricing and has tables tagged.\n\n' +
+        const message = 'This service uses per-table pricing and has tables tagged.\n\n' +
           'Please untag all tables first by clicking on each table in the 3D design and unchecking this service.\n\n' +
-          'Once all tables are untagged, you can remove the service from the project.'
-        );
+          'Once all tables are untagged, you can remove the service from the project.';
+        if (setToastNotification) {
+          setToastNotification({ open: true, message, severity: 'info' });
+        } else {
+          window.alert(message);
+        }
         return;
       }
       
       if (!onRemoveProjectService || !projectId || !item.serviceListingId) {
+        if (setToastNotification) {
+          setToastNotification({ open: true, message: 'Unable to remove this service. Please try again.', severity: 'error' });
+        } else {
         window.alert('Unable to remove this service. Please try again.');
+        }
         return;
       }
       
       if (item.isBooked) {
+        if (setToastNotification) {
+          setToastNotification({ open: true, message: 'This service is linked to a booking and cannot be removed.', severity: 'error' });
+        } else {
         window.alert('This service is linked to a booking and cannot be removed.');
+        }
         return;
       }
 
@@ -365,7 +381,11 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
           try {
             await onRemoveProjectService(item.serviceListingId);
           } catch (err) {
+            if (setToastNotification) {
+              setToastNotification({ open: true, message: err.message || 'Failed to remove service from project', severity: 'error' });
+            } else {
             window.alert(err.message || 'Failed to remove service from project');
+            }
           }
         },
       });
@@ -401,20 +421,31 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
       // For per_table services, quantity is controlled by table tagging
       // Users cannot manually change the quantity
       if (item.isPerTableService) {
-        window.alert(
-          'This service uses per-table pricing. Quantity is automatically calculated from the number of tagged tables.\n\n' +
-          'To change the quantity, tag or untag tables in the 3D design by clicking on a table and selecting "Tag Services".'
-        );
+        const message = 'This service uses per-table pricing. Quantity is automatically calculated from the number of tagged tables.\n\n' +
+          'To change the quantity, tag or untag tables in the 3D design by clicking on a table and selecting "Tag Services".';
+        if (setToastNotification) {
+          setToastNotification({ open: true, message, severity: 'info' });
+        } else {
+          window.alert(message);
+        }
         return;
       }
       
       if (!projectId || !item.serviceListingId) {
+        if (setToastNotification) {
+          setToastNotification({ open: true, message: 'Unable to modify this service. Please try again.', severity: 'error' });
+        } else {
         window.alert('Unable to modify this service. Please try again.');
+        }
         return;
       }
       
       if (item.isBooked) {
+        if (setToastNotification) {
+          setToastNotification({ open: true, message: 'This service is linked to a booking and cannot be modified.', severity: 'error' });
+        } else {
         window.alert('This service is linked to a booking and cannot be modified.');
+        }
         return;
       }
       
@@ -429,7 +460,11 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
             await onReloadDesign();
           }
         } catch (err) {
+          if (setToastNotification) {
+            setToastNotification({ open: true, message: err.message || 'Failed to update service quantity', severity: 'error' });
+          } else {
           window.alert(err.message || 'Failed to update service quantity');
+          }
         }
         return;
       }

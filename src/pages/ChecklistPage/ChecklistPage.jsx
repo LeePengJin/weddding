@@ -19,6 +19,8 @@ import {
   Tabs,
   Tab,
   Fab,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -73,6 +75,7 @@ const ChecklistPage = () => {
     open: false,
     message: '',
   });
+  const [toast, setToast] = useState({ open: false, message: '', severity: 'error' });
 
   useEffect(() => {
     if (projectId) {
@@ -180,7 +183,7 @@ const ChecklistPage = () => {
                 // Validate subtask description before updating
                 const subtaskError = validateSubtaskDescription(drawerSubtask.description);
                 if (subtaskError) {
-                  alert(`Subtask validation error: ${subtaskError}`);
+                  setToast({ open: true, message: `Subtask validation error: ${subtaskError}`, severity: 'error' });
                   return; // Don't close drawer if validation fails
                 }
                 await apiFetch(`/tasks/${selectedTask.id}/subtasks/${drawerSubtask.id}`, {
@@ -206,7 +209,7 @@ const ChecklistPage = () => {
         }
       } catch (err) {
         console.error('Error saving changes:', err);
-        alert('Failed to save changes');
+        setToast({ open: true, message: err.message || 'Failed to save changes', severity: 'error' });
       }
     }
 
@@ -265,7 +268,7 @@ const ChecklistPage = () => {
         });
       } catch (err) {
         console.error('Error updating task:', err);
-        alert('Failed to update task');
+        setToast({ open: true, message: err.message || 'Failed to update task', severity: 'error' });
         // Revert on error
         setTasks(prevTasks =>
           prevTasks.map(task => task.id === taskId ? { ...task, isCompleted } : task)
@@ -304,7 +307,7 @@ const ChecklistPage = () => {
       setSelectedTask(updatedTask);
     } catch (err) {
       console.error('Error updating subtask:', err);
-      alert('Failed to update subtask');
+      setToast({ open: true, message: err.message || 'Failed to update subtask', severity: 'error' });
     }
   };
 
@@ -389,7 +392,7 @@ const ChecklistPage = () => {
           description: descriptionIssue?.message || '',
         });
       } else {
-        alert(errorMessage);
+        setToast({ open: true, message: errorMessage, severity: 'error' });
       }
     }
   };
@@ -411,7 +414,7 @@ const ChecklistPage = () => {
       }
     } catch (err) {
       console.error('Error deleting task:', err);
-      alert('Failed to delete task');
+      setToast({ open: true, message: err.message || 'Failed to delete task', severity: 'error' });
     }
   };
 
@@ -433,7 +436,7 @@ const ChecklistPage = () => {
       setSelectedTask(updatedTask);
     } catch (err) {
       console.error('Error deleting subtask:', err);
-      alert('Failed to delete subtask');
+      setToast({ open: true, message: err.message || 'Failed to delete subtask', severity: 'error' });
     }
   };
 
@@ -460,7 +463,7 @@ const ChecklistPage = () => {
   const handleAddSubtask = async () => {
     const error = validateSubtaskDescription(newSubtaskInput);
     if (error) {
-      alert(error);
+      setToast({ open: true, message: error, severity: 'error' });
       return;
     }
 
@@ -491,7 +494,7 @@ const ChecklistPage = () => {
       setShowNewSubtaskInput(false);
     } catch (err) {
       console.error('Error creating subtask:', err);
-      alert('Failed to create subtask');
+      setToast({ open: true, message: err.message || 'Failed to create subtask', severity: 'error' });
     }
   };
 
@@ -1826,7 +1829,7 @@ const ChecklistPage = () => {
                               if (!error) {
                                 setEditingSubtask(null);
                               } else {
-                                alert(error);
+                                setToast({ open: true, message: error, severity: 'error' });
                                 // Revert to original value on error
                                 const drawerSubtask = drawerTaskData?.subtasks?.find(st => st.id === subtask.id);
                                 setEditingTaskValue(drawerSubtask?.description || subtask.description || '');
@@ -1838,7 +1841,7 @@ const ChecklistPage = () => {
                                 if (!error) {
                                   setEditingSubtask(null);
                                 } else {
-                                  alert(error);
+                                  setToast({ open: true, message: error, severity: 'error' });
                                   const drawerSubtask = drawerTaskData?.subtasks?.find(st => st.id === subtask.id);
                                   setEditingTaskValue(drawerSubtask?.description || subtask.description || '');
                                 }
@@ -2262,6 +2265,22 @@ const ChecklistPage = () => {
           <AddIcon />
         </Fab>
       </Container>
+
+      {/* Toast Notification */}
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={6000}
+        onClose={() => setToast({ ...toast, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setToast({ ...toast, open: false })}
+          severity={toast.severity}
+          sx={{ width: '100%' }}
+        >
+          {toast.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

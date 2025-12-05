@@ -424,9 +424,35 @@ async function sendVenueCancellationNotification(venueBooking, dependentBookings
       return;
     }
 
+    // Get venue name from service listing
+    const venueName = venueBooking.selectedServices?.[0]?.serviceListing?.name || venueBooking.vendor?.user?.name || 'Venue';
+
     const weddingDate = new Date(venueBooking.reservedDate);
     const isDisaster = reason.toLowerCase().includes('disaster') || reason.toLowerCase().includes('fire') || reason.toLowerCase().includes('earthquake');
     const formattedWeddingDate = weddingDate.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    // Calculate grace period end date (2 weeks from cancellation, or wedding date if sooner)
+    // Cancellation date is "now" since notification is sent right after cancellation
+    const cancellationDate = new Date();
+    const daysUntilWedding = Math.ceil((weddingDate - cancellationDate) / (1000 * 60 * 60 * 24));
+    const gracePeriodDays = Math.min(14, Math.max(0, daysUntilWedding));
+    const gracePeriodEndDate = new Date(cancellationDate);
+    gracePeriodEndDate.setDate(gracePeriodEndDate.getDate() + gracePeriodDays);
+    if (gracePeriodEndDate > weddingDate) {
+      gracePeriodEndDate.setTime(weddingDate.getTime());
+    }
+    const formattedGracePeriodEndDate = gracePeriodEndDate.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    const formattedCancellationDate = cancellationDate.toLocaleDateString('en-US', { 
       weekday: 'long', 
       year: 'numeric', 
       month: 'long', 
@@ -442,16 +468,16 @@ Your venue booking has been cancelled.
 
 Venue Booking Details:
 - Booking ID: ${venueBooking.id}
-- Venue: ${venueBooking.vendor?.user?.name || 'Venue'}
+- Venue: ${venueName}
 - Wedding Date: ${formattedWeddingDate}
 - Cancellation Reason: ${reason}
 
 ${dependentBookings.length > 0 ? `⚠️ IMPORTANT: You have ${dependentBookings.length} other service booking(s) that depend on this venue:
 ${dependentBookings.map((b, i) => `  ${i + 1}. ${b.vendor?.user?.name || 'Vendor'} - ${b.selectedServices?.[0]?.serviceListing?.name || 'Service'}`).join('\n')}
 
-` : ''}${isDisaster ? 'Due to the unforeseen circumstances, ' : ''}You have a grace period until your wedding date (${formattedWeddingDate}) to select a replacement venue.
+` : ''}${isDisaster ? 'Due to the unforeseen circumstances, ' : ''}You have a grace period of 2 weeks starting from today (${formattedCancellationDate}) to select a replacement venue. The grace period ends on ${formattedGracePeriodEndDate}.
 
-If you do not select a new venue by your wedding date, all dependent service bookings will be automatically cancelled and refunds will be processed according to our refund policy.
+If you do not select a new venue by the end of the grace period (${formattedGracePeriodEndDate}), all dependent service bookings will be automatically cancelled and refunds will be processed according to our refund policy.
 
 Please log into your account to:
 1. Select a new venue for your wedding date
@@ -500,7 +526,7 @@ Weddding Platform Team`;
                   </tr>
                   <tr>
                     <td style="padding:6px 0; color:#6b7280; font-size:14px;">Venue:</td>
-                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${venueBooking.vendor?.user?.name || 'Venue'}</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${venueName}</td>
                   </tr>
                   <tr>
                     <td style="padding:6px 0; color:#6b7280; font-size:14px;">Wedding Date:</td>
@@ -530,10 +556,10 @@ Weddding Platform Team`;
               <div style="background:#dbeafe; border-left:4px solid #3b82f6; padding:16px; margin:20px 0; border-radius:4px;">
                 <h3 style="margin:0 0 12px; color:#1e40af; font-size:16px; font-weight:600;">⏰ Grace Period</h3>
                 <p style="margin:0 0 8px; color:#1e3a8a; font-size:14px; line-height:1.6; font-weight:600;">
-                  ${isDisaster ? 'Due to the unforeseen circumstances, ' : ''}You have a <strong>grace period until your wedding date (${formattedWeddingDate})</strong> to select a replacement venue.
+                  ${isDisaster ? 'Due to the unforeseen circumstances, ' : ''}You have a <strong>grace period of 2 weeks starting from today (${formattedCancellationDate})</strong> to select a replacement venue. The grace period ends on <strong>${formattedGracePeriodEndDate}</strong>.
                 </p>
                 <p style="margin:8px 0 0; color:#1e3a8a; font-size:14px; line-height:1.6;">
-                  If you do not select a new venue by your wedding date, all dependent service bookings will be automatically cancelled and refunds will be processed according to our refund policy.
+                  If you do not select a new venue by the end of the grace period (${formattedGracePeriodEndDate}), all dependent service bookings will be automatically cancelled and refunds will be processed according to our refund policy.
                 </p>
               </div>
 
@@ -593,9 +619,41 @@ async function sendVenueCancellationVendorNotification(dependentBooking, cancell
       return;
     }
 
+    // Get venue name from service listing
+    const venueName = cancelledVenueBooking.selectedServices?.[0]?.serviceListing?.name || cancelledVenueBooking.vendor?.user?.name || 'Venue';
     const weddingDate = new Date(cancelledVenueBooking.reservedDate);
+    const formattedWeddingDate = weddingDate.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    // Calculate grace period end date (2 weeks from cancellation, or wedding date if sooner)
+    const cancellationDate = new Date();
+    const daysUntilWedding = Math.ceil((weddingDate - cancellationDate) / (1000 * 60 * 60 * 24));
+    const gracePeriodDays = Math.min(14, Math.max(0, daysUntilWedding));
+    const gracePeriodEndDate = new Date(cancellationDate);
+    gracePeriodEndDate.setDate(gracePeriodEndDate.getDate() + gracePeriodDays);
+    if (gracePeriodEndDate > weddingDate) {
+      gracePeriodEndDate.setTime(weddingDate.getTime());
+    }
+    const formattedGracePeriodEndDate = gracePeriodEndDate.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    const formattedCancellationDate = cancellationDate.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
 
     const subject = 'Notice: Venue Cancelled for Your Booking - Weddding Platform';
+    
+    // Plain text version
     const text = `Dear ${vendor.user.name || 'Vendor'},
 
 The venue booking for a wedding where your service is booked has been cancelled.
@@ -603,14 +661,14 @@ The venue booking for a wedding where your service is booked has been cancelled.
 Your Booking Details:
 - Booking ID: ${dependentBooking.id}
 - Service: ${dependentBooking.selectedServices?.[0]?.serviceListing?.name || 'Service'}
-- Wedding Date: ${weddingDate.toLocaleDateString()}
+- Wedding Date: ${formattedWeddingDate}
 - Couple: ${dependentBooking.couple?.user?.name || 'Couple'}
 
 Venue Cancellation:
-- Venue: ${cancelledVenueBooking.vendor?.user?.name || 'Venue'}
+- Venue: ${venueName}
 - Reason: ${reason}
 
-The couple has a grace period until the wedding date (${weddingDate.toLocaleDateString()}) to select a replacement venue. If no replacement venue is selected by then, this booking will be automatically cancelled.
+The couple has a grace period of 2 weeks starting from today (${formattedCancellationDate}) to select a replacement venue. The grace period ends on ${formattedGracePeriodEndDate}. If no replacement venue is selected by then, this booking will be automatically cancelled.
 
 You may want to contact the couple to discuss:
 - Whether you can accommodate a new venue location
@@ -622,10 +680,375 @@ If the booking is auto-cancelled due to no replacement venue, refunds will be pr
 Best regards,
 Weddding Platform Team`;
 
-    await sendEmail(vendor.user.email, subject, text);
+    // HTML version
+    const html = `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f7; padding:24px;">
+        <table align="center" width="100%" style="max-width:600px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+          <tr>
+            <td style="padding:24px 28px; background:linear-gradient(135deg,#f59e0b,#d97706); color:#ffffff;">
+              <h1 style="margin:0; font-size:24px; letter-spacing:0.06em; text-transform:uppercase;">Venue Cancelled</h1>
+              <p style="margin:8px 0 0; opacity:0.95; font-size:16px;">Notice for Your Booking</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px;">
+              <p style="margin:0 0 20px; color:#111827; font-size:16px; line-height:1.6;">Hi ${vendor.user.name || 'Vendor'},</p>
+              
+              <p style="margin:0 0 20px; color:#4b5563; line-height:1.6;">
+                The venue booking for a wedding where your service is booked has been <strong>cancelled</strong>.
+              </p>
+
+              <div style="background:#f9fafb; border-left:4px solid #3b82f6; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#111827; font-size:16px; font-weight:600;">Your Booking Details</h3>
+                <table style="width:100%; border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px; width:140px;">Booking ID:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${dependentBooking.id}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px;">Service:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${dependentBooking.selectedServices?.[0]?.serviceListing?.name || 'Service'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px;">Wedding Date:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${formattedWeddingDate}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px;">Couple:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${dependentBooking.couple?.user?.name || 'Couple'}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <div style="background:#fef3c7; border-left:4px solid #f59e0b; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#92400e; font-size:16px; font-weight:600;">Venue Cancellation</h3>
+                <table style="width:100%; border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:6px 0; color:#78350f; font-size:14px; width:140px;">Venue:</td>
+                    <td style="padding:6px 0; color:#78350f; font-size:14px; font-weight:500;">${venueName}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0; color:#78350f; font-size:14px;">Reason:</td>
+                    <td style="padding:6px 0; color:#78350f; font-size:14px;">${reason}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <div style="background:#dbeafe; border-left:4px solid #3b82f6; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#1e40af; font-size:16px; font-weight:600;">⏰ Grace Period</h3>
+                <p style="margin:0 0 8px; color:#1e3a8a; font-size:14px; line-height:1.6;">
+                  The couple has a <strong>grace period of 2 weeks starting from today (${formattedCancellationDate})</strong> to select a replacement venue. The grace period ends on <strong>${formattedGracePeriodEndDate}</strong>.
+                </p>
+                <p style="margin:8px 0 0; color:#1e3a8a; font-size:14px; line-height:1.6;">
+                  If no replacement venue is selected by the end of the grace period (${formattedGracePeriodEndDate}), this booking will be automatically cancelled and refunds will be processed according to our policy.
+                </p>
+              </div>
+
+              <div style="background:#f0fdf4; border-left:4px solid #10b981; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#065f46; font-size:16px; font-weight:600;">Recommended Actions</h3>
+                <p style="margin:0 0 12px; color:#047857; font-size:14px; line-height:1.6;">
+                  You may want to contact the couple to discuss:
+                </p>
+                <ul style="margin:0; padding-left:20px; color:#047857; font-size:14px; line-height:1.8;">
+                  <li>Whether you can accommodate a new venue location</li>
+                  <li>Any adjustments needed for the new venue</li>
+                  <li>Or if you prefer to cancel this booking</li>
+                </ul>
+              </div>
+
+              <p style="margin:24px 0 0; color:#6b7280; font-size:14px; line-height:1.6;">
+                If you have any questions, please contact our support team.
+              </p>
+
+              <p style="margin:24px 0 0; color:#111827; font-size:14px;">
+                Best regards,<br>
+                <strong>Weddding Platform Team</strong>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    await sendEmail(vendor.user.email, subject, { text, html });
     console.log(`✅ Venue cancellation vendor notification sent to ${vendor.user.email} for booking ${dependentBooking.id}`);
   } catch (error) {
     console.error(`❌ Error sending venue cancellation vendor notification for booking ${dependentBooking.id}:`, error);
+  }
+}
+
+/**
+ * Send notification to vendor when replacement venue is found for their booking
+ */
+async function sendVenueReplacementFoundNotification(dependentBooking, newVenueBooking) {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { userId: dependentBooking.vendorId },
+      include: { user: true },
+    });
+
+    if (!vendor || !vendor.user.email) {
+      console.warn(`No email found for vendor ${dependentBooking.vendorId}`);
+      return;
+    }
+
+    const venueName = newVenueBooking.selectedServices?.[0]?.serviceListing?.name || 'New Venue';
+    const weddingDate = new Date(dependentBooking.reservedDate);
+    const formattedWeddingDate = weddingDate.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const subject = 'Good News: Replacement Venue Found - Your Booking Continues - Weddding Platform';
+    
+    // Plain text version
+    const text = `Dear ${vendor.user.name || 'Vendor'},
+
+Good news! The couple has selected a replacement venue for their wedding.
+
+Your Booking Details:
+- Booking ID: ${dependentBooking.id}
+- Service: ${dependentBooking.selectedServices?.[0]?.serviceListing?.name || 'Service'}
+- Wedding Date: ${formattedWeddingDate}
+- Couple: ${dependentBooking.couple?.user?.name || 'Couple'}
+
+New Venue:
+- Venue: ${venueName}
+
+Your booking will continue as normal. The payment schedule has been updated based on the new timeline. Please review the updated payment due dates in your booking details.
+
+If you have any questions or concerns about the new venue location, please contact the couple directly.
+
+Best regards,
+Weddding Platform Team`;
+
+    // HTML version
+    const html = `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f7; padding:24px;">
+        <table align="center" width="100%" style="max-width:600px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+          <tr>
+            <td style="padding:24px 28px; background:linear-gradient(135deg,#22c55e,#16a34a); color:#ffffff;">
+              <h1 style="margin:0; font-size:24px; letter-spacing:0.06em; text-transform:uppercase;">Replacement Venue Found</h1>
+              <p style="margin:8px 0 0; opacity:0.95; font-size:16px;">Your booking continues as normal</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px;">
+              <p style="margin:0 0 20px; color:#111827; font-size:16px; line-height:1.6;">Hi ${vendor.user.name || 'Vendor'},</p>
+              
+              <p style="margin:0 0 20px; color:#4b5563; line-height:1.6;">
+                Good news! The couple has selected a <strong>replacement venue</strong> for their wedding. Your booking will continue as normal.
+              </p>
+
+              <div style="background:#f9fafb; border-left:4px solid #3b82f6; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#111827; font-size:16px; font-weight:600;">Your Booking Details</h3>
+                <table style="width:100%; border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px; width:140px;">Booking ID:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${dependentBooking.id}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px;">Service:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${dependentBooking.selectedServices?.[0]?.serviceListing?.name || 'Service'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px;">Wedding Date:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${formattedWeddingDate}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px;">Couple:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${dependentBooking.couple?.user?.name || 'Couple'}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <div style="background:#ecfdf5; border-left:4px solid #10b981; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#065f46; font-size:16px; font-weight:600;">New Venue</h3>
+                <p style="margin:0; color:#047857; font-size:14px; line-height:1.6; font-weight:500;">
+                  ${venueName}
+                </p>
+              </div>
+
+              <div style="background:#dbeafe; border-left:4px solid #3b82f6; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#1e40af; font-size:16px; font-weight:600;">Next Steps</h3>
+                <p style="margin:0 0 8px; color:#1e3a8a; font-size:14px; line-height:1.6;">
+                  Your booking will continue as normal. The payment schedule has been updated based on the new timeline.
+                </p>
+                <p style="margin:8px 0 0; color:#1e3a8a; font-size:14px; line-height:1.6;">
+                  Please review the updated payment due dates in your booking details. If you have any questions or concerns about the new venue location, please contact the couple directly.
+                </p>
+              </div>
+
+              <p style="margin:24px 0 0; color:#6b7280; font-size:14px; line-height:1.6;">
+                If you have any questions, please contact our support team.
+              </p>
+
+              <p style="margin:24px 0 0; color:#111827; font-size:14px;">
+                Best regards,<br>
+                <strong>Weddding Platform Team</strong>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    await sendEmail(vendor.user.email, subject, { text, html });
+    console.log(`✅ Venue replacement notification sent to ${vendor.user.email} for booking ${dependentBooking.id}`);
+  } catch (error) {
+    console.error(`❌ Error sending venue replacement notification for booking ${dependentBooking.id}:`, error);
+  }
+}
+
+/**
+ * Send notification to couple when replacement venue is found
+ */
+async function sendVenueReplacementFoundCoupleNotification(newVenueBooking, dependentBookings) {
+  try {
+    const couple = await prisma.couple.findUnique({
+      where: { userId: newVenueBooking.coupleId },
+      include: { user: true },
+    });
+
+    if (!couple || !couple.user.email) {
+      console.warn(`No email found for couple ${newVenueBooking.coupleId}`);
+      return;
+    }
+
+    const venueName = newVenueBooking.selectedServices?.[0]?.serviceListing?.name || 'New Venue';
+    const weddingDate = new Date(newVenueBooking.reservedDate);
+    const formattedWeddingDate = weddingDate.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const subject = 'Replacement Venue Booked - Your Services Updated - Weddding Platform';
+    
+    // Plain text version
+    const text = `Dear ${couple.user.name || 'Valued Customer'},
+
+Great news! You have successfully booked a replacement venue for your wedding.
+
+New Venue Details:
+- Venue: ${venueName}
+- Wedding Date: ${formattedWeddingDate}
+- Booking ID: ${newVenueBooking.id}
+
+${dependentBookings.length > 0 ? `Your ${dependentBookings.length} dependent service booking(s) have been automatically updated:
+${dependentBookings.map((b, i) => `  ${i + 1}. ${b.vendor?.user?.name || 'Vendor'} - ${b.selectedServices?.[0]?.serviceListing?.name || 'Service'}`).join('\n')}
+
+` : ''}Payment Schedule Updates:
+- All payment due dates have been recalculated based on the new timeline
+- Please review the updated due dates in your Payment Center
+- If any deposits were already paid, those bookings will only have final payment due dates updated
+
+You can view all your bookings and payment schedules in your account dashboard.
+
+Thank you for choosing Weddding Platform.
+
+Best regards,
+Weddding Platform Team`;
+
+    // HTML version
+    const dependentServicesList = dependentBookings.length > 0 
+      ? dependentBookings.map((b, i) => `
+            <tr>
+              <td style="padding:8px 12px; border-bottom:1px solid #e5e7eb;">
+                <strong>${i + 1}.</strong> ${b.vendor?.user?.name || 'Vendor'} - ${b.selectedServices?.[0]?.serviceListing?.name || 'Service'}
+              </td>
+            </tr>
+          `).join('')
+      : '';
+
+    const html = `
+      <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f7; padding:24px;">
+        <table align="center" width="100%" style="max-width:600px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+          <tr>
+            <td style="padding:24px 28px; background:linear-gradient(135deg,#22c55e,#16a34a); color:#ffffff;">
+              <h1 style="margin:0; font-size:24px; letter-spacing:0.06em; text-transform:uppercase;">Replacement Venue Booked</h1>
+              <p style="margin:8px 0 0; opacity:0.95; font-size:16px;">Your services have been updated</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px;">
+              <p style="margin:0 0 20px; color:#111827; font-size:16px; line-height:1.6;">Hi ${couple.user.name || 'Valued Customer'},</p>
+              
+              <p style="margin:0 0 20px; color:#4b5563; line-height:1.6;">
+                Great news! You have successfully booked a <strong>replacement venue</strong> for your wedding.
+              </p>
+
+              <div style="background:#f9fafb; border-left:4px solid #3b82f6; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#111827; font-size:16px; font-weight:600;">New Venue Details</h3>
+                <table style="width:100%; border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px; width:140px;">Venue:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${venueName}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px;">Wedding Date:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500;">${formattedWeddingDate}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0; color:#6b7280; font-size:14px;">Booking ID:</td>
+                    <td style="padding:6px 0; color:#111827; font-size:14px; font-weight:500; font-family:monospace;">${newVenueBooking.id}</td>
+                  </tr>
+                </table>
+              </div>
+
+              ${dependentBookings.length > 0 ? `
+              <div style="background:#f0fdf4; border-left:4px solid #10b981; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#065f46; font-size:16px; font-weight:600;">✅ Updated Service Bookings</h3>
+                <p style="margin:0 0 12px; color:#047857; font-size:14px; line-height:1.6;">
+                  Your ${dependentBookings.length} dependent service booking${dependentBookings.length !== 1 ? 's have' : ' has'} been automatically updated:
+                </p>
+                <table style="width:100%; border-collapse:collapse; background:#ffffff; border-radius:4px; overflow:hidden;">
+                  ${dependentServicesList}
+                </table>
+              </div>
+              ` : ''}
+
+              <div style="background:#dbeafe; border-left:4px solid #3b82f6; padding:16px; margin:20px 0; border-radius:4px;">
+                <h3 style="margin:0 0 12px; color:#1e40af; font-size:16px; font-weight:600;">📅 Payment Schedule Updates</h3>
+                <p style="margin:0 0 8px; color:#1e3a8a; font-size:14px; line-height:1.6;">
+                  All payment due dates have been recalculated based on the new timeline.
+                </p>
+                <ul style="margin:8px 0 0; padding-left:20px; color:#1e3a8a; font-size:14px; line-height:1.8;">
+                  <li>Please review the updated due dates in your Payment Center</li>
+                  <li>If any deposits were already paid, those bookings will only have final payment due dates updated</li>
+                  <li>Bookings with pending deposits will have both deposit and final payment due dates recalculated</li>
+                </ul>
+              </div>
+
+              <div style="text-align:center; margin:24px 0;">
+                <a href="${process.env.FRONTEND_URL || 'https://weddding.com'}/payment-center?projectId=${newVenueBooking.projectId}"
+                   style="display:inline-block; padding:12px 24px; border-radius:8px;
+                          background:#111827; color:#ffffff; text-decoration:none; font-size:14px; font-weight:600;">
+                  View Payment Center
+                </a>
+              </div>
+
+              <p style="margin:24px 0 0; color:#6b7280; font-size:14px; line-height:1.6;">
+                If you have any questions, please contact our support team.
+              </p>
+
+              <p style="margin:24px 0 0; color:#111827; font-size:14px;">
+                Best regards,<br>
+                <strong>Weddding Platform Team</strong>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    await sendEmail(couple.user.email, subject, { text, html });
+    console.log(`✅ Venue replacement couple notification sent to ${couple.user.email} for venue booking ${newVenueBooking.id}`);
+  } catch (error) {
+    console.error(`❌ Error sending venue replacement couple notification for venue booking ${newVenueBooking.id}:`, error);
   }
 }
 
@@ -1044,6 +1467,8 @@ module.exports = {
   sendCancellationVendorNotification,
   sendVenueCancellationNotification,
   sendVenueCancellationVendorNotification,
+  sendVenueReplacementFoundNotification,
+  sendVenueReplacementFoundCoupleNotification,
   sendBookingRequestCreatedCoupleNotification,
   sendBookingRequestReceivedVendorNotification,
   sendBookingAcceptedCoupleNotification,

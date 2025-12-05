@@ -346,6 +346,7 @@ enum ProjectStatus {
   draft
   ready_to_book
   booked
+  completed
 }
 
 enum BookingStatus {
@@ -480,6 +481,11 @@ model PlacedElement {
   rotation      Float?
   isLocked      Boolean       @default(false)
 
+  // Parent-child relationship for stacked elements
+  parentElementId String?     // ID of parent element if this is stacked on another element
+  parentElement   PlacedElement? @relation("ElementHierarchy", fields: [parentElementId], references: [id], onDelete: SetNull)
+  childElements   PlacedElement[] @relation("ElementHierarchy")
+
   // Booking lifecycle flags
   isBooked   Boolean  @default(false)
   bookingId  String?
@@ -495,6 +501,7 @@ model PlacedElement {
 
   @@index([venueDesignId])
   @@index([designElementId])
+  @@index([parentElementId])
 }
 
 // Budgeting for a project
@@ -583,6 +590,12 @@ model Booking {
   finalDueDate     DateTime?
   // Track venue dependency: if this is a non-venue service, which venue booking does it depend on?
   dependsOnVenueBookingId String? // Reference to the venue booking this service depends on
+  // Venue cancellation grace period tracking
+  isPendingVenueReplacement Boolean @default(false)
+  originalDepositDueDate    DateTime?
+  originalFinalDueDate      DateTime?
+  venueCancellationDate     DateTime?
+  gracePeriodEndDate        DateTime?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 

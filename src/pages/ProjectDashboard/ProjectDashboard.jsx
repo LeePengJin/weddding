@@ -37,10 +37,13 @@ import {
   Assignment as AssignmentIcon,
   Search as SearchIcon,
   Close,
+  WarningAmberRounded,
+  LocalOffer as LocalOfferIcon,
 } from '@mui/icons-material';
 import { apiFetch, updateProjectVenue } from '../../lib/api';
 import VendorDetailsPopup from '../../components/VendorDetailsPopup/VendorDetailsPopup';
 import Model3DViewer from '../../components/Model3DViewer/Model3DViewer';
+import '../CreateProject/CreateProject.styles.css';
 import './ProjectDashboard.styles.css';
 
 const ProjectDashboard = () => {
@@ -145,6 +148,53 @@ const ProjectDashboard = () => {
   const venueImages = detailsVenue ? normalizeVenueImages(detailsVenue) : [];
   const hasMultipleImages = venueImages.length > 1;
   const activeImage = venueImages[currentImageIndex] || detailsVenue?.imageUrl || null;
+
+  const handleNextImage = (event) => {
+    if (event) event.stopPropagation();
+    if (!hasMultipleImages) return;
+    setCurrentImageIndex((prev) => (prev + 1) % venueImages.length);
+  };
+
+  const handlePrevImage = (event) => {
+    if (event) event.stopPropagation();
+    if (!hasMultipleImages) return;
+    setCurrentImageIndex((prev) => (prev - 1 + venueImages.length) % venueImages.length);
+  };
+
+  const handleThumbnailSelect = (index, event) => {
+    if (event) event.stopPropagation();
+    if (index < 0 || index >= venueImages.length) return;
+    setCurrentImageIndex(index);
+    setIsImageFullscreen(false);
+  };
+
+  const openImageFullscreen = (event) => {
+    if (event) event.stopPropagation();
+    if (!venueImages.length) return;
+    setIsImageFullscreen(true);
+  };
+
+  const closeImageFullscreen = (event) => {
+    if (event) event.stopPropagation();
+    setIsImageFullscreen(false);
+  };
+
+  useEffect(() => {
+    if (!detailsVenue) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        if (isImageFullscreen) {
+          setIsImageFullscreen(false);
+          return;
+        }
+        closeVenueDetails();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [detailsVenue, isImageFullscreen]);
 
   const modelSources = detailsVenue ? (() => {
     const list = [];
@@ -413,41 +463,44 @@ const ProjectDashboard = () => {
 
           {/* Venue Cancellation Alert */}
           {projectData?.hasCancelledVenue && !projectData?.hasActiveVenue && (
-            <Box sx={{ mb: 3 }}>
-              <Alert 
-                severity="warning" 
-                sx={{ 
-                  borderRadius: 2,
-                  mb: 2,
-                }}
-              >
-                <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                  Your venue booking has been cancelled
-                </Typography>
-                <Typography variant="body2" sx={{ fontSize: '0.875rem', mb: 1 }}>
-                  {projectData.cancelledVenueBooking?.reason || 'Your venue booking was cancelled. Please select a new venue before your wedding date to avoid automatic cancellation of dependent services.'}
-                </Typography>
-                <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
-                  You have a grace period until your wedding date to select a replacement venue. If no replacement is selected, dependent service bookings will be automatically cancelled.
-                </Typography>
-              </Alert>
-              <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Alert 
+              severity="warning" 
+              sx={{ 
+                borderRadius: 2,
+                mb: 3,
+                '& .MuiAlert-message': { width: '100%' },
+              }}
+              icon={<WarningAmberRounded sx={{ color: '#ed6c02' }} />}
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    Your venue booking has been cancelled
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontSize: '0.875rem', mb: 1 }}>
+                    {projectData.cancelledVenueBooking?.reason || 'Your venue booking was cancelled. Please select a new venue before your wedding date to avoid automatic cancellation of dependent services.'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
+                    You have a grace period until your wedding date to select a replacement venue. If no replacement is selected, dependent service bookings will be automatically cancelled.
+                  </Typography>
+                </Box>
                 <Button
                   variant="contained"
                   onClick={() => setShowVenueModal(true)}
                   sx={{
                     textTransform: 'none',
-                    fontWeight: 600,
-                    backgroundColor: '#ed6c02',
+                    fontWeight: 700,
+                    backgroundColor: '#e16789',
                     '&:hover': {
-                      backgroundColor: '#e65100',
+                      backgroundColor: '#d1567a',
                     },
+                    alignSelf: 'center',
                   }}
                 >
                   Change Venue
                 </Button>
               </Box>
-            </Box>
+            </Alert>
           )}
 
           {/* Hero Content */}
@@ -1082,62 +1135,97 @@ const ProjectDashboard = () => {
             </Typography>
           ) : (
             <Box sx={{ maxHeight: '400px', overflowY: 'auto' }}>
-              {venues.map((venue) => (
-                <Card
-                  key={venue.id}
-                  onClick={() => setSelectedVenue(venue)}
-                  sx={{
-                    mb: 2,
-                    p: 2,
-                    cursor: 'pointer',
-                    border: selectedVenue?.id === venue.id ? 2 : 1,
-                    borderColor: selectedVenue?.id === venue.id ? '#e16789' : 'divider',
-                    backgroundColor: selectedVenue?.id === venue.id ? 'rgba(225, 103, 137, 0.05)' : 'background.paper',
-                    '&:hover': {
-                      borderColor: '#e16789',
-                      backgroundColor: 'rgba(225, 103, 137, 0.05)',
-                    },
-                  }}
-                >
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
-                        {venue.name}
-                      </Typography>
-                      {venue.vendor?.user?.name && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                          by {venue.vendor.user.name}
-                        </Typography>
-                      )}
-                      {venue.price && (
-                        <Typography variant="body2" sx={{ fontWeight: 500, color: '#e16789' }}>
-                          RM {parseFloat(venue.price).toLocaleString()}
-                        </Typography>
-                      )}
-                    </Box>
-                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={(e) => openVenueDetails(venue, e)}
-                        sx={{ textTransform: 'none' }}
+              <Grid container spacing={2}>
+                {venues.map((venue) => {
+                  const cardImage = getImageUrl(venue.images?.[0] || venue.imageUrl);
+                  return (
+                    <Grid item xs={12} sm={6} key={venue.id}>
+                      <Card
+                        onClick={() => setSelectedVenue(venue)}
+                        sx={{
+                          cursor: 'pointer',
+                          border: selectedVenue?.id === venue.id ? 2 : 1,
+                          borderColor: selectedVenue?.id === venue.id ? '#e16789' : 'divider',
+                          backgroundColor: selectedVenue?.id === venue.id ? 'rgba(225, 103, 137, 0.05)' : 'background.paper',
+                          '&:hover': {
+                            borderColor: '#e16789',
+                            backgroundColor: 'rgba(225, 103, 137, 0.05)',
+                          },
+                          overflow: 'hidden',
+                        }}
                       >
-                        View Details
-                      </Button>
-                      {selectedVenue?.id === venue.id && (
-                        <Chip
-                          label="Selected"
-                          size="small"
-                          sx={{
-                            backgroundColor: '#e16789',
-                            color: 'white',
-                          }}
-                        />
-                      )}
-                    </Box>
-                  </Box>
-                </Card>
-              ))}
+                        <Box sx={{ position: 'relative', height: 180, backgroundColor: '#f6f6f6' }}>
+                          <img
+                            src={cardImage}
+                            alt={venue.name}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            onError={(e) => {
+                              e.target.src = '/placeholder-venue.jpg';
+                            }}
+                          />
+                          <Button
+                            size="small"
+                            variant="contained"
+                            onClick={(e) => openVenueDetails(venue, e)}
+                            sx={{
+                              position: 'absolute',
+                              top: 8,
+                              left: 8,
+                              minWidth: 'auto',
+                              px: 1.5,
+                              textTransform: 'none',
+                              backgroundColor: 'rgba(255,255,255,0.9)',
+                              color: '#e16789',
+                              '&:hover': { backgroundColor: '#e16789', color: '#fff' },
+                            }}
+                          >
+                            i
+                          </Button>
+                          {selectedVenue?.id === venue.id && (
+                            <Chip
+                              label="Selected"
+                              size="small"
+                              sx={{
+                                position: 'absolute',
+                                top: 8,
+                                right: 8,
+                                backgroundColor: '#e16789',
+                                color: 'white',
+                              }}
+                            />
+                          )}
+                        </Box>
+                        <Box sx={{ p: 2 }}>
+                          <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
+                            {venue.name}
+                          </Typography>
+                          {venue.vendor?.user?.name && (
+                            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                              by {venue.vendor.user.name}
+                            </Typography>
+                          )}
+                          {venue.location && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                              <LocationIcon fontSize="small" sx={{ color: '#888' }} />
+                              <Typography variant="body2" color="text.secondary">
+                                {venue.location}
+                              </Typography>
+                            </Box>
+                          )}
+                          {venue.price && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <LocalOfferIcon fontSize="small" sx={{ color: '#e16789' }} />
+                              <Typography variant="body2" sx={{ fontWeight: 700, color: '#e16789' }}>
+                                RM {parseFloat(venue.price).toLocaleString()}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                      </Card>
+                    </Grid>
+                  );
+                })}
+              </Grid>
             </Box>
           )}
         </DialogContent>
@@ -1181,144 +1269,153 @@ const ProjectDashboard = () => {
       </Dialog>
 
       {/* Venue Details Modal */}
-      <Dialog
-        open={!!detailsVenue}
-        onClose={closeVenueDetails}
-        maxWidth="lg"
-        fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: 2,
-            maxHeight: '90vh',
-          },
-        }}
-      >
-        <DialogTitle>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              {detailsVenue?.name}
-            </Typography>
-            <IconButton
-              onClick={closeVenueDetails}
-              sx={{ minWidth: 'auto', p: 1 }}
+      {detailsVenue && (
+        <>
+          <div
+            className="venue-details-modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Venue details for ${detailsVenue.name}`}
+            onClick={closeVenueDetails}
+          >
+            <div
+              className="venue-details-modal"
+              onClick={(e) => e.stopPropagation()}
             >
-              <Close />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <DialogContent dividers>
-          {detailsVenue && (
-            <Box>
-              {/* Hero Image */}
-              {activeImage && (
-                <Box sx={{ position: 'relative', mb: 3, borderRadius: 2, overflow: 'hidden' }}>
-                  {hasMultipleImages && (
-                    <>
-                      <IconButton
-                        onClick={() => setCurrentImageIndex((prev) => (prev - 1 + venueImages.length) % venueImages.length)}
-                        sx={{
-                          position: 'absolute',
-                          left: 8,
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          backgroundColor: 'rgba(0,0,0,0.5)',
-                          color: 'white',
-                          '&:hover': { backgroundColor: 'rgba(0,0,0,0.7)' },
-                        }}
-                      >
-                        <ArrowBackIcon />
-                      </IconButton>
-                      <IconButton
-                        onClick={() => setCurrentImageIndex((prev) => (prev + 1) % venueImages.length)}
-                        sx={{
-                          position: 'absolute',
-                          right: 8,
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          backgroundColor: 'rgba(0,0,0,0.5)',
-                          color: 'white',
-                          '&:hover': { backgroundColor: 'rgba(0,0,0,0.7)' },
-                        }}
-                      >
-                        <ArrowForwardIcon />
-                      </IconButton>
-                      <Chip
-                        label={`${currentImageIndex + 1} / ${venueImages.length}`}
-                        size="small"
-                        sx={{
-                          position: 'absolute',
-                          bottom: 8,
-                          right: 8,
-                          backgroundColor: 'rgba(0,0,0,0.7)',
-                          color: 'white',
+              <button
+                type="button"
+                className="venue-details-close"
+                onClick={closeVenueDetails}
+                aria-label="Close venue details"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+
+              <div className="venue-details-hero">
+                {hasMultipleImages && (
+                  <>
+                    <button
+                      type="button"
+                      className="venue-hero-control prev"
+                      onClick={handlePrevImage}
+                      aria-label="Previous image"
+                    >
+                      <i className="fas fa-chevron-left"></i>
+                    </button>
+                    <button
+                      type="button"
+                      className="venue-hero-control next"
+                      onClick={handleNextImage}
+                      aria-label="Next image"
+                    >
+                      <i className="fas fa-chevron-right"></i>
+                    </button>
+                    <div className="venue-hero-counter">
+                      {currentImageIndex + 1} / {venueImages.length}
+                    </div>
+                  </>
+                )}
+                <img
+                  src={getImageUrl(activeImage || '/placeholder-venue.jpg')}
+                  alt={detailsVenue.name}
+                  onClick={openImageFullscreen}
+                  role={venueImages.length ? 'button' : undefined}
+                  tabIndex={venueImages.length ? 0 : -1}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      openImageFullscreen(event);
+                    }
+                  }}
+                  onError={(e) => {
+                    e.target.src = '/placeholder-venue.jpg';
+                  }}
+                />
+              </div>
+
+              {hasMultipleImages && (
+                <div className="venue-hero-thumbnails">
+                  {venueImages.map((image, index) => (
+                    <button
+                      type="button"
+                      key={`${image}-${index}`}
+                      className={`venue-thumbnail ${index === currentImageIndex ? 'active' : ''}`}
+                      onClick={(event) => handleThumbnailSelect(index, event)}
+                      aria-label={`View image ${index + 1}`}
+                    >
+                      <img
+                        src={getImageUrl(image)}
+                        alt={`${detailsVenue.name} thumbnail ${index + 1}`}
+                        onError={(e) => {
+                          e.target.src = '/placeholder-venue.jpg';
                         }}
                       />
-                    </>
-                  )}
-                  <img
-                    src={getImageUrl(activeImage)}
-                    alt={detailsVenue.name}
-                    style={{ width: '100%', height: '400px', objectFit: 'cover' }}
-                  />
-                </Box>
+                    </button>
+                  ))}
+                </div>
               )}
 
-              {/* Venue Info */}
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={hasModels ? 6 : 12}>
-                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-                    Venue Information
-                  </Typography>
+              <div className="venue-details-content">
+                <h3>{detailsVenue.name}</h3>
+
+                <div className="venue-details-meta">
                   {detailsVenue.vendor?.businessName && (
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      <strong>Business:</strong> {detailsVenue.vendor.businessName}
-                    </Typography>
+                    <p>
+                      <i className="fas fa-building"></i>
+                      {detailsVenue.vendor.businessName}
+                    </p>
                   )}
                   {detailsVenue.location && (
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      <strong>Location:</strong> {detailsVenue.location}
-                    </Typography>
+                    <p>
+                      <i className="fas fa-map-pin"></i>
+                      {detailsVenue.location}
+                    </p>
                   )}
                   {detailsVenue.capacity && (
-                    <Typography variant="body2" sx={{ mb: 1 }}>
-                      <strong>Capacity:</strong> {detailsVenue.capacity}+ guests
-                    </Typography>
+                    <p>
+                      <i className="fas fa-users"></i>
+                      {detailsVenue.capacity}+ guests
+                    </p>
                   )}
                   {detailsVenue.price && (
-                    <Typography variant="body2" sx={{ mb: 1, color: '#e16789', fontWeight: 600 }}>
-                      <strong>Price:</strong> RM {parseFloat(detailsVenue.price).toLocaleString()}
-                    </Typography>
+                    <p>
+                      <i className="fas fa-tag"></i>
+                      RM {detailsVenue.price.toLocaleString()}
+                    </p>
                   )}
-                  {detailsVenue.description && (
-                    <Typography variant="body2" sx={{ mt: 2 }}>
-                      {detailsVenue.description}
-                    </Typography>
-                  )}
-                </Grid>
+                </div>
 
-                {/* 3D Model Preview */}
+                {detailsVenue.description && (
+                  <div className="venue-details-section">
+                    <h4>About this venue</h4>
+                    <p>{detailsVenue.description}</p>
+                  </div>
+                )}
+
+                {Array.isArray(detailsVenue.amenities) && detailsVenue.amenities.length > 0 && (
+                  <div className="venue-details-section">
+                    <h4>Amenities</h4>
+                    <ul className="venue-amenities-list">
+                      {detailsVenue.amenities.map((amenity) => (
+                        <li key={amenity}>
+                          <i className="fas fa-check"></i>
+                          {amenity}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {detailsVenue.extraDetails && (
+                  <div className="venue-details-section">
+                    <h4>Additional Details</h4>
+                    <p>{detailsVenue.extraDetails}</p>
+                  </div>
+                )}
+
                 {hasModels && activeModel && (
-                  <Grid item xs={12} md={6}>
-                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-                      3D Preview
-                    </Typography>
-                    {modelSources.length > 1 && (
-                      <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                        {modelSources.map((model, idx) => (
-                          <Chip
-                            key={idx}
-                            label={model.label}
-                            onClick={() => setActiveModelIndex(idx)}
-                            sx={{
-                              cursor: 'pointer',
-                              backgroundColor: activeModelIndex === idx ? '#e16789' : 'default',
-                              color: activeModelIndex === idx ? 'white' : 'default',
-                            }}
-                          />
-                        ))}
-                      </Box>
-                    )}
-                    <Box sx={{ border: '1px solid #e0e0e0', borderRadius: 2, overflow: 'hidden' }}>
+                  <div className="venue-details-section">
+                    <h4>3D Preview</h4>
+                    <div className="venue-3d-preview">
                       <Model3DViewer
                         key={`${activeModel.src}-${JSON.stringify(activeModel.dimensions || {})}`}
                         modelUrl={activeModel.src}
@@ -1328,35 +1425,110 @@ const ProjectDashboard = () => {
                         autoRotate
                         targetDimensions={activeModel.dimensions || null}
                       />
-                    </Box>
-                  </Grid>
+                      {modelSources.length > 1 && (
+                        <div className="venue-3d-controls">
+                          <button
+                            type="button"
+                            className="venue-3d-nav"
+                            onClick={() =>
+                              setActiveModelIndex((prev) =>
+                                (prev - 1 + modelSources.length) % modelSources.length
+                              )
+                            }
+                          >
+                            ‹ Prev
+                          </button>
+                          <span className="venue-3d-label">{activeModel.label}</span>
+                          <button
+                            type="button"
+                            className="venue-3d-nav"
+                            onClick={() =>
+                              setActiveModelIndex((prev) =>
+                                (prev + 1) % modelSources.length
+                              )
+                            }
+                          >
+                            Next ›
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
-              </Grid>
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeVenueDetails} sx={{ textTransform: 'none' }}>
-            Close
-          </Button>
-          {detailsVenue && (
-            <Button
-              variant="contained"
-              onClick={() => {
-                setSelectedVenue(detailsVenue);
-                closeVenueDetails();
-              }}
-              sx={{
-                textTransform: 'none',
-                backgroundColor: '#e16789',
-                '&:hover': { backgroundColor: '#d1567a' },
-              }}
+
+                <button
+                  type="button"
+                  className="venue-details-close-bottom"
+                  onClick={() => {
+                    setSelectedVenue(detailsVenue);
+                    closeVenueDetails();
+                  }}
+                  aria-label="Select this venue"
+                >
+                  <i className="fas fa-check"></i>
+                  <span>Select This Venue</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {isImageFullscreen && (
+            <div
+              className="venue-fullscreen-backdrop"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Fullscreen view of ${detailsVenue.name}`}
+              onClick={closeImageFullscreen}
             >
-              Select This Venue
-            </Button>
+              <div
+                className="venue-fullscreen-inner"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className="venue-fullscreen-close"
+                  onClick={closeImageFullscreen}
+                  aria-label="Close image viewer"
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+
+                <img
+                  src={getImageUrl(activeImage)}
+                  alt={`${detailsVenue.name} fullscreen`}
+                  onError={(e) => {
+                    e.target.src = '/placeholder-venue.jpg';
+                  }}
+                />
+
+                {hasMultipleImages && (
+                  <>
+                    <button
+                      type="button"
+                      className="venue-fullscreen-control prev"
+                      onClick={handlePrevImage}
+                      aria-label="Previous image"
+                    >
+                      <i className="fas fa-chevron-left"></i>
+                    </button>
+                    <button
+                      type="button"
+                      className="venue-fullscreen-control next"
+                      onClick={handleNextImage}
+                      aria-label="Next image"
+                    >
+                      <i className="fas fa-chevron-right"></i>
+                    </button>
+                    <div className="venue-fullscreen-counter">
+                      {currentImageIndex + 1} / {venueImages.length}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           )}
-        </DialogActions>
-      </Dialog>
+        </>
+      )}
 
       {/* Toast Notification */}
       <Snackbar

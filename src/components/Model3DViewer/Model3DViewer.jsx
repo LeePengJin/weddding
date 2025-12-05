@@ -37,8 +37,8 @@ function CameraController({ autoRotate = false }) {
         const size = box.getSize(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
         
-        // Calculate distance to fit the model with some padding
-        const distance = maxDim * 1.5;
+        // Calculate distance to fit the model with a tighter framing
+        const distance = maxDim * 1.0;
         const fov = camera.fov * (Math.PI / 180);
         const cameraZ = Math.abs(distance / Math.sin(fov / 2));
         

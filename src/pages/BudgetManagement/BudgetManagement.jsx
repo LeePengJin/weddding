@@ -26,6 +26,8 @@ import {
   Menu,
   MenuItem,
   InputAdornment,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -313,6 +315,7 @@ const BudgetManagement = () => {
   const [budget, setBudget] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [toast, setToast] = useState({ open: false, message: '', severity: 'error' });
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [hoveredSegment, setHoveredSegment] = useState(null);
   const [isEditingBudget, setIsEditingBudget] = useState(false);
@@ -578,7 +581,7 @@ const BudgetManagement = () => {
       setSuccessMessage({ open: true, message: 'Category added successfully!' });
     } catch (err) {
       console.error('Error adding category:', err);
-      alert('Failed to add category');
+      setToast({ open: true, message: err.message || 'Failed to add category', severity: 'error' });
     }
   };
 
@@ -641,7 +644,7 @@ const BudgetManagement = () => {
       setSuccessMessage({ open: true, message: 'Category deleted successfully!' });
     } catch (err) {
       console.error('Error deleting category:', err);
-      alert('Failed to delete category');
+      setToast({ open: true, message: err.message || 'Failed to delete category', severity: 'error' });
     }
   };
 
@@ -695,7 +698,7 @@ const BudgetManagement = () => {
       setSuccessMessage({ open: true, message: 'Expense added successfully!' });
     } catch (err) {
       console.error('Error adding expense:', err);
-      alert('Failed to add expense');
+      setToast({ open: true, message: err.message || 'Failed to add expense', severity: 'error' });
     }
   };
 
@@ -749,7 +752,7 @@ const BudgetManagement = () => {
       setSuccessMessage({ open: true, message: 'Expense updated successfully!' });
     } catch (err) {
       console.error('Error updating expense:', err);
-      alert('Failed to update expense');
+      setToast({ open: true, message: err.message || 'Failed to update expense', severity: 'error' });
     }
   };
 
@@ -779,7 +782,7 @@ const BudgetManagement = () => {
       setSuccessMessage({ open: true, message: 'Expense deleted successfully!' });
     } catch (err) {
       console.error('Error deleting expense:', err);
-      alert('Failed to delete expense');
+      setToast({ open: true, message: err.message || 'Failed to delete expense', severity: 'error' });
     }
   };
 
@@ -2338,6 +2341,22 @@ const BudgetManagement = () => {
         onClose={() => setSuccessMessage({ ...successMessage, open: false })}
         message={successMessage.message}
       />
+
+      {/* Toast Message */}
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={6000}
+        onClose={() => setToast({ ...toast, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setToast({ ...toast, open: false })}
+          severity={toast.severity}
+          sx={{ width: '100%' }}
+        >
+          {toast.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

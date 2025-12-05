@@ -33,6 +33,7 @@ import {
   Tooltip,
   Typography,
   InputAdornment,
+  TablePagination,
 } from '@mui/material';
 import { Add, Close, Edit, ErrorOutline, Loop, Refresh, Verified, WarningAmber, Search } from '@mui/icons-material';
 import { apiFetch, getPackageDesign, getPackageVenues, setPackageVenue } from '../../lib/api';
@@ -144,6 +145,8 @@ const PackageManagement = () => {
   const navigate = useNavigate();
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [formState, setFormState] = useState(defaultFormState);
@@ -168,14 +171,25 @@ const PackageManagement = () => {
   const fetchPackages = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiFetch('/admin/packages');
-      setPackages(data);
+      const response = await apiFetch(`/admin/packages?page=${page + 1}&limit=${rowsPerPage}`);
+      if (response.data) {
+        setPackages(response.data);
+      } else {
+        // Backward compatibility
+        setPackages(response || []);
+      }
     } catch (err) {
       showMessage(err.message || 'Failed to load packages', 'error');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, rowsPerPage]);
+
+  useEffect(() => {
+    if (page >= 0) {
+      fetchPackages();
+    }
+  }, [page, rowsPerPage, fetchPackages]);
 
   useEffect(() => {
     fetchPackages();
@@ -460,7 +474,9 @@ const PackageManagement = () => {
 
   const pillButtonSx = { textTransform: 'none', borderRadius: '999px', fontWeight: 600 };
   const searchValue = packageSearch.trim().toLowerCase();
-  const visiblePackages = [...packages]
+  
+  const visiblePackages = useMemo(() => {
+    return [...packages]
     .filter((pkg) => {
       if (!searchValue) return true;
       const name = pkg.packageName?.toLowerCase() || '';
@@ -486,6 +502,14 @@ const PackageManagement = () => {
       const updatedB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
       return (updatedA - updatedB) * direction;
     });
+  }, [packages, searchValue, orderBy, orderDirection]);
+
+  const paginatedPackages = useMemo(() => {
+    return visiblePackages.slice(
+      page * rowsPerPage,
+      page * rowsPerPage + rowsPerPage
+    );
+  }, [visiblePackages, page, rowsPerPage]);
 
   const handleRequestSort = (property) => {
     if (orderBy === property) {
@@ -683,7 +707,7 @@ const PackageManagement = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  visiblePackages.map((pkg) => (
+                  paginatedPackages.map((pkg) => (
                   <TableRow key={pkg.id} hover>
                     <TableCell>
                       <Typography fontWeight={600}>{pkg.packageName}</Typography>
@@ -789,6 +813,18 @@ const PackageManagement = () => {
             </Table>
           )}
         </CardContent>
+        <TablePagination
+          component="div"
+          count={visiblePackages.length}
+          page={page}
+          onPageChange={(event, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(event) => {
+            setRowsPerPage(parseInt(event.target.value, 10));
+            setPage(0);
+          }}
+          rowsPerPageOptions={[10, 20, 50, 100]}
+        />
       </Card>
 
       <Dialog

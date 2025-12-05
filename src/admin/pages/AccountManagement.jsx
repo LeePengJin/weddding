@@ -59,7 +59,10 @@ export default function AccountManagement() {
     document.title = 'Weddding Admin — Account Management';
     // Ensure admin session
     apiFetch('/admin/auth/me')
-      .then(() => fetchAccounts())
+      .then(() => {
+        setPage(0);
+        fetchAccounts();
+      })
       .catch(() => {
         // Will be handled by AdminLayout or redirect
       });
@@ -68,8 +71,13 @@ export default function AccountManagement() {
   const fetchAccounts = async () => {
     try {
       setLoading(true);
-      const data = await apiFetch(`/admin/accounts?role=${accountType}`);
-      setAccounts(data || []);
+      const response = await apiFetch(`/admin/accounts?role=${accountType}&page=${page + 1}&limit=${rowsPerPage}`);
+      if (response.data) {
+        setAccounts(response.data || []);
+      } else {
+        // Backward compatibility
+        setAccounts(response || []);
+      }
       setError('');
     } catch (err) {
       setError(err.message || 'Failed to fetch accounts');
@@ -77,6 +85,12 @@ export default function AccountManagement() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (page >= 0) {
+      fetchAccounts();
+    }
+  }, [page, rowsPerPage, accountType]);
 
   const handleSort = (field) => {
     if (sortBy === field) {
@@ -90,11 +104,6 @@ export default function AccountManagement() {
 
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
   };
 
   // Filter and sort accounts
@@ -140,6 +149,7 @@ export default function AccountManagement() {
     }
   });
 
+  // Client-side pagination for sorted results
   const paginatedAccounts = sortedAccounts.slice(
     page * rowsPerPage,
     page * rowsPerPage + rowsPerPage
@@ -410,16 +420,19 @@ export default function AccountManagement() {
               )}
             </TableBody>
           </Table>
+        </TableContainer>
           <TablePagination
             component="div"
             count={sortedAccounts.length}
             page={page}
-            onPageChange={handleChangePage}
+          onPageChange={(event, newPage) => setPage(newPage)}
             rowsPerPage={rowsPerPage}
-            onRowsPerPageChange={handleChangeRowsPerPage}
-            rowsPerPageOptions={[5, 10, 25, 50]}
+          onRowsPerPageChange={(event) => {
+            setRowsPerPage(parseInt(event.target.value, 10));
+            setPage(0);
+          }}
+          rowsPerPageOptions={[10, 20, 50, 100]}
           />
-        </TableContainer>
       </Card>
 
       {/* Account Details Dialog */}

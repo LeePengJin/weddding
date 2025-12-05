@@ -175,22 +175,24 @@ async function checkOverdueFinalPayments() {
 
 /**
  * Transition confirmed bookings to pending_final_payment status
- * when they enter 1 week before the wedding date
+ * when they enter 2 weeks before the wedding date
+ * This gives couples 1 week to make payment before the final due date (1 week before wedding)
  */
 async function transitionToPendingFinalPayment() {
   const now = new Date();
-  const oneWeekFromNow = new Date(now);
-  oneWeekFromNow.setDate(oneWeekFromNow.getDate() + 7);
+  const twoWeeksFromNow = new Date(now);
+  twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
 
   // Find bookings that:
   // 1. Are in confirmed status
-  // 2. Have a reservedDate that is 1 week or less away
+  // 2. Have a reservedDate that is 2 weeks or less away
+  //    (This gives couples 1 week to pay before the final due date, which is 1 week before wedding)
   // 3. Don't already have a final payment
   const bookingsToTransition = await prisma.booking.findMany({
     where: {
       status: 'confirmed',
       reservedDate: {
-        lte: oneWeekFromNow, // 1 week or less before wedding
+        lte: twoWeeksFromNow, // 2 weeks or less before wedding
         gte: now, // But not in the past
       },
     },
@@ -213,6 +215,12 @@ async function transitionToPendingFinalPayment() {
         return dueDate;
       })();
 
+      // Don't transition if final due date has already passed
+      if (finalDueDate < now) {
+        console.log(`⚠️  Skipping booking ${booking.id} - final due date has already passed (${finalDueDate.toISOString()})`);
+        continue;
+      }
+
       await prisma.booking.update({
         where: { id: booking.id },
         data: {
@@ -221,7 +229,7 @@ async function transitionToPendingFinalPayment() {
         },
       });
 
-      console.log(`✅ Transitioned booking ${booking.id} to pending_final_payment (wedding date: ${booking.reservedDate.toISOString()})`);
+      console.log(`✅ Transitioned booking ${booking.id} to pending_final_payment (wedding date: ${booking.reservedDate.toISOString()}, final due date: ${finalDueDate.toISOString()})`);
       transitionedCount++;
     }
   }
@@ -340,13 +348,18 @@ async function checkVenueCancellationDependentBookings() {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   // Find cancelled venue bookings
+  // Check based on service listing category, not vendor category
   const cancelledVenueBookings = await prisma.booking.findMany({
     where: {
       status: {
         in: ['cancelled_by_couple', 'cancelled_by_vendor'],
       },
-      vendor: {
+      selectedServices: {
+        some: {
+          serviceListing: {
         category: 'Venue',
+          },
+        },
       },
       cancellation: {
         isNot: null,
@@ -369,15 +382,9 @@ async function checkVenueCancellationDependentBookings() {
     const weddingDate = cancelledVenue.project?.weddingDate 
       ? new Date(cancelledVenue.project.weddingDate)
       : new Date(cancelledVenue.reservedDate);
-    
-    const weddingDateOnly = new Date(weddingDate.getFullYear(), weddingDate.getMonth(), weddingDate.getDate());
-
-    // Only process if wedding date has arrived (today or past)
-    if (weddingDateOnly > today) {
-      continue; // Grace period still active
-    }
 
     // Check if there's a replacement venue booking for the same project and date
+    // Check based on service listing category, not vendor category
     const replacementVenue = await prisma.booking.findFirst({
       where: {
         projectId: cancelledVenue.projectId,
@@ -385,8 +392,12 @@ async function checkVenueCancellationDependentBookings() {
         status: {
           in: ['pending_deposit_payment', 'confirmed', 'pending_final_payment', 'completed'],
         },
-        vendor: {
+        selectedServices: {
+          some: {
+            serviceListing: {
           category: 'Venue',
+            },
+          },
         },
         id: {
           not: cancelledVenue.id, // Exclude the cancelled venue
@@ -400,10 +411,11 @@ async function checkVenueCancellationDependentBookings() {
       continue;
     }
 
-    // Find all dependent bookings that are still active
+    // Find all dependent bookings that are still active and waiting for venue replacement
     const dependentBookings = await prisma.booking.findMany({
       where: {
         dependsOnVenueBookingId: cancelledVenue.id,
+        isPendingVenueReplacement: true,
         status: {
           notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected', 'completed'],
         },
@@ -436,10 +448,30 @@ async function checkVenueCancellationDependentBookings() {
       },
     });
 
-    // Auto-cancel each dependent booking
+    // Auto-cancel each dependent booking if grace period has expired
     for (const dependentBooking of dependentBookings) {
+      // Check if grace period has expired
+      if (dependentBooking.gracePeriodEndDate) {
+        const gracePeriodEnd = new Date(dependentBooking.gracePeriodEndDate);
+        const gracePeriodEndOnly = new Date(gracePeriodEnd.getFullYear(), gracePeriodEnd.getMonth(), gracePeriodEnd.getDate());
+        
+        // Only auto-cancel if grace period has passed
+        if (gracePeriodEndOnly > today) {
+          continue; // Grace period still active
+        }
+      } else {
+        // Fallback: use wedding date if gracePeriodEndDate is not set (for old bookings)
+        const weddingDateOnly = new Date(weddingDate.getFullYear(), weddingDate.getMonth(), weddingDate.getDate());
+        if (weddingDateOnly > today) {
+          continue; // Grace period still active
+        }
+      }
+
       const totalPaid = dependentBooking.payments.reduce((sum, p) => sum + Number(p.amount), 0);
-      const cancellationReason = `Auto-cancelled: No replacement venue selected by wedding date. Original venue booking was cancelled: ${cancelledVenue.cancellation?.cancellationReason || 'Venue unavailable'}`;
+      const gracePeriodEndStr = dependentBooking.gracePeriodEndDate 
+        ? new Date(dependentBooking.gracePeriodEndDate).toLocaleDateString()
+        : new Date(weddingDate).toLocaleDateString();
+      const cancellationReason = `Auto-cancelled: No replacement venue selected by grace period end date (${gracePeriodEndStr}). Original venue booking was cancelled: ${cancelledVenue.cancellation?.cancellationReason || 'Venue unavailable'}`;
 
       await prisma.$transaction(async (tx) => {
         // Create cancellation record with refund flag
@@ -513,7 +545,7 @@ async function runAutoCancellationChecks() {
   console.log('\n🔄 Running auto-cancellation checks...');
   
   try {
-    // 1. Transition confirmed bookings to pending_final_payment (1 week before)
+    // 1. Transition confirmed bookings to pending_final_payment (2 weeks before wedding, giving 1 week before due date)
     await transitionToPendingFinalPayment();
     
     // 2. Check overdue deposit payments

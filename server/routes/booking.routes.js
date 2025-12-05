@@ -193,18 +193,30 @@ router.get('/', requireAuth, async (req, res, next) => {
     // Filter by role
     if (req.user.role === 'vendor') {
       where.vendorId = req.user.sub;
+      // Vendors can see bookings across all projects (no projectId required)
     } else if (req.user.role === 'couple') {
       where.coupleId = req.user.sub;
+      // For couples, projectId is required to ensure data isolation between projects
+      if (!projectId) {
+        return res.status(400).json({ error: 'Project ID is required' });
+      }
+      // Validate that the project belongs to the couple
+      const project = await prisma.weddingProject.findFirst({
+        where: {
+          id: projectId,
+          coupleId: req.user.sub,
+        },
+      });
+      if (!project) {
+        return res.status(404).json({ error: 'Project not found or access denied' });
+      }
+      where.projectId = projectId;
     } else {
       return res.status(403).json({ error: 'Vendor or couple access required' });
     }
 
     if (status) {
       where.status = status;
-    }
-
-    if (projectId) {
-      where.projectId = projectId;
     }
 
     if (startDate || endDate) {
@@ -452,6 +464,14 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
         id: req.params.id,
         vendorId: req.user.sub,
       },
+      include: {
+        project: {
+          select: {
+            id: true,
+            weddingDate: true,
+          },
+        },
+      },
     });
 
     if (!existingBooking) {
@@ -525,11 +545,59 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
           });
         }
         
-        // Set deposit due date to 7 days from now (vendor acceptance date)
+        // Set deposit and final payment due dates
+        // Handle edge cases where wedding date is near
+        if (existingBooking.project?.weddingDate) {
+          const weddingDate = new Date(existingBooking.project.weddingDate);
+          const today = new Date();
+          const daysUntilWedding = Math.ceil((weddingDate - today) / (1000 * 60 * 60 * 24));
+          
+          // Set deposit due date
         if (!updatePayload.depositDueDate) {
+            if (daysUntilWedding >= 7) {
+              // Standard: 7 days from now
           const depositDueDate = new Date();
           depositDueDate.setDate(depositDueDate.getDate() + 7);
           updatePayload.depositDueDate = depositDueDate;
+            } else if (daysUntilWedding > 1) {
+              // Wedding is less than 7 days away: set deposit due to wedding date - 1 day
+              const depositDueDate = new Date(weddingDate);
+              depositDueDate.setDate(weddingDate.getDate() - 1);
+              updatePayload.depositDueDate = depositDueDate;
+            } else {
+              // Wedding is tomorrow or today: set deposit due to today (immediate)
+              updatePayload.depositDueDate = today;
+            }
+          }
+          
+          // Set final payment due date automatically (1 week before wedding)
+          if (!updatePayload.finalDueDate) {
+            // Calculate final due date (1 week before wedding)
+            const finalDueDate = new Date(weddingDate);
+            finalDueDate.setDate(finalDueDate.getDate() - 7);
+            
+            // If wedding is less than 7 days away, set final due date to wedding date - 1 day
+            // If wedding is less than 1 day away, set to today (immediate payment required)
+            if (daysUntilWedding < 7) {
+              if (daysUntilWedding < 1) {
+                finalDueDate.setTime(today.getTime());
+              } else {
+                finalDueDate.setDate(weddingDate.getDate() - 1);
+              }
+            }
+            
+            // Only set if it's in the future or today
+            if (finalDueDate >= today) {
+              updatePayload.finalDueDate = finalDueDate;
+            }
+          }
+        } else {
+          // No project/wedding date: use standard 7 days for deposit
+          if (!updatePayload.depositDueDate) {
+            const depositDueDate = new Date();
+            depositDueDate.setDate(depositDueDate.getDate() + 7);
+            updatePayload.depositDueDate = depositDueDate;
+          }
         }
       }
       
@@ -619,6 +687,176 @@ router.patch('/:id/status', requireAuth, async (req, res, next) => {
 
     // Update linked design items (PlacedElement / ProjectService) based on new status
     await updateLinkedDesignItemsForBooking(updatedBooking.id, updatedBooking.status);
+
+    // Update project status: ready_to_book -> booked when first booking is confirmed (pending_deposit_payment or later)
+    // Don't update if project is already completed
+    if (updatedBooking.projectId && newStatus === 'pending_deposit_payment') {
+      const project = await prisma.weddingProject.findUnique({
+        where: { id: updatedBooking.projectId },
+        select: { status: true },
+      });
+      
+      if (project && project.status === 'ready_to_book') {
+        await prisma.weddingProject.update({
+          where: { id: updatedBooking.projectId },
+          data: { status: 'booked' },
+        });
+      }
+    }
+
+    // If this is a venue booking being accepted (pending_vendor_confirmation -> pending_deposit_payment)
+    // Update dependent bookings waiting for venue replacement
+    // This is consistent with the venue-first rule: venue is "booked" when accepted (pending_deposit_payment)
+    const isVenueBooking = updatedBooking.selectedServices?.some(
+      (service) => service.serviceListing?.category === 'Venue'
+    ) ?? false;
+    
+    if (isVenueBooking && currentStatus === 'pending_vendor_confirmation' && newStatus === 'pending_deposit_payment' && updatedBooking.projectId) {
+      const notificationService = require('../services/notificationService');
+      
+      // Find dependent bookings waiting for venue replacement
+      const dependentBookings = await prisma.booking.findMany({
+        where: {
+          projectId: updatedBooking.projectId,
+          isPendingVenueReplacement: true,
+          status: {
+            notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected', 'completed'],
+          },
+        },
+        include: {
+          couple: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          vendor: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          selectedServices: {
+            include: {
+              serviceListing: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (dependentBookings.length > 0 && updatedBooking.project?.weddingDate) {
+        const weddingDate = updatedBooking.project.weddingDate instanceof Date 
+          ? updatedBooking.project.weddingDate 
+          : new Date(updatedBooking.project.weddingDate);
+        const today = new Date();
+
+        // Update each dependent booking
+        for (const dependentBooking of dependentBookings) {
+          const weddingDateObj = weddingDate instanceof Date ? weddingDate : new Date(weddingDate);
+
+          // Check if deposit is already paid (confirmed or later)
+          const depositAlreadyPaid = ['confirmed', 'pending_final_payment', 'completed'].includes(dependentBooking.status);
+          
+          // Recalculate deposit due date (only if deposit not paid yet)
+          let newDepositDueDate = dependentBooking.depositDueDate; // Keep existing if deposit paid
+          if (!depositAlreadyPaid) {
+            if (dependentBooking.originalDepositDueDate && dependentBooking.venueCancellationDate) {
+              const originalDepositDue = new Date(dependentBooking.originalDepositDueDate);
+              const cancellationDate = new Date(dependentBooking.venueCancellationDate);
+              
+              // Calculate remaining days from cancellation to original due date
+              const remainingDays = Math.ceil((originalDepositDue - cancellationDate) / (1000 * 60 * 60 * 24));
+              
+              // New due date = today + remaining days
+              newDepositDueDate = new Date(today);
+              newDepositDueDate.setDate(today.getDate() + remainingDays);
+              
+              // Cap at wedding date - 1 day
+              const maxDepositDue = new Date(weddingDateObj);
+              maxDepositDue.setDate(weddingDateObj.getDate() - 1);
+              if (newDepositDueDate > maxDepositDue) {
+                newDepositDueDate = maxDepositDue;
+              }
+            } else if (!dependentBooking.depositDueDate) {
+              // Fallback: set to standard policy (7 days)
+              newDepositDueDate = new Date(today);
+              newDepositDueDate.setDate(today.getDate() + 7);
+            }
+          }
+
+          // Recalculate final due date (always one week before wedding)
+          let newFinalDueDate = new Date(weddingDateObj);
+          newFinalDueDate.setDate(weddingDateObj.getDate() - 7);
+          
+          // If final due date already passed, set to wedding date - 1 day
+          if (newFinalDueDate < today) {
+            newFinalDueDate = new Date(weddingDateObj);
+            newFinalDueDate.setDate(weddingDateObj.getDate() - 1);
+          }
+
+          // Update booking
+          const updateData = {
+            isPendingVenueReplacement: false,
+            dependsOnVenueBookingId: updatedBooking.id,
+            finalDueDate: newFinalDueDate,
+            originalDepositDueDate: null,
+            originalFinalDueDate: null,
+            venueCancellationDate: null,
+            gracePeriodEndDate: null,
+          };
+          
+          // Only update deposit due date if deposit not paid yet
+          if (!depositAlreadyPaid && newDepositDueDate) {
+            updateData.depositDueDate = newDepositDueDate;
+          }
+
+          await prisma.booking.update({
+            where: { id: dependentBooking.id },
+            data: updateData,
+          });
+
+          // Send notification to vendor
+          notificationService.sendVenueReplacementFoundNotification(
+            dependentBooking,
+            updatedBooking
+          ).catch((err) => {
+            console.error(`Error sending venue replacement notification to vendor for booking ${dependentBooking.id}:`, err);
+          });
+        }
+        
+        // Send notification to couple about venue replacement
+        const couple = await prisma.couple.findUnique({
+          where: { userId: updatedBooking.coupleId },
+          include: { user: true },
+        });
+        
+        if (couple && couple.user.email) {
+          notificationService.sendVenueReplacementFoundCoupleNotification(
+            updatedBooking,
+            dependentBookings
+          ).catch((err) => {
+            console.error(`Error sending venue replacement notification to couple:`, err);
+          });
+        }
+
+        console.log(`✅ Updated ${dependentBookings.length} dependent booking(s) after venue booking acceptance for booking ${updatedBooking.id}`);
+      }
+    }
 
     // Convert Decimal to string for JSON response
     const bookingWithStringPrices = {
@@ -783,13 +1021,15 @@ router.post('/', requireAuth, async (req, res, next) => {
 
     // Enforce venue-first rule for non-venue services
     // Couples must have a venue booking for the project/date before booking other services.
-    const isVenueVendor = vendor.category === 'Venue';
+    // Check based on service listing category, not vendor category
+    // (e.g., a venue vendor can have both venue listings and decoration listings)
+    const hasVenueServiceListing = serviceListings.some((listing) => listing.category === 'Venue');
 
-    // For non-venue services, ensure there is an existing accepted venue booking for this project/date.
+    // For non-venue service listings, ensure there is an existing accepted venue booking for this project/date.
     // Declare venueBooking in the outer scope so we can safely reference it later when creating the booking.
     let venueBooking = null;
 
-    if (!isVenueVendor) {
+    if (!hasVenueServiceListing) {
       if (!data.projectId || !project) {
         return res.status(400).json({
           error: 'Please select a wedding project with a booked venue before requesting this service.',
@@ -798,6 +1038,7 @@ router.post('/', requireAuth, async (req, res, next) => {
 
       // Look for an existing venue booking for this project and date that is accepted by vendor (not just pending)
       // Venue must be at least pending_deposit_payment (vendor has accepted) before other services can be booked
+      // Check for bookings that have at least one service listing with category 'Venue'
       venueBooking = await prisma.booking.findFirst({
         where: {
           projectId: data.projectId,
@@ -810,8 +1051,12 @@ router.post('/', requireAuth, async (req, res, next) => {
               'completed',
             ],
           },
-          vendor: {
+          selectedServices: {
+            some: {
+              serviceListing: {
             category: 'Venue',
+              },
+            },
           },
         },
       });
@@ -833,7 +1078,7 @@ router.post('/', requireAuth, async (req, res, next) => {
         reservedDate: new Date(data.reservedDate),
         status: 'pending_vendor_confirmation',
         // Store venue dependency for non-venue services
-        dependsOnVenueBookingId: !isVenueVendor && venueBooking ? venueBooking.id : null,
+        dependsOnVenueBookingId: !hasVenueServiceListing && venueBooking ? venueBooking.id : null,
         selectedServices: {
           create: data.selectedServices.map((service) => ({
             serviceListingId: service.serviceListingId,
@@ -890,6 +1135,22 @@ router.post('/', requireAuth, async (req, res, next) => {
     // Mark linked design items as booked
     await updateLinkedDesignItemsForBooking(booking.id, booking.status);
 
+    // Update project status: draft -> ready_to_book when first booking is created
+    // Don't update if project is already completed
+    if (booking.projectId) {
+      const project = await prisma.weddingProject.findUnique({
+        where: { id: booking.projectId },
+        select: { status: true },
+      });
+      
+      if (project && project.status === 'draft') {
+        await prisma.weddingProject.update({
+          where: { id: booking.projectId },
+          data: { status: 'ready_to_book' },
+        });
+      }
+    }
+
     // Convert Decimal to string for JSON response
     const bookingWithStringPrices = {
       ...booking,
@@ -942,6 +1203,24 @@ router.post('/:id/payments', requireAuth, async (req, res, next) => {
         id: req.params.id,
         coupleId: req.user.sub,
       },
+      include: {
+        selectedServices: {
+          include: {
+            serviceListing: {
+              select: {
+                id: true,
+                category: true,
+              },
+            },
+          },
+        },
+        project: {
+          select: {
+            id: true,
+            weddingDate: true,
+          },
+        },
+      },
     });
 
     if (!booking) {
@@ -949,6 +1228,13 @@ router.post('/:id/payments', requireAuth, async (req, res, next) => {
     }
 
     const data = createPaymentSchema.parse(req.body);
+
+    // Block payment if venue replacement is pending
+    if (booking.isPendingVenueReplacement) {
+      return res.status(400).json({ 
+        error: 'Payment paused due to venue cancellation. Please select a replacement venue first.' 
+      });
+    }
 
     // Validate payment type matches booking status
     if (data.paymentType === 'deposit' && booking.status !== 'pending_deposit_payment') {
@@ -1015,6 +1301,18 @@ router.post('/:id/payments', requireAuth, async (req, res, next) => {
     const updatedBooking = await prisma.booking.update({
       where: { id: booking.id },
       data: updateData,
+      include: {
+        selectedServices: {
+          include: {
+            serviceListing: {
+              select: {
+                id: true,
+                category: true,
+              },
+            },
+          },
+        },
+      },
     });
 
     await updateLinkedDesignItemsForBooking(updatedBooking.id, updatedBooking.status);
@@ -1343,6 +1641,8 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
             serviceListing: {
               select: {
                 id: true,
+                name: true,
+                category: true,
                 cancellationPolicy: true,
                 cancellationFeeTiers: true,
               },
@@ -1374,6 +1674,7 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
                   select: {
                     id: true,
                     name: true,
+                    category: true,
                   },
                 },
               },
@@ -1467,6 +1768,25 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
     // Create cancellation record and update booking status
     const newStatus = isVendorCancelling ? 'cancelled_by_vendor' : 'cancelled_by_couple';
 
+    // Calculate refund for vendor cancellations
+    // If vendor cancels, couple should get full refund of all payments made
+    let refundRequired = false;
+    let refundAmount = null;
+    let refundStatus = 'not_applicable';
+    
+    if (isVendorCancelling) {
+      // Calculate total amount paid by couple
+      const totalPaid = booking.payments.reduce((sum, payment) => {
+        return sum + Number(payment.amount);
+      }, 0);
+      
+      if (totalPaid > 0) {
+        refundRequired = true;
+        refundAmount = totalPaid;
+        refundStatus = 'pending';
+      }
+    }
+
     await prisma.$transaction(async (tx) => {
       // Create cancellation record
       await tx.cancellation.create({
@@ -1477,6 +1797,9 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
           cancellationReason: data.reason ? data.reason.trim() : null,
           cancellationFee,
           cancellationFeePaymentId,
+          refundRequired,
+          refundAmount: refundAmount ? refundAmount : null,
+          refundStatus,
         },
       });
 
@@ -1509,14 +1832,64 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
     });
 
     // If this is a venue booking cancellation, handle dependent bookings
-    const isVenueBooking = booking.vendor?.category === 'Venue';
+    // Check based on service listing category, not vendor category
+    const isVenueBooking = booking.selectedServices?.some(
+      (service) => service.serviceListing?.category === 'Venue'
+    ) ?? false;
     if (isVenueBooking && booking.dependentBookings && booking.dependentBookings.length > 0) {
-      // Send notifications to couple and vendors about venue cancellation
-      // Dependent bookings will NOT be auto-cancelled immediately
-      // They will be auto-cancelled by scheduled job if no replacement venue is selected by wedding date
       const venueCancellationReason = data.reason ? data.reason.trim() : 'Venue booking cancelled';
+      const cancellationDate = new Date();
       
-      // Notify couple about venue cancellation and grace period
+      // Get wedding date for grace period calculation
+      const project = await prisma.weddingProject.findUnique({
+        where: { id: booking.projectId },
+        select: { weddingDate: true },
+      });
+      
+      const weddingDate = project?.weddingDate 
+        ? new Date(project.weddingDate)
+        : new Date(booking.reservedDate);
+      
+      // Calculate grace period: min(14 days, days until wedding)
+      const daysUntilWedding = Math.ceil((weddingDate - cancellationDate) / (1000 * 60 * 60 * 24));
+      const fixedGracePeriod = 14; // days
+      const gracePeriodDays = Math.min(fixedGracePeriod, Math.max(0, daysUntilWedding));
+      const gracePeriodEndDate = new Date(cancellationDate);
+      gracePeriodEndDate.setDate(gracePeriodEndDate.getDate() + gracePeriodDays);
+      
+      // Cap at wedding date
+      if (gracePeriodEndDate > weddingDate) {
+        gracePeriodEndDate.setTime(weddingDate.getTime());
+      }
+      
+      // Update dependent bookings with grace period fields
+      for (const dependentBooking of booking.dependentBookings) {
+        // Skip if due dates already passed (booking should be cancelled)
+        const today = new Date();
+        const depositDuePassed = dependentBooking.depositDueDate && new Date(dependentBooking.depositDueDate) < today;
+        const finalDuePassed = dependentBooking.finalDueDate && new Date(dependentBooking.finalDueDate) < today;
+        
+        if (depositDuePassed || finalDuePassed) {
+          console.log(`⚠️ Skipping grace period setup for booking ${dependentBooking.id} - due dates already passed`);
+          continue;
+        }
+        
+        // Set grace period fields and extend due dates
+        await prisma.booking.update({
+          where: { id: dependentBooking.id },
+          data: {
+            isPendingVenueReplacement: true,
+            originalDepositDueDate: dependentBooking.depositDueDate,
+            originalFinalDueDate: dependentBooking.finalDueDate,
+            venueCancellationDate: cancellationDate,
+            gracePeriodEndDate: gracePeriodEndDate,
+            depositDueDate: gracePeriodEndDate,
+            finalDueDate: gracePeriodEndDate,
+          },
+        });
+      }
+      
+      // Send notifications to couple and vendors about venue cancellation
       notificationService.sendVenueCancellationNotification(booking, booking.dependentBookings, venueCancellationReason).catch((err) => {
         console.error('Error sending venue cancellation notification:', err);
       });
@@ -1528,7 +1901,7 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
         });
       }
 
-      console.log(`⚠️ Venue booking ${booking.id} cancelled. ${booking.dependentBookings.length} dependent booking(s) will be auto-cancelled on wedding date if no replacement venue is selected.`);
+      console.log(`⚠️ Venue booking ${booking.id} cancelled. ${booking.dependentBookings.length} dependent booking(s) will be auto-cancelled on ${gracePeriodEndDate.toISOString()} if no replacement venue is selected.`);
     }
 
     const updatedBooking = await prisma.booking.findUnique({

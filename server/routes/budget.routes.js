@@ -6,6 +6,54 @@ const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 const prisma = new PrismaClient();
 
+/**
+ * Helper function to check if a project can be modified
+ * Projects with 'completed' status or past their wedding date cannot be modified
+ * Throws an error with statusCode if project is completed/past wedding date or not found
+ */
+async function checkProjectCanBeModified(projectId, coupleId) {
+  const project = await prisma.weddingProject.findFirst({
+    where: {
+      id: projectId,
+      coupleId,
+    },
+    select: {
+      id: true,
+      status: true,
+      weddingDate: true,
+    },
+  });
+
+  if (!project) {
+    const error = new Error('Project not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Check if project is completed
+  if (project.status === 'completed') {
+    const error = new Error('Completed projects cannot be modified');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  // Check if wedding date has passed
+  if (project.weddingDate) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weddingDate = new Date(project.weddingDate);
+    weddingDate.setHours(0, 0, 0, 0);
+
+    if (weddingDate < today) {
+      const error = new Error('Projects past their wedding date cannot be modified');
+      error.statusCode = 403;
+      throw error;
+    }
+  }
+
+  return project;
+}
+
 // Validation schemas
 const createBudgetSchema = z.object({
   projectId: z.string().uuid(),
@@ -190,6 +238,9 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(budget.projectId, req.user.sub);
+
     const data = updateBudgetSchema.parse(req.body);
     const updateData = {};
     
@@ -221,6 +272,9 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     if (err instanceof z.ZodError) {
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
+    }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
     }
     next(err);
   }
@@ -254,6 +308,9 @@ router.post('/:budgetId/categories', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(budget.projectId, req.user.sub);
+
     const data = createCategorySchema.parse({ ...req.body, budgetId: req.params.budgetId });
 
     const category = await prisma.budgetCategory.create({
@@ -271,6 +328,9 @@ router.post('/:budgetId/categories', requireAuth, async (req, res, next) => {
     if (err instanceof z.ZodError) {
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
+    }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
     }
     next(err);
   }
@@ -304,6 +364,9 @@ router.patch('/:budgetId/categories/:categoryId', requireAuth, async (req, res, 
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(budget.projectId, req.user.sub);
+
     const category = await prisma.budgetCategory.findFirst({
       where: {
         id: req.params.categoryId,
@@ -335,6 +398,9 @@ router.patch('/:budgetId/categories/:categoryId', requireAuth, async (req, res, 
     if (err instanceof z.ZodError) {
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
+    }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
     }
     next(err);
   }
@@ -389,6 +455,9 @@ router.delete('/:budgetId/categories/:categoryId', requireAuth, async (req, res,
 
     res.json({ message: 'Category deleted successfully' });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -420,6 +489,9 @@ router.post('/:budgetId/categories/:categoryId/expenses', requireAuth, async (re
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(budget.projectId, req.user.sub);
 
     const category = await prisma.budgetCategory.findFirst({
       where: {
@@ -453,6 +525,9 @@ router.post('/:budgetId/categories/:categoryId/expenses', requireAuth, async (re
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
     }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -484,6 +559,9 @@ router.patch('/:budgetId/categories/:categoryId/expenses/:expenseId', requireAut
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(budget.projectId, req.user.sub);
 
     const category = await prisma.budgetCategory.findFirst({
       where: {
@@ -529,6 +607,9 @@ router.patch('/:budgetId/categories/:categoryId/expenses/:expenseId', requireAut
       const issues = err.issues.map((i) => ({ field: i.path?.[0] ?? 'unknown', message: i.message }));
       return res.status(400).json({ error: issues[0]?.message || 'Invalid input', issues });
     }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     next(err);
   }
 });
@@ -561,6 +642,9 @@ router.delete('/:budgetId/categories/:categoryId/expenses/:expenseId', requireAu
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Check if project can be modified (not completed and not past wedding date)
+    await checkProjectCanBeModified(budget.projectId, req.user.sub);
+
     const category = await prisma.budgetCategory.findFirst({
       where: {
         id: req.params.categoryId,
@@ -592,6 +676,9 @@ router.delete('/:budgetId/categories/:categoryId/expenses/:expenseId', requireAu
 
     res.json({ message: 'Expense deleted successfully' });
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
     next(err);
   }
 });

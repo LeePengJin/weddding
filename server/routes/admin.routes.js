@@ -122,10 +122,15 @@ router.post('/auth/logout', (_req, res) => {
 router.get('/vendors', requireAdmin, async (req, res, next) => {
   try {
     const status = req.query.status; // pending_verification, active, rejected
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    
     const where = { role: 'vendor' };
     if (status) where.status = status;
 
-    const vendors = await prisma.user.findMany({
+    const [vendors, total] = await Promise.all([
+      prisma.user.findMany({
       where,
       include: {
         vendor: {
@@ -139,9 +144,21 @@ router.get('/vendors', requireAdmin, async (req, res, next) => {
         },
       },
       orderBy: { createdAt: 'desc' },
-    });
+        skip,
+        take: limit,
+      }),
+      prisma.user.count({ where }),
+    ]);
 
-    res.json(vendors);
+    res.json({
+      data: vendors,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -184,6 +201,10 @@ router.post('/vendors/:userId/reject', requireAdmin, async (req, res, next) => {
 router.get('/accounts', requireAdmin, async (req, res, next) => {
   try {
     const { role, status } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    
     const where = {};
     
     if (role === 'couple') {
@@ -196,7 +217,8 @@ router.get('/accounts', requireAdmin, async (req, res, next) => {
       where.status = status;
     }
 
-    const users = await prisma.user.findMany({
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
       where,
       select: {
         id: true,
@@ -222,9 +244,21 @@ router.get('/accounts', requireAdmin, async (req, res, next) => {
         },
       },
       orderBy: { createdAt: 'desc' },
-    });
+        skip,
+        take: limit,
+      }),
+      prisma.user.count({ where }),
+    ]);
 
-    res.json(users);
+    res.json({
+      data: users,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -419,6 +453,10 @@ Weddding Platform Team`;
 router.get('/packages/listings', requireAdmin, async (req, res, next) => {
   try {
     const { q, includeInactive } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    
     const where = {};
 
     if (!includeInactive || includeInactive === 'false') {
@@ -438,7 +476,8 @@ router.get('/packages/listings', requireAdmin, async (req, res, next) => {
       ];
     }
 
-    const listings = await prisma.serviceListing.findMany({
+    const [listings, total] = await Promise.all([
+      prisma.serviceListing.findMany({
       where,
       include: {
         vendor: {
@@ -455,8 +494,11 @@ router.get('/packages/listings', requireAdmin, async (req, res, next) => {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 150,
-    });
+        skip,
+        take: limit,
+      }),
+      prisma.serviceListing.count({ where }),
+    ]);
 
     const payload = listings.map((listing) => ({
       id: listing.id,
@@ -476,7 +518,15 @@ router.get('/packages/listings', requireAdmin, async (req, res, next) => {
         : null,
     }));
 
-    res.json(payload);
+    res.json({
+      data: payload,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -485,6 +535,10 @@ router.get('/packages/listings', requireAdmin, async (req, res, next) => {
 router.get('/packages', requireAdmin, async (req, res, next) => {
   try {
     const { status, search } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    
     const where = {};
 
     if (status && PACKAGE_STATUS_VALUES.includes(status)) {
@@ -495,13 +549,26 @@ router.get('/packages', requireAdmin, async (req, res, next) => {
       where.packageName = { contains: search.trim(), mode: 'insensitive' };
     }
 
-    const packages = await prisma.weddingPackage.findMany({
+    const [packages, total] = await Promise.all([
+      prisma.weddingPackage.findMany({
       where,
       include: PACKAGE_INCLUDE,
       orderBy: { updatedAt: 'desc' },
-    });
+        skip,
+        take: limit,
+      }),
+      prisma.weddingPackage.count({ where }),
+    ]);
 
-    res.json(packages.map(buildPackageResponse));
+    res.json({
+      data: packages.map(buildPackageResponse),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -708,6 +775,9 @@ router.patch('/packages/:packageId/status', requireAdmin, async (req, res, next)
 router.get('/vendor-payments', requireAdmin, async (req, res, next) => {
   try {
     const { status } = req.query; // 'pending' (not released) or 'released'
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
     
     const where = {};
     if (status === 'pending') {
@@ -716,7 +786,8 @@ router.get('/vendor-payments', requireAdmin, async (req, res, next) => {
       where.releasedToVendor = true;
     }
 
-    const payments = await prisma.payment.findMany({
+    const [payments, total] = await Promise.all([
+      prisma.payment.findMany({
       where,
       include: {
         booking: {
@@ -758,7 +829,11 @@ router.get('/vendor-payments', requireAdmin, async (req, res, next) => {
         },
       },
       orderBy: { paymentDate: 'desc' },
-    });
+        skip,
+        take: limit,
+      }),
+      prisma.payment.count({ where }),
+    ]);
 
     // Transform the data for frontend
     const transformedPayments = payments.map((payment) => ({
@@ -797,7 +872,15 @@ router.get('/vendor-payments', requireAdmin, async (req, res, next) => {
       },
     }));
 
-    res.json(transformedPayments);
+    res.json({
+      data: transformedPayments,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -894,7 +977,12 @@ Weddding Platform Team`;
 // GET /admin/cancellations - Get all cancellations with refund information
 router.get('/cancellations', requireAdmin, async (req, res, next) => {
   try {
-    const cancellations = await prisma.cancellation.findMany({
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const [cancellations, total] = await Promise.all([
+      prisma.cancellation.findMany({
       include: {
         booking: {
           include: {
@@ -926,7 +1014,11 @@ router.get('/cancellations', requireAdmin, async (req, res, next) => {
       orderBy: {
         cancelledAt: 'desc',
       },
-    });
+        skip,
+        take: limit,
+      }),
+      prisma.cancellation.count(),
+    ]);
 
     // Convert Decimal to string for JSON response
     const cancellationsWithStringPrices = cancellations.map((cancellation) => ({
@@ -935,7 +1027,15 @@ router.get('/cancellations', requireAdmin, async (req, res, next) => {
       refundAmount: cancellation.refundAmount ? cancellation.refundAmount.toString() : null,
     }));
 
-    res.json(cancellationsWithStringPrices);
+    res.json({
+      data: cancellationsWithStringPrices,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (err) {
     next(err);
   }

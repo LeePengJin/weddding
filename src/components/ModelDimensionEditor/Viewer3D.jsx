@@ -543,7 +543,8 @@ const SceneContent = ({ fileUrl, onDimensionsChange, setSceneToExport, targetDim
             <OrbitControls 
               makeDefault 
               enabled={!isInteracting}
-              enablePan={false}
+              // Allow panning so users can reposition the view while adjusting dimensions
+              enablePan={true}
               enableZoom={true}
               enableRotate={true}
             />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Button,
@@ -30,6 +30,7 @@ import {
   Close as CloseIcon,
   Add as AddIcon,
 } from '@mui/icons-material';
+import Viewer3D from '../ModelDimensionEditor/Viewer3D';
 
 const VENDOR_CATEGORIES = [
   'Photographer',
@@ -183,6 +184,7 @@ const ListingWizard = ({
   });
 
   const [fieldErrors, setFieldErrors] = useState({});
+  const [dimensionPreviewUrl, setDimensionPreviewUrl] = useState(null);
 
   // Load initial data if editing
   useEffect(() => {
@@ -224,6 +226,42 @@ const ListingWizard = ({
       });
     }
   }, [initialData]);
+
+  // Build a blob URL for the uploaded 3D model so we can feed it into the dimension editor
+  useEffect(() => {
+    if (model3DSource === 'upload' && model3DFile) {
+      const url = URL.createObjectURL(model3DFile);
+      setDimensionPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setDimensionPreviewUrl(null);
+  }, [model3DFile, model3DSource]);
+
+  const handleDimensionsChange = useCallback((dims) => {
+    const newWidth = dims?.x > 0 ? Number(dims.x).toFixed(2) : '';
+    const newHeight = dims?.y > 0 ? Number(dims.y).toFixed(2) : '';
+    const newDepth = dims?.z > 0 ? Number(dims.z).toFixed(2) : '';
+
+    onModelDimensionsChange &&
+      onModelDimensionsChange({
+        ...modelDimensions,
+        width: newWidth,
+        height: newHeight,
+        depth: newDepth,
+      });
+  }, [modelDimensions, onModelDimensionsChange]);
+
+  const targetDimensions = useMemo(() => {
+    if (!modelDimensions) return null;
+    const width = parseFloat(modelDimensions.width);
+    const height = parseFloat(modelDimensions.height);
+    const depth = parseFloat(modelDimensions.depth);
+    return {
+      width: Number.isFinite(width) && width > 0 ? width : undefined,
+      height: Number.isFinite(height) && height > 0 ? height : undefined,
+      depth: Number.isFinite(depth) && depth > 0 ? depth : undefined,
+    };
+  }, [modelDimensions]);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => {
@@ -1077,53 +1115,59 @@ const ListingWizard = ({
                     </Box>
                   )}
 
-                  {/* Dimensions and Settings - Only for non-venue listings when uploading new 3D model */}
-                  {formData.category !== 'Venue' && model3DPreview && (
-                    <Box sx={{ mt: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#f8f9fa' }}>
-                      <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
-                        3D Model Settings
+                  {/* Dimensions editor - mirror design element page (non-venue, upload flow) */}
+                  {formData.category !== 'Venue' && model3DSource === 'upload' && model3DPreview && dimensionPreviewUrl && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 0.5, fontWeight: 600 }}>
+                        Dimensions editor
                       </Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                        Real-world dimensions (in meters) for accurate scaling:
+                      <Typography variant="caption" color="text.secondary">
+                        Drag the handles on the 3D preview to set real-world size (meters). Pan/zoom to view all sides.
                       </Typography>
-                      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-                        <TextField
-                          label="Width (X)"
-                          type="number"
-                          size="small"
-                          value={modelDimensions?.width || ''}
-                          onChange={(e) => onModelDimensionsChange && onModelDimensionsChange({ ...modelDimensions, width: e.target.value })}
-                          InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                          inputProps={{ step: '0.01', min: '0' }}
+
+                      <Box
+                        sx={{
+                          mt: 2,
+                          p: 0,
+                          backgroundColor: '#f5f6fa',
+                          borderRadius: 1,
+                          position: 'relative',
+                          height: 420,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <Viewer3D
+                          fileUrl={dimensionPreviewUrl}
+                          onDimensionsChange={handleDimensionsChange}
+                          targetDimensions={targetDimensions}
                         />
-                        <TextField
-                          label="Height (Y)"
-                          type="number"
-                          size="small"
-                          value={modelDimensions?.height || ''}
-                          onChange={(e) => onModelDimensionsChange && onModelDimensionsChange({ ...modelDimensions, height: e.target.value })}
-                          InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                          inputProps={{ step: '0.01', min: '0' }}
+                      </Box>
+
+                      <Box
+                        sx={{
+                          mt: 2,
+                          p: 2,
+                          border: '1px solid #e0e0e0',
+                          borderRadius: 1,
+                          backgroundColor: '#fafafa',
+                        }}
+                      >
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                          Physical properties
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                          Dimensions update automatically from the editor above.
+                        </Typography>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={isStackable || false}
+                              onChange={(e) => onStackableChange && onStackableChange(e.target.checked)}
+                            />
+                          }
+                          label="Stackable (can be placed on tables/surfaces)"
                         />
-                        <TextField
-                          label="Depth (Z)"
-                          type="number"
-                          size="small"
-                          value={modelDimensions?.depth || ''}
-                          onChange={(e) => onModelDimensionsChange && onModelDimensionsChange({ ...modelDimensions, depth: e.target.value })}
-                          InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                          inputProps={{ step: '0.01', min: '0' }}
-                        />
-                      </Stack>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={isStackable || false}
-                            onChange={(e) => onStackableChange && onStackableChange(e.target.checked)}
-                          />
-                        }
-                        label="Stackable (can be placed on tables/surfaces)"
-                      />
+                      </Box>
                     </Box>
                   )}
                 </>
