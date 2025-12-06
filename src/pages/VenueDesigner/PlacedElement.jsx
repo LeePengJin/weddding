@@ -496,7 +496,7 @@ const PlacedElement = ({
             // If not stackable and we're on the ground, clear parent
             if (nextY < 0.1) {
               dragStateRef.current.parentElementId = null;
-            }
+             }
           }
 
           let collisionFound = false;

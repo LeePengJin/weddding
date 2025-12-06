@@ -142,6 +142,20 @@ const Step5Summary = ({ formData, updateFormData, onConfirm, loading }) => {
             </div>
           </div>
         </div>
+
+        {formData.totalBudget && (
+          <div className="summary-section">
+            <div className="summary-section-header">
+              <i className="fas fa-wallet"></i>
+              <h3>Total Budget</h3>
+            </div>
+            <div className="summary-section-content">
+              <div className="summary-item full-width">
+                <span className="summary-value">RM {parseFloat(formData.totalBudget).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="summary-actions">

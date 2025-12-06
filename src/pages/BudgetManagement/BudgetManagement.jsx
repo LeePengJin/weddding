@@ -28,6 +28,9 @@ import {
   InputAdornment,
   Snackbar,
   Alert,
+  Select,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -43,6 +46,7 @@ import {
   ArrowUpward as ArrowUpwardIcon,
   ArrowDownward as ArrowDownwardIcon,
 } from '@mui/icons-material';
+import { FormControlLabel, Checkbox } from '@mui/material';
 import { apiFetch } from '../../lib/api';
 import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
 import SuccessMessage from '../../components/SuccessMessage/SuccessMessage';
@@ -342,6 +346,11 @@ const BudgetManagement = () => {
   const [sortBy, setSortBy] = useState('name'); // 'name', 'estimated', 'actual', 'spent'
   const [sortDirection, setSortDirection] = useState('asc'); // 'asc', 'desc'
   const [sortMenuAnchor, setSortMenuAnchor] = useState(null);
+  const [designItems, setDesignItems] = useState([]); // 3D design items
+  const [loadingDesignItems, setLoadingDesignItems] = useState(false);
+  const [showMoveToCategoryDialog, setShowMoveToCategoryDialog] = useState(null); // { item, categoryId, markAsPaid, createNew, newCategoryName }
+  const [showPaymentBreakdown, setShowPaymentBreakdown] = useState(null); // expenseId
+  const [showMoveExpenseDialog, setShowMoveExpenseDialog] = useState(null); // { expense, categoryId, createNew, newCategoryName }
   
   // Edit category state
   const [editingCategoryId, setEditingCategoryId] = useState(null);
@@ -384,6 +393,11 @@ const BudgetManagement = () => {
       budget: '',
       remark: '',
     });
+    setDesignItems([]);
+    setShowMoveToCategoryDialog(null);
+    setShowPaymentBreakdown(null);
+    setShowMoveExpenseDialog(null);
+    setFormErrors(prev => ({ ...prev, categoryName: '' }));
     
     if (projectId) {
       fetchBudget();
@@ -391,6 +405,14 @@ const BudgetManagement = () => {
       fetchFirstProject();
     }
   }, [projectId]);
+
+  // Fetch design items when budget is loaded (so we can filter out moved items)
+  useEffect(() => {
+    const currentProjectId = searchParams.get('projectId');
+    if (budget && currentProjectId) {
+      fetchDesignItems(currentProjectId);
+    }
+  }, [budget, searchParams]);
 
   const fetchFirstProject = async () => {
     try {
@@ -427,12 +449,351 @@ const BudgetManagement = () => {
       } else {
         setBudget(data);
       }
+      // Also fetch 3D design items (after budget is set so we can filter moved items)
+      // fetchDesignItems will use the budget state to filter out moved items
     } catch (err) {
       setError(err.message || 'Failed to load budget');
       console.error('Error fetching budget:', err);
       setBudget(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchDesignItems = async (projectId) => {
+    try {
+      setLoadingDesignItems(true);
+      const data = await apiFetch(`/venue-designs/${projectId}`);
+      
+      console.log('Fetched venue design data:', {
+        hasDesign: !!data.design,
+        placedElementsCount: data.design?.placedElements?.length || 0,
+        projectServicesCount: data.projectServices?.length || 0,
+      });
+      
+      if (!data.design || !data.design.placedElements) {
+        setDesignItems([]);
+        return;
+      }
+
+      const layoutData = data.design.layoutData || {};
+      const placementsMeta = layoutData.placementsMeta || {};
+
+      // Get all placement IDs that have been moved to expenses
+      // We track by placedElementId to know exactly which placements have been moved
+      // Also track per-table services by serviceListingId (they don't have placedElementId)
+      const movedPlacementIds = new Set();
+      const movedPerTableServiceIds = new Set();
+      if (budget && budget.categories) {
+        budget.categories.forEach(category => {
+          if (category.expenses) {
+            category.expenses.forEach(expense => {
+              if (expense.from3DDesign) {
+                // Check placedElementIds JSON field first (new approach)
+                if (expense.placedElementIds && Array.isArray(expense.placedElementIds)) {
+                  expense.placedElementIds.forEach(id => movedPlacementIds.add(id));
+                } else if (expense.placedElementId) {
+                  // Fallback: use placedElementId for single items or old data
+                  movedPlacementIds.add(expense.placedElementId);
+                }
+                // Also check remark field for backward compatibility (old data migration)
+                if (expense.remark && !expense.placedElementIds) {
+                  try {
+                    const remarkData = JSON.parse(expense.remark);
+                    if (remarkData.placedElementIds && Array.isArray(remarkData.placedElementIds)) {
+                      remarkData.placedElementIds.forEach(id => movedPlacementIds.add(id));
+                    }
+                  } catch (e) {
+                    // If remark is not JSON, ignore
+                  }
+                }
+                
+                // Track per-table services and project services (no placedElementId, tracked by serviceListingId)
+                if (!expense.placedElementId && expense.serviceListingId) {
+                  movedPerTableServiceIds.add(expense.serviceListingId);
+                }
+              }
+            });
+          }
+        });
+      }
+
+      // Group placements by bundleId (for bundles) or serviceListingId (for non-bundled items)
+      const bundleGroups = new Map(); // bundleId -> { serviceListingId, serviceListing, unitPrice, placements[] }
+      const serviceGroups = new Map(); // serviceListingId -> { serviceListing, unitPrice, placements[] }
+
+      data.design.placedElements
+        .filter(placement => !placement.isBooked) // Only non-booked items
+        .forEach(placement => {
+          const meta = placementsMeta[placement.id];
+          if (!meta?.serviceListingId) return;
+
+          // Get service listing from placement (already included by API)
+          const serviceListing = placement.serviceListing || null;
+          const bundleId = meta.bundleId;
+          const serviceListingId = meta.serviceListingId;
+          const unitPrice = parseFloat(meta.unitPrice || serviceListing?.price || 0);
+          
+          // Skip if this specific placement has been moved to expenses
+          if (movedPlacementIds.has(placement.id)) {
+            return;
+          }
+          
+          if (bundleId) {
+            // For bundles, group by bundleId (one bundle = one price, regardless of number of elements)
+            if (!bundleGroups.has(bundleId)) {
+              bundleGroups.set(bundleId, {
+                bundleId,
+                serviceListingId,
+                serviceListing,
+                unitPrice, // This is the bundle price, not per-element
+                placements: [placement],
+              });
+            } else {
+              // Add placement to existing bundle group (but don't change the price - it's per bundle)
+              bundleGroups.get(bundleId).placements.push(placement);
+            }
+          } else {
+            // For non-bundled items, group by serviceListingId
+            if (!serviceGroups.has(serviceListingId)) {
+              serviceGroups.set(serviceListingId, {
+                serviceListingId,
+                serviceListing,
+                unitPrice,
+                placements: [placement],
+              });
+            } else {
+              // Add placement to existing service group
+              serviceGroups.get(serviceListingId).placements.push(placement);
+            }
+          }
+        });
+
+      // Convert groups to items array
+      const items = [];
+
+      // Add bundle items (one item per bundle, with quantity = 1, price = bundle price)
+      bundleGroups.forEach(bundle => {
+        items.push({
+          placementId: bundle.placements[0].id, // Use first placement ID as identifier
+          bundleId: bundle.bundleId,
+          serviceListingId: bundle.serviceListingId,
+          serviceListing: bundle.serviceListing,
+          unitPrice: bundle.unitPrice, // Bundle price (not per element)
+          quantity: 1, // Bundles are counted as 1, regardless of number of elements
+          placements: bundle.placements,
+        });
+      });
+
+      // Add non-bundled service items (grouped by serviceListingId)
+      serviceGroups.forEach(service => {
+        items.push({
+          placementId: service.placements[0].id, // Use first placement ID as identifier
+          serviceListingId: service.serviceListingId,
+          serviceListing: service.serviceListing,
+          unitPrice: service.unitPrice,
+          quantity: service.placements.length, // Count of placements for this service
+          placements: service.placements,
+        });
+      });
+
+      // Add per-table services (services tagged on tables via serviceListingIds array)
+      // Get all tables and their tagged per-table services
+      // Tables can be identified by elementType on placement OR designElement.elementType
+      const allPlacementsForDebug = data.design.placedElements.map(p => ({
+        id: p.id,
+        elementType: p.elementType,
+        designElementType: p.designElement?.elementType,
+        designElementName: p.designElement?.name,
+        serviceListingIds: p.serviceListingIds,
+        isBooked: p.isBooked,
+      }));
+      console.log('All placements for debugging:', allPlacementsForDebug);
+      
+      const tablePlacements = data.design.placedElements.filter(p => {
+        const isTable = p.elementType === 'table' || 
+                       p.designElement?.elementType === 'table' ||
+                       (p.designElement?.name && p.designElement.name.toLowerCase().includes('table'));
+        const hasServiceIds = p.serviceListingIds && 
+                             Array.isArray(p.serviceListingIds) &&
+                             p.serviceListingIds.length > 0;
+        
+        if (isTable) {
+          console.log('Found table placement:', {
+            id: p.id,
+            elementType: p.elementType,
+            designElementType: p.designElement?.elementType,
+            serviceListingIds: p.serviceListingIds,
+            isBooked: p.isBooked,
+            hasServiceIds,
+          });
+        }
+        
+        return isTable && !p.isBooked && hasServiceIds;
+      });
+
+      console.log('Table placements with serviceListingIds:', tablePlacements.length, tablePlacements);
+
+      // Group per-table services by serviceListingId
+      const perTableServiceGroups = new Map(); // serviceListingId -> { serviceListing, taggedTableCount, tablePlacements[] }
+      
+      tablePlacements.forEach(table => {
+        if (table.serviceListingIds && Array.isArray(table.serviceListingIds)) {
+          table.serviceListingIds.forEach(serviceListingId => {
+            if (!perTableServiceGroups.has(serviceListingId)) {
+              perTableServiceGroups.set(serviceListingId, {
+                serviceListingId,
+                serviceListing: null, // Will be fetched separately
+                taggedTableCount: 0,
+                tablePlacements: [],
+                unitPrice: 0,
+              });
+            }
+            perTableServiceGroups.get(serviceListingId).taggedTableCount += 1;
+            perTableServiceGroups.get(serviceListingId).tablePlacements.push(table);
+          });
+        }
+      });
+
+      console.log('Per-table service groups:', Array.from(perTableServiceGroups.keys()));
+
+      // Get service listing details from the venue design response
+      // The API now includes per-table services in the serviceMap
+      const perTableServiceIds = Array.from(perTableServiceGroups.keys());
+      console.log('Getting per-table service details for:', perTableServiceIds);
+      
+      if (perTableServiceIds.length > 0) {
+        // First, try to get from serviceMap (API includes per-table services now)
+        if (data.serviceMap) {
+          console.log('Using serviceMap from API response');
+          perTableServiceIds.forEach(serviceListingId => {
+            const service = data.serviceMap[serviceListingId];
+            if (service && service.pricingPolicy === 'per_table') {
+              const group = perTableServiceGroups.get(serviceListingId);
+              if (group) {
+                group.serviceListing = service;
+                group.unitPrice = parseFloat(service.price || 0);
+                console.log(`Added per-table service from serviceMap: ${service.name}, price: ${group.unitPrice}, count: ${group.taggedTableCount}`);
+              }
+            }
+          });
+        }
+
+        // Also try to get from projectServices (fallback)
+        const remainingServiceIds = perTableServiceIds.filter(id => {
+          const group = perTableServiceGroups.get(id);
+          return !group?.serviceListing;
+        });
+
+        if (remainingServiceIds.length > 0 && data.projectServices) {
+          console.log('Trying to get remaining per-table services from projectServices:', remainingServiceIds);
+          const perTableServicesFromProject = data.projectServices.filter(ps => 
+            ps.serviceListing && 
+            remainingServiceIds.includes(ps.serviceListingId) &&
+            ps.serviceListing.pricingPolicy === 'per_table'
+          );
+
+          perTableServicesFromProject.forEach(ps => {
+            const serviceListingId = ps.serviceListingId;
+            const group = perTableServiceGroups.get(serviceListingId);
+            if (group && ps.serviceListing) {
+              group.serviceListing = ps.serviceListing;
+              group.unitPrice = parseFloat(ps.serviceListing.price || 0);
+              console.log(`Added per-table service from projectServices: ${ps.serviceListing.name}, price: ${group.unitPrice}, count: ${group.taggedTableCount}`);
+            }
+          });
+        }
+      }
+
+      // Add per-table service items to the list
+      perTableServiceGroups.forEach((group, serviceListingId) => {
+        console.log(`Processing per-table service group: ${serviceListingId}`, {
+          serviceListing: group.serviceListing,
+          taggedTableCount: group.taggedTableCount,
+          unitPrice: group.unitPrice,
+          hasBeenMoved: movedPerTableServiceIds.has(serviceListingId),
+        });
+        
+        if (group.serviceListing && group.taggedTableCount > 0) {
+          // Check if this per-table service has already been moved to expenses
+          if (!movedPerTableServiceIds.has(serviceListingId)) {
+            console.log(`Adding per-table service to items: ${group.serviceListing.name}`);
+            items.push({
+              placementId: `per-table-${serviceListingId}`, // Special identifier for per-table services
+              serviceListingId: serviceListingId,
+              serviceListing: group.serviceListing,
+              unitPrice: group.unitPrice,
+              quantity: group.taggedTableCount, // Number of tables tagged
+              placements: group.tablePlacements,
+              isPerTableService: true, // Flag to identify per-table services
+            });
+          } else {
+            console.log(`Per-table service ${serviceListingId} already moved, skipping`);
+          }
+        } else {
+          console.log(`Skipping per-table service ${serviceListingId}:`, {
+            hasServiceListing: !!group.serviceListing,
+            taggedTableCount: group.taggedTableCount,
+          });
+        }
+      });
+
+      console.log('Final design items:', items.length, items);
+
+      // Also check projectServices for non-3D services that might not have placements
+      // BUT exclude per-table services (they should be handled via table tagging above)
+      if (data.projectServices && Array.isArray(data.projectServices)) {
+        console.log('Checking projectServices for non-3D services:', data.projectServices.length);
+        
+        data.projectServices
+          .filter(ps => !ps.isBooked && ps.serviceListing) // Only non-booked services with listing
+          .forEach(ps => {
+            // Skip per-table services - they should be handled via table tagging
+            if (ps.serviceListing.pricingPolicy === 'per_table') {
+              console.log(`Skipping per-table service from projectServices: ${ps.serviceListing.name} (should be handled via table tagging)`);
+              return;
+            }
+            
+            // Check if this project service has already been moved to expenses
+            const hasBeenMoved = movedPerTableServiceIds.has(ps.serviceListingId) || 
+              (budget && budget.categories && budget.categories.some(category =>
+                category.expenses && category.expenses.some(expense =>
+                  expense.from3DDesign &&
+                  expense.serviceListingId === ps.serviceListingId &&
+                  !expense.placedElementId // Project services don't have placedElementId
+                )
+              ));
+
+            if (!hasBeenMoved && ps.serviceListing) {
+              // Check if it's not already in items (might have a placement)
+              const alreadyInItems = items.some(item => 
+                item.serviceListingId === ps.serviceListingId
+              );
+
+              if (!alreadyInItems) {
+                console.log(`Adding non-3D service to items: ${ps.serviceListing.name}`);
+                items.push({
+                  placementId: `project-service-${ps.serviceListingId}`, // Special identifier
+                  serviceListingId: ps.serviceListingId,
+                  serviceListing: ps.serviceListing,
+                  unitPrice: parseFloat(ps.serviceListing.price || 0),
+                  quantity: ps.quantity || 1,
+                  placements: [], // No placements for non-3D services
+                  isProjectService: true, // Flag to identify project services
+                });
+              }
+            }
+          });
+      }
+
+      console.log('Final design items after projectServices:', items.length, items);
+
+      setDesignItems(items);
+    } catch (err) {
+      console.error('Error fetching design items:', err);
+      setDesignItems([]);
+    } finally {
+      setLoadingDesignItems(false);
     }
   };
 
@@ -786,6 +1147,169 @@ const BudgetManagement = () => {
     }
   };
 
+  const handleMoveToCategory = async (item, categoryId, markAsPaid, createNew = false, newCategoryName = '') => {
+    if (!item || !budget) return;
+    if (!createNew && !categoryId) return;
+    if (createNew && !newCategoryName.trim()) return;
+
+    try {
+      const currentProjectId = searchParams.get('projectId');
+      // For bundles, unitPrice is already the total bundle price (quantity = 1)
+      // For non-bundled items, calculate: unitPrice * quantity
+      const quantity = item.quantity || item.placements?.length || 1;
+      const totalCost = item.bundleId ? item.unitPrice : (item.unitPrice * quantity);
+      
+      let finalCategoryId = categoryId;
+      
+      // If creating new category, create it first
+      if (createNew && newCategoryName.trim()) {
+        const error = validateCategoryName(newCategoryName);
+        if (error) {
+          setFormErrors(prev => ({ ...prev, categoryName: error }));
+          return;
+        }
+        
+        const newCategory = await apiFetch(`/budgets/${budget.id}/categories`, {
+          method: 'POST',
+          body: JSON.stringify({ categoryName: newCategoryName.trim() }),
+        });
+        finalCategoryId = newCategory.id;
+      }
+      
+      // Handle per-table services differently (they don't have placedElementIds)
+      if (item.isPerTableService) {
+        // For per-table services, create expense and track by serviceListingId
+        // Use move-from-3d endpoint but with a special identifier
+        await apiFetch(`/budgets/${budget.id}/move-from-3d`, {
+          method: 'POST',
+          body: JSON.stringify({
+            categoryId: finalCategoryId,
+            placedElementId: null, // Per-table services don't have placement IDs
+            placedElementIds: [], // Empty array for per-table services
+            serviceListingId: item.serviceListingId,
+            expenseName: `${item.serviceListing?.name || 'Per-table Service'}${quantity > 1 ? ` (${quantity} tables)` : ''}`,
+            estimatedCost: totalCost,
+            actualCost: markAsPaid ? totalCost : null,
+            markAsPaid: markAsPaid || false,
+          }),
+        });
+      } else if (item.isProjectService) {
+        // For project services (non-3D services), create expense without placedElementId
+        await apiFetch(`/budgets/${budget.id}/move-from-3d`, {
+          method: 'POST',
+          body: JSON.stringify({
+            categoryId: finalCategoryId,
+            placedElementId: null, // Project services don't have placement IDs
+            placedElementIds: [], // Empty array for project services
+            serviceListingId: item.serviceListingId,
+            expenseName: `${item.serviceListing?.name || 'Service'}${quantity > 1 ? ` (${quantity})` : ''}`,
+            estimatedCost: totalCost,
+            actualCost: markAsPaid ? totalCost : null,
+            markAsPaid: markAsPaid || false,
+          }),
+        });
+      } else {
+        // For regular items (with placements), use the existing flow
+        const placementIds = item.placements?.map(p => p.id) || [item.placementId];
+        
+        // Create expense for the grouped service
+        await apiFetch(`/budgets/${budget.id}/move-from-3d`, {
+          method: 'POST',
+          body: JSON.stringify({
+            categoryId: finalCategoryId,
+            placedElementId: placementIds[0], // Use first placement ID for reference (backward compatibility)
+            placedElementIds: placementIds, // Pass all placement IDs for grouped items
+            serviceListingId: item.serviceListingId,
+            expenseName: `${item.serviceListing?.name || 'Service from 3D Design'}${quantity > 1 ? ` (${quantity})` : ''}`,
+            estimatedCost: totalCost, // Total cost for all items
+            actualCost: markAsPaid ? totalCost : null,
+            markAsPaid: markAsPaid || false,
+          }),
+        });
+      }
+
+      // Refetch budget first, then design items will be refetched automatically
+      // and will filter out the moved items
+      await fetchBudget();
+      setShowMoveToCategoryDialog(null);
+      setFormErrors(prev => ({ ...prev, categoryName: '' }));
+      setToast({ 
+        open: true, 
+        message: createNew ? 'Category created and item moved successfully!' : 'Item moved to category successfully!', 
+        severity: 'success' 
+      });
+    } catch (err) {
+      console.error('Error moving item to category:', err);
+      setToast({ open: true, message: err.message || 'Failed to move item to category', severity: 'error' });
+    }
+  };
+
+  const handleFetchPaymentBreakdown = async (expenseId) => {
+    if (!expenseId || !budget) return;
+
+    try {
+      const payments = await apiFetch(`/budgets/${budget.id}/expenses/${expenseId}/payments`);
+      setShowPaymentBreakdown({ expenseId, payments });
+    } catch (err) {
+      console.error('Error fetching payment breakdown:', err);
+      setToast({ open: true, message: err.message || 'Failed to fetch payment breakdown', severity: 'error' });
+    }
+  };
+
+  const handleMoveExpense = async (expense, categoryId, createNew = false, newCategoryName = '') => {
+    if (!expense || !budget || !selectedCategory) return;
+    if (!createNew && !categoryId) return;
+    if (createNew && !newCategoryName.trim()) return;
+
+    try {
+      const currentProjectId = searchParams.get('projectId');
+      
+      let finalCategoryId = categoryId;
+      
+      // If creating new category, create it first
+      if (createNew && newCategoryName.trim()) {
+        const error = validateCategoryName(newCategoryName);
+        if (error) {
+          setFormErrors(prev => ({ ...prev, categoryName: error }));
+          return;
+        }
+        
+        const newCategory = await apiFetch(`/budgets/${budget.id}/categories`, {
+          method: 'POST',
+          body: JSON.stringify({ categoryName: newCategoryName.trim() }),
+        });
+        finalCategoryId = newCategory.id;
+      }
+      
+      // Update expense to move to new category
+      await apiFetch(`/budgets/${budget.id}/categories/${selectedCategory.id}/expenses/${expense.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          categoryId: finalCategoryId,
+        }),
+      });
+
+      // Refetch budget to get updated data
+      await fetchBudget();
+      const updatedBudget = await apiFetch(`/budgets/project/${currentProjectId}`);
+      const updatedCategory = updatedBudget.categories.find(cat => cat.id === selectedCategory.id);
+      if (updatedCategory) {
+        setSelectedCategory(updatedCategory);
+      }
+      
+      setShowMoveExpenseDialog(null);
+      setFormErrors(prev => ({ ...prev, categoryName: '' }));
+      setToast({ 
+        open: true, 
+        message: createNew ? 'Category created and expense moved successfully!' : 'Expense moved to category successfully!', 
+        severity: 'success' 
+      });
+    } catch (err) {
+      console.error('Error moving expense:', err);
+      setToast({ open: true, message: err.message || 'Failed to move expense', severity: 'error' });
+    }
+  };
+
   // Filter and sort categories
   const filteredAndSortedCategories = useMemo(() => {
     if (!budget?.categories) return [];
@@ -850,6 +1374,7 @@ const BudgetManagement = () => {
   // Calculate totals
   const totalBudget = budget ? parseFloat(budget.totalBudget || 0) : 0;
   const totalSpent = budget ? parseFloat(budget.totalSpent || 0) : 0;
+  const plannedSpend = budget ? parseFloat(budget.plannedSpend || 0) : 0;
   const totalRemaining = budget ? parseFloat(budget.totalRemaining || 0) : 0;
 
   // Calculate statistics
@@ -1165,7 +1690,7 @@ const BudgetManagement = () => {
                           }}
                           sx={{
                             color: '#999',
-                            '&:hover': { color: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)' },
+                                    '&:hover': { color: '#e16789', backgroundColor: 'rgba(225, 103, 137, 0.1)' },
                           }}
                         >
                           <EditIcon fontSize="small" />
@@ -1421,11 +1946,19 @@ const BudgetManagement = () => {
 
                     {/* Budget Utilization Circular Progress */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
-                      <CircularProgressChart value={totalSpent} maxValue={totalBudget} size={120} />
+                      <CircularProgressChart value={totalSpent + plannedSpend} maxValue={totalBudget} size={120} />
                       <Box sx={{ flex: 1, minWidth: 200 }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
                           <Typography sx={{ fontFamily: "'Literata', serif", fontSize: '0.875rem', color: '#666' }}>
-                            Total Spent
+                            Planned (3D Design)
+                          </Typography>
+                          <Typography sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600, color: '#e16789' }}>
+                            RM {plannedSpend.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
+                          <Typography sx={{ fontFamily: "'Literata', serif", fontSize: '0.875rem', color: '#666' }}>
+                            Actual Spent
                           </Typography>
                           <Typography sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600, color: '#e16789' }}>
                             RM {totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1695,6 +2228,185 @@ const BudgetManagement = () => {
                   </Box>
                 </Card>
               )}
+
+              {/* 3D Venue Design Section */}
+              {designItems.length > 0 && (
+                <Card
+                  sx={{
+                    borderRadius: 0.5,
+                    padding: 4,
+                    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+                    background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 1) 100%)',
+                    border: '1px solid rgba(225, 103, 137, 0.1)',
+                    mt: 3,
+                    gridColumn: { xs: '1', lg: '1 / -1' },
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                    <Box
+                      sx={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 0.5,
+                        background: 'transparent',
+                        border: '2px solid #e16789',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#e16789',
+                      }}
+                    >
+                      <i className="fas fa-cube" style={{ fontSize: '1.5rem' }}></i>
+                    </Box>
+                    <Box>
+                      <Typography
+                        variant="h5"
+                        sx={{
+                          fontFamily: "'Playfair Display', serif",
+                          fontWeight: 700,
+                          color: '#0f060d',
+                        }}
+                      >
+                        3D Venue Design (Planned)
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontFamily: "'Literata', serif",
+                          fontSize: '0.875rem',
+                          color: '#666',
+                        }}
+                      >
+                        Services added to your 3D venue design
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {loadingDesignItems ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                      <CircularProgress sx={{ color: '#e16789' }} />
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {designItems.map((item, index) => (
+                        <Card
+                          key={item.placementId || index}
+                          sx={{
+                            p: 2,
+                            border: '1px solid rgba(225, 103, 137, 0.2)',
+                            borderRadius: 0.5,
+                            backgroundColor: 'rgba(225, 103, 137, 0.05)',
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Box sx={{ flex: 1 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                                <Chip
+                                  label="3D Design"
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: '#e16789',
+                                    color: 'white',
+                                    fontFamily: "'Literata', serif",
+                                    fontSize: '0.75rem',
+                                    height: 20,
+                                  }}
+                                />
+                                <Typography
+                                  sx={{
+                                    fontFamily: "'Playfair Display', serif",
+                                    fontWeight: 600,
+                                    fontSize: '1rem',
+                                  }}
+                                >
+                                  {item.serviceListing?.name || 'Unknown Service'}
+                                </Typography>
+                              </Box>
+                              <Typography
+                                sx={{
+                                  fontFamily: "'Literata', serif",
+                                  fontSize: '0.875rem',
+                                  color: '#666',
+                                  ml: 4.5,
+                                }}
+                              >
+                                Quantity: {item.quantity || item.placements?.length || 1}
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                <Typography
+                                  sx={{
+                                    fontFamily: "'Playfair Display', serif",
+                                    fontWeight: 600,
+                                    fontSize: '1.125rem',
+                                    color: '#e16789',
+                                  }}
+                                >
+                                  {item.bundleId ? (
+                                    // Bundle: price is already the total bundle price
+                                    `RM ${item.unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                  ) : (
+                                    // Non-bundled: quantity × unit price
+                                    `RM ${(item.unitPrice * (item.quantity || 1)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                  )}
+                                </Typography>
+                                {!item.bundleId && (item.quantity || 1) > 1 && (
+                                  <Typography
+                                    sx={{
+                                      fontFamily: "'Literata', serif",
+                                      fontSize: '0.75rem',
+                                      color: '#999',
+                                      mt: 0.5,
+                                    }}
+                                  >
+                                    {item.quantity} × RM {item.unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </Typography>
+                                )}
+                                {item.bundleId && (
+                                  <Typography
+                                    sx={{
+                                      fontFamily: "'Literata', serif",
+                                      fontSize: '0.75rem',
+                                      color: '#999',
+                                      mt: 0.5,
+                                      fontStyle: 'italic',
+                                    }}
+                                  >
+                                    Bundle (includes {item.placements?.length || 0} elements)
+                                  </Typography>
+                                )}
+                              </Box>
+                              <Button
+                                variant="outlined"
+                                size="small"
+                                onClick={() => setShowMoveToCategoryDialog({ 
+                                  ...item, 
+                                  categoryId: '', 
+                                  createNew: false, 
+                                  newCategoryName: '',
+                                  markAsPaid: false 
+                                })}
+                                sx={{
+                                  border: '2px solid #e16789',
+                                  color: '#e16789',
+                                  textTransform: 'none',
+                                  fontFamily: "'Literata', serif",
+                                  '&:hover': {
+                                    background: '#e16789',
+                                    color: 'white',
+                                  },
+                                }}
+                              >
+                                Move to Category
+                              </Button>
+                            </Box>
+                          </Box>
+                        </Card>
+                      ))}
+                    </Box>
+                  )}
+                </Card>
+              )}
             </Box>
           </Container>
         ) : (
@@ -1859,14 +2571,52 @@ const BudgetManagement = () => {
                             key={expense.id}
                             className="expense-table-row"
                           >
-                            <TableCell sx={{ fontFamily: "'Literata', serif" }}>{expense.expenseName}</TableCell>
+                            <TableCell sx={{ fontFamily: "'Literata', serif" }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {expense.expenseName}
+                                {expense.from3DDesign && (
+                                  <Chip
+                                    label="3D Design"
+                                    size="small"
+                                    sx={{
+                                      backgroundColor: '#3b82f6',
+                                      color: 'white',
+                                      fontFamily: "'Literata', serif",
+                                      fontSize: '0.7rem',
+                                      height: 20,
+                                    }}
+                                  />
+                                )}
+                              </Box>
+                            </TableCell>
                             <TableCell sx={{ fontFamily: "'Literata', serif", textAlign: 'center' }}>
                               RM {parseFloat(expense.estimatedCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </TableCell>
                             <TableCell sx={{ fontFamily: "'Literata', serif", textAlign: 'center' }}>
-                              {expense.actualCost
-                                ? `RM ${parseFloat(expense.actualCost).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                : '-'}
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                                {expense.actualCost
+                                  ? `RM ${parseFloat(expense.actualCost).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                  : '-'}
+                                {expense.bookingId && (
+                                  <Button
+                                    size="small"
+                                    onClick={() => handleFetchPaymentBreakdown(expense.id)}
+                                    sx={{
+                                      textTransform: 'none',
+                                      fontFamily: "'Literata', serif",
+                                      fontSize: '0.75rem',
+                                      color: '#e16789',
+                                      minWidth: 'auto',
+                                      p: 0.5,
+                                      '&:hover': {
+                                        backgroundColor: 'rgba(225, 103, 137, 0.1)',
+                                      },
+                                    }}
+                                  >
+                                    View Payments
+                                  </Button>
+                                )}
+                              </Box>
                             </TableCell>
                             <TableCell sx={{ fontFamily: "'Literata', serif", color: '#666', maxWidth: 200 }}>
                               {expense.remark || '-'}
@@ -1887,17 +2637,34 @@ const BudgetManagement = () => {
                                   }}
                                   sx={{
                                     color: '#666',
-                                    '&:hover': { color: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)' },
+                                    '&:hover': { color: '#e16789', backgroundColor: 'rgba(225, 103, 137, 0.1)' },
                                   }}
+                                  title="Edit expense"
                                 >
                                   <EditIcon fontSize="small" />
                                 </IconButton>
                                 <IconButton
                                   size="small"
-                                  onClick={() => setShowDeleteDialog({ type: 'expense', id: expense.id, name: expense.expenseName })}
+                                  onClick={() => setShowMoveExpenseDialog({ expense, categoryId: '', createNew: false, newCategoryName: '' })}
                                   sx={{
                                     color: '#666',
-                                    '&:hover': { color: '#e16789', backgroundColor: 'rgba(225, 103, 137, 0.1)' },
+                                    '&:hover': { color: '#ab47bc', backgroundColor: 'rgba(171, 71, 188, 0.1)' },
+                                  }}
+                                  title="Move to another category"
+                                >
+                                  <i className="fas fa-arrows-alt" style={{ fontSize: '0.875rem' }}></i>
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => setShowDeleteDialog({ type: 'expense', id: expense.id, name: expense.expenseName })}
+                                  disabled={expense.from3DDesign && expense.placedElementId}
+                                  title={expense.from3DDesign && expense.placedElementId ? 'Cannot delete expense linked to 3D design. Remove from 3D design first.' : 'Delete expense'}
+                                  sx={{
+                                    color: expense.from3DDesign && expense.placedElementId ? '#ccc' : '#666',
+                                    '&:hover': { 
+                                      color: expense.from3DDesign && expense.placedElementId ? '#ccc' : '#c62828', 
+                                      backgroundColor: expense.from3DDesign && expense.placedElementId ? 'transparent' : 'rgba(198, 40, 40, 0.1)' 
+                                    },
                                   }}
                                 >
                                   <DeleteIcon fontSize="small" />
@@ -2258,7 +3025,21 @@ const BudgetManagement = () => {
               <TextField
                 fullWidth
                 label="Note/Remark"
-                value={editingExpense.remark}
+                value={(() => {
+                  // Hide placement IDs from remark if they exist (they're stored in placedElementIds now)
+                  if (editingExpense.remark) {
+                    try {
+                      const remarkData = JSON.parse(editingExpense.remark);
+                      if (remarkData.placedElementIds) {
+                        // This remark contains placement IDs, don't show it
+                        return '';
+                      }
+                    } catch (e) {
+                      // Not JSON, show as normal remark
+                    }
+                  }
+                  return editingExpense.remark || '';
+                })()}
                 onChange={(e) => {
                   setEditingExpense({ ...editingExpense, remark: e.target.value });
                   setFormErrors(prev => ({ ...prev, remark: '' }));
@@ -2334,6 +3115,515 @@ const BudgetManagement = () => {
         confirmText="Delete"
         cancelText="Cancel"
       />
+
+      {/* Move to Category Dialog */}
+      <Dialog
+        open={!!showMoveToCategoryDialog}
+        onClose={() => setShowMoveToCategoryDialog(null)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 2 },
+        }}
+      >
+        <DialogTitle sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600 }}>
+          Move to Category
+        </DialogTitle>
+        <DialogContent>
+          {showMoveToCategoryDialog && (
+            <>
+              <Typography sx={{ fontFamily: "'Literata', serif", mb: 2, color: '#666' }}>
+                Move "{showMoveToCategoryDialog.serviceListing?.name || 'Service'}" to a budget category.
+              </Typography>
+              
+              {/* Toggle between existing and new category */}
+              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                <Button
+                  variant={!showMoveToCategoryDialog.createNew ? 'contained' : 'outlined'}
+                  onClick={() => setShowMoveToCategoryDialog({ ...showMoveToCategoryDialog, createNew: false, newCategoryName: '', categoryId: '' })}
+                  sx={{
+                    flex: 1,
+                    fontFamily: "'Literata', serif",
+                    textTransform: 'none',
+                    backgroundColor: !showMoveToCategoryDialog.createNew ? '#e16789' : 'transparent',
+                    color: !showMoveToCategoryDialog.createNew ? 'white' : '#e16789',
+                    border: '1px solid #e16789',
+                    '&:hover': {
+                      backgroundColor: !showMoveToCategoryDialog.createNew ? '#c55a7a' : 'rgba(225, 103, 137, 0.1)',
+                    },
+                  }}
+                >
+                  Select Existing
+                </Button>
+                <Button
+                  variant={showMoveToCategoryDialog.createNew ? 'contained' : 'outlined'}
+                  onClick={() => setShowMoveToCategoryDialog({ ...showMoveToCategoryDialog, createNew: true, categoryId: '', newCategoryName: '' })}
+                  sx={{
+                    flex: 1,
+                    fontFamily: "'Literata', serif",
+                    textTransform: 'none',
+                    backgroundColor: showMoveToCategoryDialog.createNew ? '#e16789' : 'transparent',
+                    color: showMoveToCategoryDialog.createNew ? 'white' : '#e16789',
+                    border: '1px solid #e16789',
+                    '&:hover': {
+                      backgroundColor: showMoveToCategoryDialog.createNew ? '#c55a7a' : 'rgba(225, 103, 137, 0.1)',
+                    },
+                  }}
+                >
+                  Create New
+                </Button>
+              </Box>
+
+              {showMoveToCategoryDialog.createNew ? (
+                <TextField
+                  fullWidth
+                  label="New Category Name"
+                  value={showMoveToCategoryDialog.newCategoryName || ''}
+                  onChange={(e) => {
+                    setShowMoveToCategoryDialog({ ...showMoveToCategoryDialog, newCategoryName: e.target.value });
+                    setFormErrors(prev => ({ ...prev, categoryName: '' }));
+                  }}
+                  margin="normal"
+                  error={!!formErrors.categoryName}
+                  helperText={formErrors.categoryName}
+                  placeholder="e.g., Venue, Catering, Photography"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      fontFamily: "'Literata', serif",
+                      borderRadius: 0.5,
+                    },
+                  }}
+                />
+              ) : (
+                <>
+                  {budget?.categories && budget.categories.length > 0 ? (
+                    <FormControl fullWidth margin="normal">
+                      <InputLabel 
+                        id="select-category-label"
+                        sx={{
+                          fontFamily: "'Literata', serif",
+                        }}
+                      >
+                        Select Category
+                      </InputLabel>
+                      <Select
+                        labelId="select-category-label"
+                        value={showMoveToCategoryDialog.categoryId || ''}
+                        onChange={(e) => setShowMoveToCategoryDialog({ ...showMoveToCategoryDialog, categoryId: e.target.value })}
+                        label="Select Category"
+                        sx={{
+                          fontFamily: "'Literata', serif",
+                          borderRadius: 0.5,
+                          '& .MuiOutlinedInput-notchedOutline': {
+                            borderColor: showMoveToCategoryDialog.categoryId ? 'rgba(0, 0, 0, 0.23)' : 'rgba(0, 0, 0, 0.23)',
+                          },
+                          '&:hover .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#e16789',
+                          },
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#e16789',
+                          },
+                        }}
+                        MenuProps={{
+                          PaperProps: {
+                            sx: {
+                              borderRadius: 0.5,
+                              fontFamily: "'Literata', serif",
+                            },
+                          },
+                        }}
+                      >
+                        {budget.categories.map((cat) => (
+                          <MenuItem key={cat.id} value={cat.id}>
+                            {cat.categoryName}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  ) : (
+                    <Box
+                      sx={{
+                        mt: 2,
+                        p: 2,
+                        borderRadius: 0.5,
+                        backgroundColor: 'rgba(225, 103, 137, 0.05)',
+                        border: '1px solid rgba(225, 103, 137, 0.2)',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontFamily: "'Literata', serif",
+                          fontSize: '0.875rem',
+                          color: '#666',
+                          fontStyle: 'italic',
+                        }}
+                      >
+                        No categories available. Please create a new category to continue.
+                      </Typography>
+                    </Box>
+                  )}
+                </>
+              )}
+              
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={showMoveToCategoryDialog.markAsPaid || false}
+                    onChange={(e) => setShowMoveToCategoryDialog({ ...showMoveToCategoryDialog, markAsPaid: e.target.checked })}
+                    sx={{ color: '#e16789', '&.Mui-checked': { color: '#e16789' } }}
+                  />
+                }
+                label="Mark as paid (set actual cost)"
+                sx={{
+                  mt: 2,
+                  '& .MuiFormControlLabel-label': {
+                    fontFamily: "'Literata', serif",
+                    fontSize: '0.875rem',
+                    color: '#666',
+                  },
+                }}
+              />
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setShowMoveToCategoryDialog(null)}
+            sx={{
+              fontFamily: "'Literata', serif",
+              color: '#666',
+              textTransform: 'none',
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              if (showMoveToCategoryDialog?.createNew) {
+                if (showMoveToCategoryDialog?.newCategoryName?.trim()) {
+                  handleMoveToCategory(
+                    showMoveToCategoryDialog,
+                    null,
+                    showMoveToCategoryDialog.markAsPaid,
+                    true,
+                    showMoveToCategoryDialog.newCategoryName
+                  );
+                }
+              } else {
+                if (showMoveToCategoryDialog?.categoryId) {
+                  handleMoveToCategory(
+                    showMoveToCategoryDialog,
+                    showMoveToCategoryDialog.categoryId,
+                    showMoveToCategoryDialog.markAsPaid,
+                    false
+                  );
+                }
+              }
+            }}
+            disabled={
+              showMoveToCategoryDialog?.createNew
+                ? !showMoveToCategoryDialog?.newCategoryName?.trim()
+                : !showMoveToCategoryDialog?.categoryId || showMoveToCategoryDialog?.categoryId === ''
+            }
+            variant="contained"
+            sx={{
+              fontFamily: "'Literata', serif",
+              backgroundColor: '#e16789',
+              textTransform: 'none',
+              '&:hover': { backgroundColor: '#c55a7a' },
+            }}
+          >
+            {showMoveToCategoryDialog?.createNew ? 'Create & Move' : 'Move'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Payment Breakdown Dialog */}
+      <Dialog
+        open={!!showPaymentBreakdown}
+        onClose={() => setShowPaymentBreakdown(null)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 2 },
+        }}
+      >
+        <DialogTitle sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600 }}>
+          Payment History
+        </DialogTitle>
+        <DialogContent>
+          {showPaymentBreakdown?.payments && (
+            <>
+              {showPaymentBreakdown.payments.payments && showPaymentBreakdown.payments.payments.length > 0 ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+                  {showPaymentBreakdown.payments.payments.map((payment, index) => (
+                    <Box
+                      key={payment.id || index}
+                      sx={{
+                        p: 2,
+                        border: '1px solid rgba(225, 103, 137, 0.2)',
+                        borderRadius: 0.5,
+                        backgroundColor: 'rgba(225, 103, 137, 0.05)',
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Box>
+                          <Typography sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600, fontSize: '0.875rem' }}>
+                            {payment.type === 'deposit' ? 'Deposit' : payment.type === 'final_payment' ? 'Final Payment' : 'Payment'}
+                          </Typography>
+                          <Typography sx={{ fontFamily: "'Literata', serif", fontSize: '0.75rem', color: '#666', mt: 0.5 }}>
+                            {new Date(payment.createdAt).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'long', 
+                              day: 'numeric' 
+                            })}
+                          </Typography>
+                        </Box>
+                        <Typography sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600, color: '#e16789' }}>
+                          RM {parseFloat(payment.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ))}
+                  <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(225, 103, 137, 0.2)' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600 }}>
+                        Total Paid
+                      </Typography>
+                      <Typography sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600, color: '#e16789', fontSize: '1.125rem' }}>
+                        RM {showPaymentBreakdown.payments.totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              ) : (
+                <Typography sx={{ fontFamily: "'Literata', serif", color: '#666', textAlign: 'center', py: 4 }}>
+                  No payment records found
+                </Typography>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setShowPaymentBreakdown(null)}
+            variant="contained"
+            sx={{
+              fontFamily: "'Literata', serif",
+              backgroundColor: '#e16789',
+              textTransform: 'none',
+              '&:hover': { backgroundColor: '#c55a7a' },
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Move Expense Dialog */}
+      <Dialog
+        open={!!showMoveExpenseDialog}
+        onClose={() => setShowMoveExpenseDialog(null)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 2 },
+        }}
+      >
+        <DialogTitle sx={{ fontFamily: "'Playfair Display', serif", fontWeight: 600 }}>
+          Move Expense to Category
+        </DialogTitle>
+        <DialogContent>
+          {showMoveExpenseDialog && (
+            <>
+              <Typography sx={{ fontFamily: "'Literata', serif", mb: 2, color: '#666' }}>
+                Move "{showMoveExpenseDialog.expense?.expenseName || 'Expense'}" to a different budget category.
+              </Typography>
+              
+              {/* Toggle between existing and new category */}
+              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                <Button
+                  variant={!showMoveExpenseDialog.createNew ? 'contained' : 'outlined'}
+                  onClick={() => setShowMoveExpenseDialog({ ...showMoveExpenseDialog, createNew: false, newCategoryName: '', categoryId: '' })}
+                  sx={{
+                    flex: 1,
+                    fontFamily: "'Literata', serif",
+                    textTransform: 'none',
+                    backgroundColor: !showMoveExpenseDialog.createNew ? '#e16789' : 'transparent',
+                    color: !showMoveExpenseDialog.createNew ? 'white' : '#e16789',
+                    border: '1px solid #e16789',
+                    '&:hover': {
+                      backgroundColor: !showMoveExpenseDialog.createNew ? '#c55a7a' : 'rgba(225, 103, 137, 0.1)',
+                    },
+                  }}
+                >
+                  Select Existing
+                </Button>
+                <Button
+                  variant={showMoveExpenseDialog.createNew ? 'contained' : 'outlined'}
+                  onClick={() => setShowMoveExpenseDialog({ ...showMoveExpenseDialog, createNew: true, categoryId: '', newCategoryName: '' })}
+                  sx={{
+                    flex: 1,
+                    fontFamily: "'Literata', serif",
+                    textTransform: 'none',
+                    backgroundColor: showMoveExpenseDialog.createNew ? '#e16789' : 'transparent',
+                    color: showMoveExpenseDialog.createNew ? 'white' : '#e16789',
+                    border: '1px solid #e16789',
+                    '&:hover': {
+                      backgroundColor: showMoveExpenseDialog.createNew ? '#c55a7a' : 'rgba(225, 103, 137, 0.1)',
+                    },
+                  }}
+                >
+                  Create New
+                </Button>
+              </Box>
+
+              {showMoveExpenseDialog.createNew ? (
+                <TextField
+                  fullWidth
+                  label="New Category Name"
+                  value={showMoveExpenseDialog.newCategoryName || ''}
+                  onChange={(e) => {
+                    setShowMoveExpenseDialog({ ...showMoveExpenseDialog, newCategoryName: e.target.value });
+                    setFormErrors(prev => ({ ...prev, categoryName: '' }));
+                  }}
+                  margin="normal"
+                  error={!!formErrors.categoryName}
+                  helperText={formErrors.categoryName}
+                  placeholder="e.g., Venue, Catering, Photography"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      fontFamily: "'Literata', serif",
+                      borderRadius: 0.5,
+                    },
+                  }}
+                />
+              ) : (
+                <>
+                  {budget?.categories && budget.categories.length > 0 ? (
+                    <FormControl fullWidth margin="normal">
+                      <InputLabel 
+                        id="select-expense-category-label"
+                        sx={{
+                          fontFamily: "'Literata', serif",
+                        }}
+                      >
+                        Select Category
+                      </InputLabel>
+                      <Select
+                        labelId="select-expense-category-label"
+                        value={showMoveExpenseDialog.categoryId || ''}
+                        onChange={(e) => setShowMoveExpenseDialog({ ...showMoveExpenseDialog, categoryId: e.target.value })}
+                        label="Select Category"
+                        sx={{
+                          fontFamily: "'Literata', serif",
+                          borderRadius: 0.5,
+                          '& .MuiOutlinedInput-notchedOutline': {
+                            borderColor: showMoveExpenseDialog.categoryId ? 'rgba(0, 0, 0, 0.23)' : 'rgba(0, 0, 0, 0.23)',
+                          },
+                          '&:hover .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#e16789',
+                          },
+                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                            borderColor: '#e16789',
+                          },
+                        }}
+                        MenuProps={{
+                          PaperProps: {
+                            sx: {
+                              borderRadius: 0.5,
+                              fontFamily: "'Literata', serif",
+                            },
+                          },
+                        }}
+                      >
+                        {budget.categories
+                          .filter(cat => cat.id !== selectedCategory?.id) // Exclude current category
+                          .map((cat) => (
+                            <MenuItem key={cat.id} value={cat.id}>
+                              {cat.categoryName}
+                            </MenuItem>
+                          ))}
+                      </Select>
+                    </FormControl>
+                  ) : (
+                    <Box
+                      sx={{
+                        mt: 2,
+                        p: 2,
+                        borderRadius: 0.5,
+                        backgroundColor: 'rgba(225, 103, 137, 0.05)',
+                        border: '1px solid rgba(225, 103, 137, 0.2)',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontFamily: "'Literata', serif",
+                          fontSize: '0.875rem',
+                          color: '#666',
+                          fontStyle: 'italic',
+                        }}
+                      >
+                        No other categories available. Please create a new category to continue.
+                      </Typography>
+                    </Box>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setShowMoveExpenseDialog(null)}
+            sx={{
+              fontFamily: "'Literata', serif",
+              color: '#666',
+              textTransform: 'none',
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              if (showMoveExpenseDialog?.createNew) {
+                if (showMoveExpenseDialog?.newCategoryName?.trim()) {
+                  handleMoveExpense(
+                    showMoveExpenseDialog.expense,
+                    null,
+                    true,
+                    showMoveExpenseDialog.newCategoryName
+                  );
+                }
+              } else {
+                if (showMoveExpenseDialog?.categoryId && showMoveExpenseDialog?.categoryId !== '') {
+                  handleMoveExpense(
+                    showMoveExpenseDialog.expense,
+                    showMoveExpenseDialog.categoryId,
+                    false
+                  );
+                }
+              }
+            }}
+            disabled={
+              showMoveExpenseDialog?.createNew
+                ? !showMoveExpenseDialog?.newCategoryName?.trim()
+                : !showMoveExpenseDialog?.categoryId || showMoveExpenseDialog?.categoryId === ''
+            }
+            variant="contained"
+            sx={{
+              fontFamily: "'Literata', serif",
+              backgroundColor: '#e16789',
+              textTransform: 'none',
+              '&:hover': { backgroundColor: '#c55a7a' },
+            }}
+          >
+            {showMoveExpenseDialog?.createNew ? 'Create & Move' : 'Move'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Success Message */}
       <SuccessMessage

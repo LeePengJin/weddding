@@ -32,13 +32,13 @@ async function getTableCount(venueDesignId, serviceListingId = null) {
   // We need to check multiple conditions to identify tables (matching frontend logic)
   const placedElements = await prisma.placedElement.findMany({
     where: {
-      venueDesignId,
+    venueDesignId,
     },
     select: {
       id: true,
       elementType: true,
       serviceListingIds: true,
-      designElement: {
+    designElement: {
         select: {
           elementType: true,
           name: true,

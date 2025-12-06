@@ -7,6 +7,7 @@ import CheckoutModal from './CheckoutModal.jsx';
 import ContractReviewModal from './ContractReviewModal.jsx';
 import {
   getVenueDesign,
+  getVenueDesignBudget,
   addDesignElement,
   updateDesignElement,
   deleteDesignElement,
@@ -69,7 +70,8 @@ const VenueDesigner = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
-  const [totalBudget, setTotalBudget] = useState(15000);
+  const [totalBudget, setTotalBudget] = useState(0); // Will be set from backend budget
+  const [budget, setBudget] = useState(null); // Store full budget object
   const [placements, setPlacements] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedItemInfo, setSelectedItemInfo] = useState(null);
@@ -98,26 +100,16 @@ const VenueDesigner = () => {
     captureScreenshotRef.current = fn;
   }, []);
 
-  const plannedSpend = useMemo(() => {
-    const bundleTotals = new Map();
-    // Only count non-booked placements
-    placements.filter((placement) => !placement.isBooked).forEach((placement) => {
-      const bundleId = placement?.metadata?.bundleId;
-      const unitPrice = placement?.metadata?.unitPrice;
-      if (bundleId && unitPrice && !bundleTotals.has(bundleId)) {
-        bundleTotals.set(bundleId, parseFloat(unitPrice));
-      }
-    });
-    const placementsTotal = Array.from(bundleTotals.values()).reduce((sum, price) => sum + price, 0);
-    
-    // Always include venue fee in budget tracker (even if booked)
-    const venueFee = venueInfo?.price ? parseFloat(venueInfo.price) : 0;
-    
-    return placementsTotal + venueFee;
-  }, [placements, venueInfo]);
-
-  const remainingBudget = totalBudget - plannedSpend; // Allow negative values
-  const budgetProgress = totalBudget > 0 ? (plannedSpend / totalBudget) * 100 : 0;
+  // Calculate remaining: totalBudget - plannedSpend - totalSpent
+  const totalSpent = budget?.totalSpent ? parseFloat(budget.totalSpent) : 0;
+  // Always use backend plannedSpend - it's calculated using the same logic as checkout summary
+  // The backend updatePlannedSpend function matches the checkout summary calculation
+  const effectivePlannedSpend = budget?.plannedSpend !== undefined && budget?.plannedSpend !== null
+    ? parseFloat(budget.plannedSpend)
+    : 0;
+  const remainingBudget = totalBudget - effectivePlannedSpend - totalSpent; // Allow negative values
+  const totalCommitted = effectivePlannedSpend + totalSpent;
+  const budgetProgress = totalBudget > 0 ? (totalCommitted / totalBudget) * 100 : 0;
 
   const loadDesign = useCallback(async () => {
     if (!resourceId) {
@@ -147,9 +139,16 @@ const VenueDesigner = () => {
 
       if (designerMode === 'project') {
         setVenueInfo(data.venue || null);
-        const backendBudget = data.project?.budget?.totalBudget;
+        const backendBudget = data.project?.budget;
         if (backendBudget) {
-          setTotalBudget(Number(backendBudget));
+          setBudget(backendBudget);
+          // Convert string to number (backend returns Decimal as string)
+          const budgetTotal = parseFloat(backendBudget.totalBudget || '0');
+          setTotalBudget(isNaN(budgetTotal) ? 0 : budgetTotal);
+        } else {
+          // If no budget, set to 0 (will show message in BudgetTracker)
+          setBudget(null);
+          setTotalBudget(0);
         }
         if (data.project?.weddingDate) {
           setWeddingDate(data.project.weddingDate);
@@ -187,6 +186,38 @@ const VenueDesigner = () => {
       console.error('[VenueDesigner] Failed to refresh booked quantities', error);
     }
   }, [projectId, designerMode]);
+
+  // Lightweight budget refresh - only updates budget data without full page reload
+  const refreshBudget = useCallback(async () => {
+    if (!projectId || designerMode !== 'project') return;
+    try {
+      const data = await getVenueDesignBudget(projectId);
+      if (data.budget) {
+        setBudget(data.budget);
+        const budgetTotal = parseFloat(data.budget.totalBudget || '0');
+        setTotalBudget(isNaN(budgetTotal) ? 0 : budgetTotal);
+      }
+    } catch (error) {
+      console.error('[VenueDesigner] Failed to refresh budget', error);
+      // Fallback to full reload if budget endpoint fails
+      if (designerMode === 'project') {
+        const fullData = await getVenueDesign(projectId);
+        if (fullData.project?.budget) {
+          setBudget(fullData.project.budget);
+          const budgetTotal = parseFloat(fullData.project.budget.totalBudget || '0');
+          setTotalBudget(isNaN(budgetTotal) ? 0 : budgetTotal);
+        }
+      }
+    }
+  }, [projectId, designerMode]);
+
+  // Handle tag updates - refresh budget immediately, then reload design
+  const handleTagUpdateReload = useCallback(async () => {
+    // When tags are updated, refresh budget immediately (lightweight)
+    await refreshBudget();
+    // Then reload full design to get updated placements with new tags
+    await loadDesign();
+  }, [refreshBudget, loadDesign]);
 
   const loadCatalog = useCallback(async () => {
     if (!resourceId) return;
@@ -283,20 +314,22 @@ const VenueDesigner = () => {
             ? await addPackageDesignElement(packageId, payload)
             : await addDesignElement(projectId, payload);
         
-        // If non-3D service was added (projectService: true), reload the design to get updated projectServices
+        // If non-3D service was added (projectService: true), refresh budget and project services
         if (response.projectService) {
+          // Add small delay to ensure backend has finished updating plannedSpend
+          await new Promise(resolve => setTimeout(resolve, 100));
+          // Refresh budget immediately (lightweight update)
+          await refreshBudget();
+          // Still need to reload design to get updated projectServices list
           await loadDesign();
           
           // Show helpful toast notification for per_table services
           if (response.isPerTable) {
-            // Use a timeout to ensure the toast appears after the design reloads
-            setTimeout(() => {
-              setToastNotification({
-                open: true,
-                message: 'Service added! This service uses per-table pricing. Please tag tables in the 3D design by clicking on a table and selecting "Tag Services" to set the quantity.',
-                severity: 'info',
-              });
-            }, 500);
+            setToastNotification({
+              open: true,
+              message: 'Service added! This service uses per-table pricing. Please tag tables in the 3D design by clicking on a table and selecting "Tag Services" to set the quantity.',
+              severity: 'info',
+            });
           } else {
             setToastNotification({
               open: true,
@@ -306,6 +339,10 @@ const VenueDesigner = () => {
           }
         } else {
           setPlacements((prev) => [...prev, ...(response.placements || [])]);
+          // Refresh budget immediately (lightweight update, no full page reload)
+          // Add small delay to ensure backend has finished updating plannedSpend
+          await new Promise(resolve => setTimeout(resolve, 100));
+          await refreshBudget();
           setToastNotification({
             open: true,
             message: 'Service added to design successfully!',
@@ -329,6 +366,12 @@ const VenueDesigner = () => {
             : await deleteDesignElement(projectId, placementId, scope);
         const removedIds = response.removedPlacementIds || [];
         setPlacements((prev) => prev.filter((placement) => !removedIds.includes(placement.id)));
+        // Refresh budget immediately (lightweight update, no full page reload)
+        if (designerMode === 'project') {
+          // Add small delay to ensure backend has finished updating plannedSpend
+          await new Promise(resolve => setTimeout(resolve, 100));
+          await refreshBudget();
+        }
         setToastNotification({ open: false, message: '', severity: 'info' });
       } catch (err) {
         // Use toast notification instead of error message
@@ -348,7 +391,7 @@ const VenueDesigner = () => {
         }
       }
     },
-    [resourceId, designerMode, packageId, projectId]
+    [resourceId, designerMode, packageId, projectId, refreshBudget]
   );
 
   const handleRemoveProjectService = useCallback(
@@ -356,7 +399,11 @@ const VenueDesigner = () => {
       if (!projectId) return;
       try {
         await deleteProjectService(projectId, serviceListingId);
-        // Reload design to get updated projectServices
+        // Add small delay to ensure backend has finished updating plannedSpend
+        await new Promise(resolve => setTimeout(resolve, 100));
+        // Refresh budget immediately (lightweight update)
+        await refreshBudget();
+        // Then reload design to get updated projectServices list
         await loadDesign();
         setToastNotification({ open: false, message: '', severity: 'info' });
       } catch (err) {
@@ -377,7 +424,7 @@ const VenueDesigner = () => {
         }
       }
     },
-    [projectId, loadDesign]
+    [projectId, loadDesign, refreshBudget]
   );
 
   const handleToggleLock = useCallback(async (placement) => {
@@ -622,7 +669,7 @@ const VenueDesigner = () => {
       onDuplicateMultiple: handleDuplicateMultiple,
       onDeleteMultiple: handleDeleteMultiple,
       onLockMultiple: handleLockMultiple,
-      onReloadDesign: loadDesign,
+      onReloadDesign: handleTagUpdateReload,
       savingState,
       designLayout,
       setDesignLayout,
@@ -649,7 +696,7 @@ const VenueDesigner = () => {
       handleDuplicateMultiple,
       handleDeleteMultiple,
       handleLockMultiple,
-      loadDesign,
+      handleTagUpdateReload,
       savingState,
       designLayout,
     ]
@@ -701,11 +748,15 @@ const VenueDesigner = () => {
     };
   }, [designLayout, projectId, saveLayoutData]);
 
-  const backHref = designerMode === 'package' ? '/admin/packages' : '/project-dashboard';
+  const backHref = designerMode === 'package' 
+    ? '/admin/packages' 
+    : projectId 
+      ? `/project-dashboard?projectId=${projectId}` 
+      : '/project-dashboard';
   const backLabel = designerMode === 'package' ? 'Back to packages' : 'Back to dashboard';
   const handleBackNavigation = useCallback(() => {
     navigate(backHref);
-  }, [navigate, backHref]);
+  }, [navigate, backHref, projectId]);
 
   if (designerMode === 'project' && !projectId) {
     return (
@@ -789,12 +840,19 @@ const VenueDesigner = () => {
               onProceedCheckout={designerMode === 'project' ? () => setShowCheckout(true) : undefined}
               onRegisterCapture={handleRegisterCapture}
               budgetData={
-                designerMode === 'project'
+                designerMode === 'project' && totalBudget > 0
                   ? {
                       total: totalBudget,
-                      planned: plannedSpend,
+                      planned: effectivePlannedSpend,
+                      actual: totalSpent,
                       remaining: remainingBudget,
                       progress: budgetProgress,
+                    }
+                  : designerMode === 'project' && totalBudget === 0
+                  ? {
+                      showMessage: true,
+                      message: 'No budget set. Please set your total budget in Budget Management to track your spending.',
+                      projectId: projectId,
                     }
                   : null
               }

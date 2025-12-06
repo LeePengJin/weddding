@@ -22,7 +22,8 @@ const CreateProject = () => {
     venue: null, // Full venue object
     weddingType: '', // 'self_organized' or 'prepackaged'
     basePackageId: null, // For prepackaged
-    projectName: ''
+    projectName: '',
+    totalBudget: '' // Optional budget amount
   });
 
   const updateFormData = (field, value) => {
@@ -131,7 +132,8 @@ const CreateProject = () => {
         eventEndTime: endDateTime.toISOString(),
         weddingType: formData.weddingType,
         venueServiceListingId: formData.venueServiceListingId,
-        basePackageId: formData.basePackageId || null
+        basePackageId: formData.basePackageId || null,
+        totalBudget: formData.totalBudget ? parseFloat(formData.totalBudget) : null
       };
 
       // Create project via API

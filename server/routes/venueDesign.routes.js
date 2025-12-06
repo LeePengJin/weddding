@@ -259,6 +259,7 @@ async function fetchProject(projectId, coupleId) {
           },
         },
       },
+      budget: true, // Include budget so frontend can access totalBudget
     },
   });
 }
@@ -309,6 +310,680 @@ async function checkProjectCanBeModified(projectId, coupleId) {
   }
 
   return project;
+}
+
+/**
+ * Helper function to calculate and update planned spend from 3D design
+ * This calculates the total cost of all non-booked placements in the venue design
+ */
+async function updatePlannedSpend(projectId) {
+  try {
+    const project = await prisma.weddingProject.findUnique({
+      where: { id: projectId },
+      select: {
+        id: true,
+        venueServiceListingId: true,
+        weddingDate: true,
+        eventStartTime: true,
+        eventEndTime: true,
+        budget: true,
+        venueDesign: {
+          include: {
+            placedElements: {
+              // Include ALL placements regardless of booking status
+              // Planned (3D) should show total cost of all services in the design
+              select: {
+                id: true,
+                serviceListingIds: true, // For per-table services
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!project || !project.budget) {
+      return; // No budget to update
+    }
+
+    if (!project.venueDesign) {
+      // No venue design, set plannedSpend to 0
+      await prisma.budget.update({
+        where: { id: project.budget.id },
+        data: {
+          plannedSpend: 0,
+          totalRemaining: parseFloat(project.budget.totalBudget) - parseFloat(project.budget.totalSpent) - 0,
+        },
+      });
+      return;
+    }
+
+    // Calculate planned spend using the same logic as checkout summary
+    const layoutData = project.venueDesign.layoutData || {};
+    const placementsMeta = layoutData.placementsMeta || {};
+
+    // Get all service listing IDs from placements and project services
+    const serviceListingIds = new Set();
+    project.venueDesign.placedElements.forEach((placement) => {
+      const meta = placementsMeta[placement.id];
+      if (meta?.serviceListingId) {
+        serviceListingIds.add(meta.serviceListingId);
+      }
+    });
+
+    // Get project services
+    const projectServices = await prisma.projectService.findMany({
+      where: { projectId: project.id },
+      include: {
+        serviceListing: {
+          select: {
+            id: true,
+            price: true,
+            pricingPolicy: true,
+            hourlyRate: true,
+          },
+        },
+      },
+    });
+
+    projectServices.forEach((ps) => {
+      if (ps.serviceListingId) {
+        serviceListingIds.add(ps.serviceListingId);
+      }
+    });
+
+    // Include venue ALWAYS (planned (3D) should show all services regardless of booking status)
+    if (project.venueServiceListingId) {
+      serviceListingIds.add(project.venueServiceListingId);
+    }
+
+    // Get all service listings
+    const serviceListings = await prisma.serviceListing.findMany({
+      where: { id: { in: Array.from(serviceListingIds) } },
+      select: {
+        id: true,
+        price: true,
+        pricingPolicy: true,
+        hourlyRate: true,
+      },
+    });
+
+    const serviceListingMap = {};
+    serviceListings.forEach((listing) => {
+      serviceListingMap[listing.id] = listing;
+    });
+
+    // Calculate design quantities per service listing (matching checkout summary)
+    const designQuantities = {};
+    const bundleTracker = new Map(); // Track bundles to avoid double-counting
+
+    // Count 3D placements
+    project.venueDesign.placedElements.forEach((placement) => {
+      const meta = placementsMeta[placement.id];
+      if (!meta?.serviceListingId) return;
+
+      const bundleId = meta.bundleId;
+      if (bundleId) {
+        // For bundles, count once per bundle
+        if (!bundleTracker.has(bundleId)) {
+          bundleTracker.set(bundleId, true);
+          if (!designQuantities[meta.serviceListingId]) {
+            designQuantities[meta.serviceListingId] = 0;
+          }
+          designQuantities[meta.serviceListingId] += 1;
+        }
+      } else {
+        // Individual placement
+        if (!designQuantities[meta.serviceListingId]) {
+          designQuantities[meta.serviceListingId] = 0;
+        }
+        designQuantities[meta.serviceListingId] += 1;
+      }
+    });
+
+    // Count per-table services from table tagging (serviceListingIds on placements)
+    // This matches checkout summary logic - per-table services come from table tagging, not projectServices
+    project.venueDesign.placedElements.forEach((placement) => {
+      if (placement.serviceListingIds && Array.isArray(placement.serviceListingIds)) {
+        placement.serviceListingIds.forEach((serviceListingId) => {
+          if (!designQuantities[serviceListingId]) {
+            designQuantities[serviceListingId] = 0;
+          }
+          designQuantities[serviceListingId] += 1;
+        });
+      }
+    });
+
+    // Count non-3D project services (excluding per-table services to avoid double-counting)
+    // Matching checkout summary logic
+    for (const ps of projectServices) {
+      if (!ps.serviceListingId) continue;
+      const listing = serviceListingMap[ps.serviceListingId];
+      if (!listing) continue;
+
+      // Skip per-table services (they're already counted via table tagging above)
+      if (listing.pricingPolicy === 'per_table') {
+        continue;
+      }
+
+      // For other services, use ProjectService quantity
+      if (!designQuantities[ps.serviceListingId]) {
+        designQuantities[ps.serviceListingId] = 0;
+      }
+      designQuantities[ps.serviceListingId] += ps.quantity || 1;
+    }
+
+    // Include venue ALWAYS in designQuantities (planned (3D) shows all services regardless of booking)
+    if (project.venueServiceListingId) {
+      designQuantities[project.venueServiceListingId] = 1;
+    }
+
+    // Calculate event duration for time_based pricing
+    let eventDuration = null;
+    if (project.eventStartTime && project.eventEndTime) {
+      try {
+        eventDuration = calculateEventDuration(project.eventStartTime, project.eventEndTime);
+      } catch (err) {
+        console.warn('[updatePlannedSpend] Failed to calculate event duration:', err.message);
+      }
+    }
+
+    // Calculate total using calculatePrice (matching checkout summary)
+    let totalPlannedSpend = 0;
+    Object.entries(designQuantities).forEach(([serviceListingId, designQuantity]) => {
+      const listing = serviceListingMap[serviceListingId];
+      if (!listing || designQuantity <= 0) return;
+
+      try {
+        const pricingContext = {};
+        
+        if (listing.pricingPolicy === 'per_unit') {
+          pricingContext.quantity = designQuantity;
+        } else if (listing.pricingPolicy === 'per_table') {
+          pricingContext.tableCount = designQuantity;
+        } else if (listing.pricingPolicy === 'time_based') {
+          if (eventDuration !== null) {
+            pricingContext.eventDuration = eventDuration;
+          } else {
+            // Skip time_based services if event duration is not available
+            return;
+          }
+        }
+        // fixed_package doesn't need context
+
+        const calculatedPrice = calculatePrice(listing, pricingContext);
+        totalPlannedSpend += parseFloat(calculatedPrice.toString());
+      } catch (err) {
+        console.warn(`[updatePlannedSpend] Failed to calculate price for ${listing.id}:`, err.message);
+        // Fallback to base price * quantity for per_unit/per_table, or base price for others
+        const basePrice = parseFloat(listing.price?.toString() || '0');
+        if (listing.pricingPolicy === 'per_unit' || listing.pricingPolicy === 'per_table') {
+          totalPlannedSpend += basePrice * designQuantity;
+        } else {
+          totalPlannedSpend += basePrice;
+        }
+      }
+    });
+
+    // plannedSpend includes ALL services in the 3D venue design regardless of booking status
+    // This represents the total planned cost, not what's available to book
+    const plannedSpend = Math.max(0, totalPlannedSpend);
+
+    // Update budget
+    await prisma.budget.update({
+      where: { id: project.budget.id },
+      data: {
+        plannedSpend: plannedSpend,
+        totalRemaining: parseFloat(project.budget.totalBudget) - parseFloat(project.budget.totalSpent) - plannedSpend,
+      },
+    });
+  } catch (error) {
+    console.error('Error updating planned spend:', error);
+    // Don't throw - this is a background update
+  }
+}
+
+/**
+ * Handle expenses for per-table services when tables are tagged/untagged
+ * Creates, updates, or deletes expenses automatically
+ */
+async function handlePerTableServiceExpenses(projectId, serviceListingIds, placedElementIds, action) {
+  try {
+    // Get budget for this project
+    const budget = await prisma.budget.findUnique({
+      where: { projectId },
+      include: {
+        categories: true,
+      },
+    });
+
+    if (!budget) {
+      return; // No budget, skip expense management
+    }
+
+    // Get service listings to check if they're per-table services
+    const serviceListings = await prisma.serviceListing.findMany({
+      where: {
+        id: { in: serviceListingIds },
+        pricingPolicy: 'per_table',
+      },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+      },
+    });
+
+    if (serviceListings.length === 0) {
+      return; // No per-table services, nothing to do
+    }
+
+    // Get or create a default category for 3D design services
+    let defaultCategory = budget.categories.find(cat => 
+      cat.categoryName.toLowerCase().includes('3d') || 
+      cat.categoryName.toLowerCase().includes('venue design')
+    );
+
+    if (!defaultCategory) {
+      // Create a default category for 3D design services
+      defaultCategory = await prisma.budgetCategory.create({
+        data: {
+          budgetId: budget.id,
+          categoryName: '3D Venue Design Services',
+        },
+      });
+    }
+
+    // Get ALL placements in the venue design to count how many tables are tagged for each service
+    const venueDesign = await prisma.venueDesign.findUnique({
+      where: { projectId },
+      select: { id: true },
+    });
+
+    if (!venueDesign) {
+      return; // No venue design, skip
+    }
+
+    const allPlacements = await prisma.placedElement.findMany({
+      where: {
+        venueDesignId: venueDesign.id,
+        elementType: 'table', // Only count tables
+      },
+      select: {
+        id: true,
+        serviceListingIds: true,
+      },
+    });
+
+    for (const serviceListing of serviceListings) {
+      // Count how many tables are currently tagged with this service (across all tables)
+      const taggedTableCount = allPlacements.filter(p => 
+        p.serviceListingIds && p.serviceListingIds.includes(serviceListing.id)
+      ).length;
+
+      // Skip if no tables are tagged (shouldn't happen, but safety check)
+      if (taggedTableCount === 0 && action === 'tag') {
+        console.warn(`No tables tagged for service ${serviceListing.id}, skipping expense creation`);
+        continue;
+      }
+
+      if (action === 'tag') {
+        // Find or create expense for this per-table service
+        const existingExpense = await prisma.expense.findFirst({
+          where: {
+            categoryId: defaultCategory.id,
+            serviceListingId: serviceListing.id,
+            from3DDesign: true,
+            // Per-table services don't have placedElementId, they're tracked by serviceListingId
+          },
+        });
+
+        const servicePrice = parseFloat(serviceListing.price || 0);
+        const costPerTable = servicePrice;
+        const totalCost = costPerTable * taggedTableCount;
+
+        // Validate that we have valid cost and count
+        if (isNaN(totalCost) || totalCost <= 0) {
+          console.error(`Invalid cost calculation for service ${serviceListing.id}: price=${servicePrice}, count=${taggedTableCount}, total=${totalCost}`);
+          continue;
+        }
+
+        if (existingExpense) {
+          // Update existing expense with new quantity and cost
+          const nameMatch = existingExpense.expenseName.match(/^(.+?)(\s*\((\d+)\s+tables?\))?$/i);
+          const baseName = nameMatch ? nameMatch[1] : existingExpense.expenseName;
+          const updatedName = taggedTableCount > 1 
+            ? `${baseName} (${taggedTableCount} tables)` 
+            : baseName;
+
+          await prisma.expense.update({
+            where: { id: existingExpense.id },
+            data: {
+              expenseName: updatedName,
+              estimatedCost: totalCost,
+              // Don't update actualCost automatically
+            },
+          });
+
+          // Update budget: adjust plannedSpend
+          const costChange = totalCost - parseFloat(existingExpense.estimatedCost || 0);
+          if (costChange !== 0) {
+            await prisma.budget.update({
+              where: { id: budget.id },
+              data: {
+                plannedSpend: { increment: costChange },
+              },
+            });
+          }
+        } else {
+          // Create new expense with proper cost and quantity
+          const expenseName = taggedTableCount > 1 
+            ? `${serviceListing.name} (${taggedTableCount} tables)` 
+            : serviceListing.name;
+          
+          console.log(`Creating expense for per-table service: ${expenseName}, cost: ${totalCost}, count: ${taggedTableCount}`);
+          
+          await prisma.expense.create({
+            data: {
+              categoryId: defaultCategory.id,
+              expenseName: expenseName,
+              estimatedCost: totalCost,
+              from3DDesign: true,
+              serviceListingId: serviceListing.id,
+              // Per-table services don't have placedElementId
+            },
+          });
+
+          // Update budget: add to plannedSpend
+          await prisma.budget.update({
+            where: { id: budget.id },
+            data: {
+              plannedSpend: { increment: totalCost },
+            },
+          });
+        }
+      } else if (action === 'untag') {
+        // Find expense for this service
+        const existingExpense = await prisma.expense.findFirst({
+          where: {
+            categoryId: defaultCategory.id,
+            serviceListingId: serviceListing.id,
+            from3DDesign: true,
+          },
+        });
+
+        if (existingExpense) {
+          if (taggedTableCount === 0) {
+            // No tables tagged anymore → delete expense
+            const expenseCost = parseFloat(existingExpense.estimatedCost || 0);
+            const expenseActualCost = existingExpense.actualCost ? parseFloat(existingExpense.actualCost) : 0;
+
+            await prisma.expense.delete({
+              where: { id: existingExpense.id },
+            });
+
+            // Update budget: remove from plannedSpend and totalSpent
+            await prisma.budget.update({
+              where: { id: budget.id },
+              data: {
+                plannedSpend: { increment: expenseCost },
+                totalSpent: expenseActualCost > 0 ? { decrement: expenseActualCost } : undefined,
+              },
+            });
+          } else {
+            // Some tables still tagged → update quantity and cost
+            const servicePrice = parseFloat(serviceListing.price || 0);
+            const newTotalCost = servicePrice * taggedTableCount;
+            const oldCost = parseFloat(existingExpense.estimatedCost || 0);
+
+            const nameMatch = existingExpense.expenseName.match(/^(.+?)(\s*\((\d+)\s+tables?\))?$/i);
+            const baseName = nameMatch ? nameMatch[1] : existingExpense.expenseName;
+            const updatedName = taggedTableCount > 1 
+              ? `${baseName} (${taggedTableCount} tables)` 
+              : baseName;
+
+            await prisma.expense.update({
+              where: { id: existingExpense.id },
+              data: {
+                expenseName: updatedName,
+                estimatedCost: newTotalCost,
+              },
+            });
+
+            // Update budget: adjust plannedSpend
+            const costChange = newTotalCost - oldCost;
+            if (costChange !== 0) {
+              await prisma.budget.update({
+                where: { id: budget.id },
+                data: {
+                  plannedSpend: { increment: costChange },
+                },
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Recalculate budget totals manually
+    const categories = await prisma.budgetCategory.findMany({
+      where: { budgetId: budget.id },
+      include: { expenses: true },
+    });
+
+    let totalSpent = 0;
+    categories.forEach(category => {
+      category.expenses.forEach(expense => {
+        if (expense.actualCost) {
+          totalSpent += parseFloat(expense.actualCost);
+        }
+      });
+    });
+
+    const currentBudget = await prisma.budget.findUnique({
+      where: { id: budget.id },
+    });
+
+    await prisma.budget.update({
+      where: { id: budget.id },
+      data: {
+        totalSpent: totalSpent,
+        totalRemaining: parseFloat(currentBudget.totalBudget) - totalSpent - parseFloat(currentBudget.plannedSpend || 0),
+      },
+    });
+  } catch (error) {
+    console.error('Error handling per-table service expenses:', error);
+    // Don't throw - this is a background operation
+  }
+}
+
+/**
+ * Update per-table service expenses when tables are tagged/untagged
+ * This ensures expenses that were already moved to categories stay in sync with the actual tagged table count
+ */
+async function updatePerTableServiceExpenses(projectId, serviceListingIds) {
+  try {
+    // Get budget for this project
+    const budget = await prisma.budget.findUnique({
+      where: { projectId },
+      include: {
+        categories: {
+          include: {
+            expenses: {
+              where: {
+                from3DDesign: true,
+                serviceListingId: { in: serviceListingIds },
+                placedElementId: null, // Per-table services have null placedElementId
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!budget) {
+      return; // No budget, nothing to update
+    }
+
+    // Get venue design to count currently tagged tables
+    const venueDesign = await prisma.venueDesign.findUnique({
+      where: { projectId },
+      include: {
+        placedElements: {
+          where: {
+            elementType: 'table',
+            // Or check designElement.elementType === 'table'
+          },
+          include: {
+            designElement: {
+              select: {
+                elementType: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!venueDesign) {
+      return; // No venue design, nothing to update
+    }
+
+    // Count tables tagged with each service
+    const taggedTableCounts = new Map(); // serviceListingId -> count
+    
+    venueDesign.placedElements.forEach(placement => {
+      // Check if this is a table
+      const isTable = placement.elementType === 'table' ||
+                     placement.designElement?.elementType === 'table' ||
+                     (placement.designElement?.name && placement.designElement.name.toLowerCase().includes('table'));
+      
+      if (isTable && placement.serviceListingIds && Array.isArray(placement.serviceListingIds)) {
+        placement.serviceListingIds.forEach(serviceListingId => {
+          if (serviceListingIds.includes(serviceListingId)) {
+            const currentCount = taggedTableCounts.get(serviceListingId) || 0;
+            taggedTableCounts.set(serviceListingId, currentCount + 1);
+          }
+        });
+      }
+    });
+
+    // Update expenses for each per-table service
+    for (const serviceListingId of serviceListingIds) {
+      const taggedTableCount = taggedTableCounts.get(serviceListingId) || 0;
+      
+      // Find all expenses for this per-table service across all categories
+      const expenses = [];
+      budget.categories.forEach(category => {
+        category.expenses.forEach(expense => {
+          if (expense.serviceListingId === serviceListingId && 
+              expense.from3DDesign && 
+              expense.placedElementId === null) {
+            expenses.push({ ...expense, categoryId: category.id });
+          }
+        });
+      });
+
+      // Get service listing to get price
+      const serviceListing = await prisma.serviceListing.findUnique({
+        where: { id: serviceListingId },
+        select: { price: true, name: true },
+      });
+
+      if (!serviceListing) {
+        continue; // Service not found, skip
+      }
+
+      const unitPrice = parseFloat(serviceListing.price || 0);
+      const newTotalCost = unitPrice * taggedTableCount;
+
+      // Update each expense
+      for (const expense of expenses) {
+        if (taggedTableCount === 0) {
+          // No tables tagged → delete expense
+          const expenseCost = parseFloat(expense.estimatedCost || 0);
+          const expenseActualCost = expense.actualCost ? parseFloat(expense.actualCost) : 0;
+
+          await prisma.expense.delete({
+            where: { id: expense.id },
+          });
+
+          // Update budget: when expense is deleted, add cost back to plannedSpend
+          // and remove from totalSpent if it had actual cost
+          await prisma.budget.update({
+            where: { id: budget.id },
+            data: {
+              plannedSpend: { increment: expenseCost }, // Add back to planned (no longer an expense)
+              totalSpent: expenseActualCost > 0 ? { decrement: expenseActualCost } : undefined,
+            },
+          });
+        } else {
+          // Some tables still tagged → update quantity and cost
+          const oldCost = parseFloat(expense.estimatedCost || 0);
+          
+          // Update expense name to reflect quantity
+          const nameMatch = expense.expenseName.match(/^(.+?)(\s*\((\d+)\))?$/);
+          const baseName = nameMatch ? nameMatch[1] : expense.expenseName;
+          const updatedName = taggedTableCount > 1 
+            ? `${baseName} (${taggedTableCount})` 
+            : baseName;
+
+          await prisma.expense.update({
+            where: { id: expense.id },
+            data: {
+              expenseName: updatedName,
+              estimatedCost: newTotalCost,
+              // Note: actualCost is not updated here - it's managed via payments
+            },
+          });
+
+          // Update budget: adjust plannedSpend
+          // When expense cost increases (more tables), we decrease plannedSpend (more moved to expenses)
+          // When expense cost decreases (fewer tables), we increase plannedSpend (less in expenses, back to planned)
+          const costChange = newTotalCost - oldCost;
+          if (costChange !== 0) {
+            await prisma.budget.update({
+              where: { id: budget.id },
+              data: {
+                plannedSpend: { increment: -costChange }, // Negative: if cost increases, plannedSpend decreases
+              },
+            });
+          }
+        }
+      }
+    }
+
+    // Recalculate budget totals
+    const updatedCategories = await prisma.budgetCategory.findMany({
+      where: { budgetId: budget.id },
+      include: { expenses: true },
+    });
+
+    let totalSpent = 0;
+    updatedCategories.forEach(category => {
+      category.expenses.forEach(expense => {
+        if (expense.actualCost) {
+          totalSpent += parseFloat(expense.actualCost);
+        }
+      });
+    });
+
+    const currentBudget = await prisma.budget.findUnique({
+      where: { id: budget.id },
+    });
+
+    await prisma.budget.update({
+      where: { id: budget.id },
+      data: {
+        totalSpent: totalSpent,
+        totalRemaining: parseFloat(currentBudget.totalBudget) - totalSpent - parseFloat(currentBudget.plannedSpend || 0),
+      },
+    });
+  } catch (error) {
+    console.error('Error updating per-table service expenses:', error);
+    // Don't throw - this is a background operation
+  }
 }
 
 async function checkServiceAvailabilityForDate(serviceListingId, isoDate) {
@@ -616,7 +1291,8 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
     const layoutData = venueDesign.layoutData || {};
     const placementsMeta = layoutData.placementsMeta || {};
 
-    const serviceListingIds = [
+    // Get service listing IDs from placementsMeta (for regular placements)
+    const serviceListingIdsFromMeta = [
       ...new Set(
         Object.values(placementsMeta)
           .map((meta) => meta?.serviceListingId)
@@ -624,10 +1300,24 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
       ),
     ];
 
+    // Also get service listing IDs from serviceListingIds arrays on placements (for per-table services)
+    const serviceListingIdsFromPlacements = [
+      ...new Set(
+        venueDesign.placedElements
+          .flatMap((placement) => placement.serviceListingIds || [])
+          .filter(Boolean)
+      ),
+    ];
+
+    // Combine all service listing IDs
+    const allServiceListingIds = [
+      ...new Set([...serviceListingIdsFromMeta, ...serviceListingIdsFromPlacements]),
+    ];
+
     let serviceListings = [];
-    if (serviceListingIds.length > 0) {
+    if (allServiceListingIds.length > 0) {
       serviceListings = await prisma.serviceListing.findMany({
-        where: { id: { in: serviceListingIds } },
+        where: { id: { in: allServiceListingIds } },
         include: {
           vendor: {
             select: {
@@ -810,6 +1500,15 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
           project.weddingDate instanceof Date
             ? project.weddingDate.toISOString()
             : project.weddingDate,
+        eventStartTime: project.eventStartTime || null,
+        eventEndTime: project.eventEndTime || null,
+        budget: project.budget ? {
+          id: project.budget.id,
+          totalBudget: project.budget.totalBudget ? String(project.budget.totalBudget) : '0',
+          totalSpent: project.budget.totalSpent ? String(project.budget.totalSpent) : '0',
+          plannedSpend: project.budget.plannedSpend ? String(project.budget.plannedSpend) : '0',
+          totalRemaining: project.budget.totalRemaining ? String(project.budget.totalRemaining) : '0',
+        } : null,
       },
       bookedQuantities, // Include booked quantities for checkout adjustment
       bookedTables, // Include booked table IDs per service (for per-table services)
@@ -867,6 +1566,7 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
         placedElements: placements,
       },
       projectServices,
+      serviceMap, // Include serviceMap so frontend can access service details for per-table services
     });
   } catch (err) {
     if (err.statusCode) {
@@ -991,6 +1691,10 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
           quantity: initialQuantity,
         },
       });
+
+      // Update planned spend for non-3D services (they still affect budget)
+      // Wait for update to complete so frontend gets fresh data
+      await updatePlannedSpend(req.params.projectId);
 
       return res.status(200).json({
         message: isPerTable 
@@ -1175,6 +1879,9 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
       serializePlacement(placement, metadataEntries[placement.id], serviceMap)
     );
 
+    // Update planned spend in background (don't wait)
+    updatePlannedSpend(req.params.projectId).catch(console.error);
+
     return res.status(201).json({
       bundleId,
       placements: responsePlacements,
@@ -1336,6 +2043,9 @@ router.patch('/:projectId/elements/:elementId', requireAuth, async (req, res, ne
       serviceListingInfo ? { [serviceListingInfo.id]: serviceListingInfo } : {}
     );
 
+    // Update planned spend in background (don't wait)
+    updatePlannedSpend(req.params.projectId).catch(console.error);
+
     return res.json(responsePlacement);
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -1413,6 +2123,193 @@ router.delete('/:projectId/elements/:elementId', requireAuth, async (req, res, n
     }
 
     const positionIds = placements.map((placement) => placement.positionId);
+    const placementIdsBeingDeleted = placements.map((p) => p.id);
+
+    // Hybrid cleanup: Handle expenses linked to placements being deleted
+    // Check for expenses that reference these placements
+    const budget = await prisma.budget.findUnique({
+      where: { projectId: req.params.projectId },
+      include: {
+        categories: {
+          include: {
+            expenses: {
+              where: {
+                from3DDesign: true,
+                OR: [
+                  { placedElementId: { in: placementIdsBeingDeleted } },
+                ],
+              },
+            },
+          },
+        },
+      },
+    });
+    
+    // Also check expenses with placedElementIds JSON field
+    // We'll check this manually since Prisma doesn't have great JSON array query support
+    const allExpenses = budget ? budget.categories.flatMap(cat => cat.expenses) : [];
+    const expensesToCheck = allExpenses.filter(expense => {
+      if (placementIdsBeingDeleted.includes(expense.placedElementId)) {
+        return true;
+      }
+      if (expense.placedElementIds && Array.isArray(expense.placedElementIds)) {
+        return expense.placedElementIds.some(id => placementIdsBeingDeleted.includes(id));
+      }
+      // Check remark for old data
+      if (expense.remark) {
+        try {
+          const remarkData = JSON.parse(expense.remark);
+          if (remarkData.placedElementIds && Array.isArray(remarkData.placedElementIds)) {
+            return remarkData.placedElementIds.some(id => placementIdsBeingDeleted.includes(id));
+          }
+        } catch (e) {
+          // Not JSON, skip
+        }
+      }
+      return false;
+    });
+
+    if (budget && expensesToCheck.length > 0) {
+      // Group expenses by category for easier processing
+      const expensesByCategory = new Map();
+      budget.categories.forEach(category => {
+        category.expenses.forEach(expense => {
+          if (expensesToCheck.includes(expense)) {
+            if (!expensesByCategory.has(category.id)) {
+              expensesByCategory.set(category.id, []);
+            }
+            expensesByCategory.get(category.id).push(expense);
+          }
+        });
+      });
+      
+      for (const [categoryId, expenses] of expensesByCategory.entries()) {
+        for (const expense of expenses) {
+          // Get all placement IDs for this expense
+          let expensePlacementIds = [];
+          if (expense.placedElementIds && Array.isArray(expense.placedElementIds)) {
+            expensePlacementIds = expense.placedElementIds;
+          } else if (expense.placedElementId) {
+            expensePlacementIds = [expense.placedElementId];
+          } else {
+            // Check remark field for old data
+            try {
+              if (expense.remark) {
+                const remarkData = JSON.parse(expense.remark);
+                if (remarkData.placedElementIds && Array.isArray(remarkData.placedElementIds)) {
+                  expensePlacementIds = remarkData.placedElementIds;
+                }
+              }
+            } catch (e) {
+              // Not JSON, skip
+            }
+          }
+
+          // Find which placements from this expense are being deleted
+          const deletedPlacementIds = expensePlacementIds.filter(id => placementIdsBeingDeleted.includes(id));
+          
+          if (deletedPlacementIds.length > 0) {
+            // Get the service listing to calculate unit price
+            const serviceListing = expense.serviceListingId 
+              ? await prisma.serviceListing.findUnique({
+                  where: { id: expense.serviceListingId },
+                  select: { price: true, pricingPolicy: true },
+                })
+              : null;
+            
+            const unitPrice = serviceListing ? parseFloat(serviceListing.price || 0) : 0;
+            const remainingPlacementIds = expensePlacementIds.filter(id => !placementIdsBeingDeleted.includes(id));
+            
+            if (remainingPlacementIds.length === 0) {
+              // All placements deleted → delete the expense
+              await prisma.expense.delete({
+                where: { id: expense.id },
+              });
+              
+              // Update budget: add back to plannedSpend, remove from totalSpent if marked as paid
+              const expenseEstimatedCost = parseFloat(expense.estimatedCost || 0);
+              const expenseActualCost = expense.actualCost ? parseFloat(expense.actualCost) : 0;
+              
+              await prisma.budget.update({
+                where: { id: budget.id },
+                data: {
+                  plannedSpend: { increment: expenseEstimatedCost },
+                  totalSpent: expenseActualCost > 0 ? { decrement: expenseActualCost } : undefined,
+                },
+              });
+            } else {
+              // Some placements remain → reduce quantity and cost
+              const deletedCount = deletedPlacementIds.length;
+              const newQuantity = remainingPlacementIds.length;
+              
+              // Calculate new costs
+              const oldEstimatedCost = parseFloat(expense.estimatedCost || 0);
+              const oldActualCost = expense.actualCost ? parseFloat(expense.actualCost) : 0;
+              
+              // For grouped items, reduce proportionally
+              const costPerItem = oldEstimatedCost / expensePlacementIds.length;
+              const newEstimatedCost = costPerItem * newQuantity;
+              const newActualCost = oldActualCost > 0 ? (oldActualCost / expensePlacementIds.length) * newQuantity : null;
+              
+              // Update expense name to reflect new quantity
+              const nameMatch = expense.expenseName.match(/^(.+?)(\s*\((\d+)\))?$/);
+              const baseName = nameMatch ? nameMatch[1] : expense.expenseName;
+              const updatedName = newQuantity > 1 ? `${baseName} (${newQuantity})` : baseName;
+              
+              await prisma.expense.update({
+                where: { id: expense.id },
+                data: {
+                  expenseName: updatedName,
+                  estimatedCost: newEstimatedCost,
+                  actualCost: newActualCost,
+                  placedElementId: remainingPlacementIds[0], // Update to first remaining
+                  placedElementIds: remainingPlacementIds, // Update placement IDs
+                },
+              });
+              
+              // Update budget: adjust plannedSpend and totalSpent
+              const estimatedCostChange = oldEstimatedCost - newEstimatedCost;
+              const actualCostChange = oldActualCost - (newActualCost || 0);
+              
+              await prisma.budget.update({
+                where: { id: budget.id },
+                data: {
+                  plannedSpend: { increment: estimatedCostChange },
+                  totalSpent: actualCostChange > 0 ? { decrement: actualCostChange } : undefined,
+                },
+              });
+            }
+          }
+        }
+      }
+      
+      // Recalculate budget totals
+      const categories = await prisma.budgetCategory.findMany({
+        where: { budgetId: budget.id },
+        include: { expenses: true },
+      });
+      
+      let totalSpent = 0;
+      categories.forEach(category => {
+        category.expenses.forEach(expense => {
+          if (expense.actualCost) {
+            totalSpent += parseFloat(expense.actualCost);
+          }
+        });
+      });
+      
+      const currentBudget = await prisma.budget.findUnique({
+        where: { id: budget.id },
+      });
+      
+      await prisma.budget.update({
+        where: { id: budget.id },
+        data: {
+          totalSpent: totalSpent,
+          totalRemaining: parseFloat(currentBudget.totalBudget) - totalSpent - parseFloat(currentBudget.plannedSpend || 0),
+        },
+      });
+    }
 
     await prisma.$transaction(async (tx) => {
       await tx.placedElement.deleteMany({
@@ -1438,6 +2335,9 @@ router.delete('/:projectId/elements/:elementId', requireAuth, async (req, res, n
         },
       });
     });
+
+    // Update planned spend immediately so frontend gets fresh data
+    await updatePlannedSpend(req.params.projectId);
 
     return res.json({
       removedPlacementIds: placements.map((p) => p.id),
@@ -2200,6 +3100,17 @@ router.post('/:venueDesignId/tag-tables', requireAuth, async (req, res, next) =>
       validatedData.serviceListingIds
     );
 
+    // Update planned spend when tables are tagged (per-table services affect budget)
+    // Wait for update to complete so frontend gets fresh data
+    await updatePlannedSpend(venueDesign.project.id);
+    
+    // Update expenses for per-table services that were already moved to categories
+    // This ensures expenses stay in sync with the actual tagged table count
+    updatePerTableServiceExpenses(venueDesign.project.id, validatedData.serviceListingIds).catch(console.error);
+    
+    // Note: Per-table services are now shown in "3D Venue Design (Planned)" section
+    // Users can manually move them to categories (Option B approach)
+
     res.json({
       message: `Successfully tagged ${updatedCount} table(s)`,
       venueDesignId,
@@ -2278,6 +3189,17 @@ router.post('/:venueDesignId/untag-tables', requireAuth, async (req, res, next) 
       validatedData.serviceListingIds
     );
 
+    // Update planned spend when tables are untagged (per-table services affect budget)
+    // Wait for update to complete so frontend gets fresh data
+    await updatePlannedSpend(venueDesign.project.id);
+    
+    // Update expenses for per-table services that were already moved to categories
+    // This ensures expenses stay in sync with the actual tagged table count
+    updatePerTableServiceExpenses(venueDesign.project.id, validatedData.serviceListingIds).catch(console.error);
+    
+    // Note: Per-table services are now shown in "3D Venue Design (Planned)" section
+    // Users can manually move them to categories (Option B approach)
+
     res.json({
       message: `Successfully untagged ${updatedCount} table(s)`,
       venueDesignId,
@@ -2297,6 +3219,36 @@ router.post('/:venueDesignId/untag-tables', requireAuth, async (req, res, next) 
     if (err.statusCode) {
       return res.status(err.statusCode).json({ error: err.message });
     }
+    next(err);
+  }
+});
+
+// GET /venue-designs/:projectId/budget - Get budget data only (lightweight refresh)
+router.get('/:projectId/budget', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'couple') {
+      return res.status(403).json({ error: 'Couple access required' });
+    }
+
+    const project = await fetchProject(req.params.projectId, req.user.sub);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    if (!project.budget) {
+      return res.status(404).json({ error: 'Budget not found' });
+    }
+
+    // Return budget data only
+    return res.json({
+      budget: {
+        totalBudget: String(project.budget.totalBudget || '0'),
+        plannedSpend: String(project.budget.plannedSpend || '0'),
+        totalSpent: String(project.budget.totalSpent || '0'),
+        totalRemaining: String(project.budget.totalRemaining || '0'),
+      },
+    });
+  } catch (err) {
     next(err);
   }
 });

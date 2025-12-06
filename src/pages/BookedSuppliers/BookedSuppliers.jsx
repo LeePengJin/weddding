@@ -225,7 +225,7 @@ const BookedSuppliers = () => {
         <Box sx={{ maxWidth: '1200px', margin: '0 auto', px: 3, py: 3 }}>
           <Button
             startIcon={<ArrowBack />}
-            onClick={() => navigate('/project-dashboard')}
+            onClick={() => navigate(projectId ? `/project-dashboard?projectId=${projectId}` : '/project-dashboard')}
             sx={{ mb: 2, textTransform: 'none' }}
           >
             Back to Dashboard

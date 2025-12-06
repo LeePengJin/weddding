@@ -36,6 +36,10 @@ export function getVenueDesign(projectId) {
   return apiFetch(`/venue-designs/${projectId}`);
 }
 
+export function getVenueDesignBudget(projectId) {
+  return apiFetch(`/venue-designs/${projectId}/budget`);
+}
+
 export function addDesignElement(projectId, payload) {
   return apiFetch(`/venue-designs/${projectId}/elements`, {
     method: 'POST',

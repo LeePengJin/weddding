@@ -115,25 +115,25 @@ async function updateLinkedDesignItemsForBooking(bookingId, status) {
       
       // For non-per_table services: check meta.serviceListingId (3D element placements)
       if (nonPerTableServiceIds.length > 0 && meta) {
-        // Check if this placement's serviceListingId matches any booked service
+      // Check if this placement's serviceListingId matches any booked service
         if (meta.serviceListingId && nonPerTableServiceIds.includes(meta.serviceListingId)) {
-          return true;
-        }
+        return true;
+      }
+      
+      // For bundle items, also check if any placement in the same bundle is booked
+      // This ensures all placements in a bundle are marked as booked together
+      if (meta.bundleId) {
+        // Find all placements in the same bundle
+        const bundlePlacements = venueDesign.placedElements.filter((p) => {
+          const pMeta = placementsMeta[p.id];
+          return pMeta && pMeta.bundleId === meta.bundleId;
+        });
         
-        // For bundle items, also check if any placement in the same bundle is booked
-        // This ensures all placements in a bundle are marked as booked together
-        if (meta.bundleId) {
-          // Find all placements in the same bundle
-          const bundlePlacements = venueDesign.placedElements.filter((p) => {
-            const pMeta = placementsMeta[p.id];
-            return pMeta && pMeta.bundleId === meta.bundleId;
-          });
-          
-          // If any placement in the bundle matches a booked service, mark all
-          return bundlePlacements.some((p) => {
-            const pMeta = placementsMeta[p.id];
+        // If any placement in the bundle matches a booked service, mark all
+        return bundlePlacements.some((p) => {
+          const pMeta = placementsMeta[p.id];
             return pMeta && pMeta.serviceListingId && nonPerTableServiceIds.includes(pMeta.serviceListingId);
-          });
+        });
         }
       }
       
@@ -1223,6 +1223,39 @@ router.post('/', requireAuth, async (req, res, next) => {
     // Newly created bookings start in an active status (pending_vendor_confirmation)
     // Mark linked design items as booked
     await updateLinkedDesignItemsForBooking(booking.id, booking.status);
+
+    // If this is a venue booking, link the venue expense to this booking
+    if (hasVenueServiceListing && booking.projectId) {
+      const venueServiceListingId = booking.selectedServices.find(
+        s => s.serviceListing.category === 'Venue'
+      )?.serviceListingId;
+
+      if (venueServiceListingId) {
+        // Find the venue expense for this project
+        // Expense -> BudgetCategory -> Budget -> WeddingProject
+        const venueExpense = await prisma.expense.findFirst({
+          where: {
+            category: {
+              budget: {
+                projectId: booking.projectId,
+              },
+            },
+            serviceListingId: venueServiceListingId,
+            from3DDesign: false, // Venue expenses are not from 3D design
+          },
+        });
+
+        if (venueExpense) {
+          // Link the expense to the booking
+          await prisma.expense.update({
+            where: { id: venueExpense.id },
+            data: {
+              bookingId: booking.id,
+            },
+          });
+        }
+      }
+    }
 
     // Update project status: draft -> ready_to_book when first booking is created
     // Don't update if project is already completed

@@ -34,7 +34,7 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
       try {
         // Fetch services already added to the project
         const designResponse = await apiFetch(`/venue-designs/${projectId}`);
-        
+
         // Get booked tables map: serviceListingId -> array of placedElementIds
         // This tells us which specific tables are booked for each per-table service
         const bookedTables = designResponse.bookedTables || {}; // e.g., { "service-id": ["table-id-1", "table-id-2"] }

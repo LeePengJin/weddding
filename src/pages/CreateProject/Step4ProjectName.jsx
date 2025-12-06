@@ -3,6 +3,7 @@ import './CreateProject.styles.css';
 
 const Step4ProjectName = ({ formData, updateFormData, error, setError }) => {
   const [nameError, setNameError] = useState('');
+  const [budgetError, setBudgetError] = useState('');
 
   const handleNameChange = (e) => {
     const value = e.target.value;
@@ -83,6 +84,61 @@ const Step4ProjectName = ({ formData, updateFormData, error, setError }) => {
               {suggestion}
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="budget-input-section">
+        <div className="step-header" style={{ marginTop: '2rem', marginBottom: '1rem' }}>
+          <div className="step-icon">
+            <i className="fas fa-wallet"></i>
+          </div>
+          <h3 className="step-title" style={{ fontSize: '1.2rem' }}>Total Budget (Optional)</h3>
+        </div>
+        <div className="step-description" style={{ marginBottom: '1rem' }}>
+          <p>Set your total budget for this project. You can modify this later in Budget Management.</p>
+        </div>
+        <div className="project-name-input-wrapper">
+          <div style={{ position: 'relative', width: '100%' }}>
+            <span style={{ 
+              position: 'absolute', 
+              left: '1rem', 
+              top: '50%', 
+              transform: 'translateY(-50%)',
+              color: '#666',
+              fontSize: '1rem'
+            }}>RM</span>
+            <input
+              type="number"
+              className={`project-name-input ${budgetError ? 'error' : ''}`}
+              placeholder="0.00"
+              value={formData.totalBudget}
+              onChange={(e) => {
+                const value = e.target.value;
+                updateFormData('totalBudget', value);
+                setBudgetError('');
+                setError(null);
+                
+                // Validation
+                if (value && (isNaN(parseFloat(value)) || parseFloat(value) < 0)) {
+                  setBudgetError('Budget must be a positive number');
+                }
+              }}
+              onBlur={() => {
+                if (formData.totalBudget && (isNaN(parseFloat(formData.totalBudget)) || parseFloat(formData.totalBudget) < 0)) {
+                  setBudgetError('Budget must be a positive number');
+                }
+              }}
+              min="0"
+              step="0.01"
+              style={{ paddingLeft: '3.5rem' }}
+            />
+          </div>
+          {budgetError && (
+            <div className="input-error-message">
+              <i className="fas fa-exclamation-circle"></i>
+              <span>{budgetError}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

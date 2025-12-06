@@ -85,6 +85,7 @@ const createProjectSchema = z.object({
   weddingType: z.enum(['self_organized', 'prepackaged']),
   venueServiceListingId: z.string().uuid().optional().nullable(),
   basePackageId: z.string().uuid().optional().nullable(),
+  totalBudget: z.number().min(0).optional().nullable(),
 }).refine((data) => {
   // If eventStartTime is provided, eventEndTime must also be provided
   if (data.eventStartTime && !data.eventEndTime) {
@@ -376,16 +377,66 @@ router.post('/', requireAuth, async (req, res, next) => {
     });
 
     // Ensure each project has its own budget record as soon as it is created
+    const totalBudget = data.totalBudget || 0;
     const budget = await prisma.budget.upsert({
       where: { projectId: project.id },
       update: {},
       create: {
         projectId: project.id,
-        totalBudget: 0,
+        totalBudget: totalBudget,
         totalSpent: 0,
-        totalRemaining: 0,
+        plannedSpend: 0,
+        totalRemaining: totalBudget,
       },
     });
+
+    // If venue is selected, create a venue expense record
+    if (project.venueServiceListingId && project.venueServiceListing) {
+      const venuePrice = parseFloat(project.venueServiceListing.price || 0);
+      
+      if (venuePrice > 0) {
+        // Find or create a "Venue" category
+        let venueCategory = await prisma.budgetCategory.findFirst({
+          where: {
+            budgetId: budget.id,
+            categoryName: 'Venue',
+          },
+        });
+
+        if (!venueCategory) {
+          venueCategory = await prisma.budgetCategory.create({
+            data: {
+              budgetId: budget.id,
+              categoryName: 'Venue',
+            },
+          });
+        }
+
+        // Create venue expense (if it doesn't already exist)
+        const existingVenueExpense = await prisma.expense.findFirst({
+          where: {
+            categoryId: venueCategory.id,
+            serviceListingId: project.venueServiceListingId,
+            from3DDesign: false, // Venue is not from 3D design
+          },
+        });
+
+        if (!existingVenueExpense) {
+          await prisma.expense.create({
+            data: {
+              categoryId: venueCategory.id,
+              expenseName: project.venueServiceListing.name || 'Venue',
+              estimatedCost: venuePrice,
+              actualCost: null, // Will be updated when venue is booked and payments are made
+              serviceListingId: project.venueServiceListingId,
+              from3DDesign: false, // Venue is not from 3D design
+              placedElementId: null, // Venue doesn't have a placement
+              bookingId: null, // Will be linked when venue is booked
+            },
+          });
+        }
+      }
+    }
 
     if (data.basePackageId) {
       await applyPackageDesignToProject(prisma, data.basePackageId, project.id);
@@ -461,9 +512,10 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     }
 
     // If venue is provided, verify it exists and is a venue service
+    let newVenueService = null;
     if (data.venueServiceListingId !== undefined) {
       if (data.venueServiceListingId) {
-        const venueService = await prisma.serviceListing.findFirst({
+        newVenueService = await prisma.serviceListing.findFirst({
           where: {
             id: data.venueServiceListingId,
             category: 'Venue',
@@ -471,7 +523,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
           },
         });
 
-        if (!venueService) {
+        if (!newVenueService) {
           return res.status(404).json({ error: 'Venue service not found or inactive' });
         }
       }
@@ -534,22 +586,107 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     });
 
     // If venue is being updated, also update the venueDesign venueName if it exists
-    if (data.venueServiceListingId !== undefined && project.venueServiceListing) {
-      const venueDesign = await prisma.venueDesign.findUnique({
-        where: { projectId: project.id },
-      });
-      
-      if (venueDesign) {
-        await prisma.venueDesign.update({
-          where: { id: venueDesign.id },
-          data: {
-            venueName: project.venueServiceListing.name,
-          },
+    // and create/update venue expense in budget
+    if (data.venueServiceListingId !== undefined) {
+      if (project.venueServiceListing) {
+        const venueDesign = await prisma.venueDesign.findUnique({
+          where: { projectId: project.id },
         });
+        
+        if (venueDesign) {
+          await prisma.venueDesign.update({
+            where: { id: venueDesign.id },
+            data: {
+              venueName: project.venueServiceListing.name,
+            },
+          });
+        }
+
+        // Create or update venue expense in budget
+        const budget = await prisma.budget.findUnique({
+          where: { projectId: project.id },
+        });
+
+        if (budget) {
+          const venuePrice = parseFloat(project.venueServiceListing.price || 0);
+          
+          if (venuePrice > 0) {
+            // Find or create a "Venue" category
+            let venueCategory = await prisma.budgetCategory.findFirst({
+              where: {
+                budgetId: budget.id,
+                categoryName: 'Venue',
+              },
+            });
+
+            if (!venueCategory) {
+              venueCategory = await prisma.budgetCategory.create({
+                data: {
+                  budgetId: budget.id,
+                  categoryName: 'Venue',
+                },
+              });
+            }
+
+            // Check if there's an existing venue expense for the old venue
+            const oldVenueExpense = await prisma.expense.findFirst({
+              where: {
+                categoryId: venueCategory.id,
+                from3DDesign: false,
+                serviceListingId: { not: project.venueServiceListingId }, // Old venue
+              },
+            });
+
+            // If venue changed and old expense exists (and not booked), update it
+            // Otherwise, create a new expense for the new venue
+            const venueChanged = existingProject.venueServiceListingId !== project.venueServiceListingId;
+            if (oldVenueExpense && !oldVenueExpense.bookingId && venueChanged) {
+              // Update existing expense to new venue
+              await prisma.expense.update({
+                where: { id: oldVenueExpense.id },
+                data: {
+                  expenseName: project.venueServiceListing.name || 'Venue',
+                  estimatedCost: venuePrice,
+                  serviceListingId: project.venueServiceListingId,
+                },
+              });
+            } else {
+              // Check if expense for new venue already exists
+              const existingVenueExpense = await prisma.expense.findFirst({
+                where: {
+                  categoryId: venueCategory.id,
+                  serviceListingId: project.venueServiceListingId,
+                  from3DDesign: false,
+                },
+              });
+
+              if (!existingVenueExpense) {
+                // Create new expense for new venue
+                await prisma.expense.create({
+                  data: {
+                    categoryId: venueCategory.id,
+                    expenseName: project.venueServiceListing.name || 'Venue',
+                    estimatedCost: venuePrice,
+                    actualCost: null,
+                    serviceListingId: project.venueServiceListingId,
+                    from3DDesign: false,
+                    placedElementId: null,
+                    bookingId: null,
+                  },
+                });
+              }
+            }
+          }
+        }
+      } else if (data.venueServiceListingId === null) {
+        // Venue was removed - we could delete the expense, but it's safer to leave it
+        // in case there's a booking linked to it
+        // Just leave it as is for now
       }
 
       // Handle replacement venue logic for dependent bookings
-      if (project.weddingDate) {
+      // (This was originally here, moved inside the venueServiceListing check)
+      if (project.venueServiceListing && project.weddingDate) {
         const weddingDate = project.weddingDate instanceof Date ? project.weddingDate : new Date(project.weddingDate);
         const startOfDay = new Date(weddingDate);
         startOfDay.setHours(0, 0, 0, 0);

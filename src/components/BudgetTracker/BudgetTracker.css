@@ -32,6 +32,10 @@
   color: #e16789;
 }
 
+.budget-figure.planned {
+  color: #3b82f6;
+}
+
 .budget-figure.remaining {
   color: #0a8a57;
 }

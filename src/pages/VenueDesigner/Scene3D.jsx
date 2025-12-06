@@ -348,7 +348,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   const handleCanvasPointerMiss = useCallback((event) => {
     // Only clear selection if not starting box selection
     if (!event.shiftKey) {
-      handleCloseSelection();
+    handleCloseSelection();
     }
   }, [handleCloseSelection]);
 

@@ -512,6 +512,7 @@ model Budget {
   projectId      String           @unique
   totalBudget    Decimal          @db.Decimal(12, 2)
   totalSpent     Decimal          @db.Decimal(12, 2) @default(0)
+  plannedSpend   Decimal          @db.Decimal(12, 2) @default(0)
   totalRemaining Decimal          @db.Decimal(12, 2) @default(0)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
@@ -534,18 +535,27 @@ model BudgetCategory {
 }
 
 model Expense {
-  id            String    @id @default(uuid())
-  categoryId    String
-  expenseName   String
-  estimatedCost Decimal   @db.Decimal(12, 2)
-  actualCost    Decimal?  @db.Decimal(12, 2)
-  remark        String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(uuid())
+  categoryId      String
+  expenseName     String
+  estimatedCost   Decimal   @db.Decimal(12, 2)
+  actualCost      Decimal?  @db.Decimal(12, 2)
+  remark          String?
+  from3DDesign    Boolean   @default(false)
+  placedElementId String?
+  placedElementIds Json?   // Array of placement IDs for grouped items (stored as JSON)
+  serviceListingId String?
+  bookingId      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  category      BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category        BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  booking         Booking?       @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
   @@index([categoryId])
+  @@index([bookingId])
+  @@index([serviceListingId])
+  @@index([placedElementId])
 }
 
 // Tasks for a wedding project
@@ -613,6 +623,7 @@ model Booking {
   projectServices ProjectService[]
   bookedTables    BookedTable[] // Per-table service bookings
   cancellation    Cancellation?
+  expenses        Expense[] // Expenses linked to this booking
 
   @@index([coupleId])
   @@index([projectId])
