@@ -129,14 +129,13 @@ _Last updated: November 18, 2025_
 - [x] Allow pan for adjusting dimension.
 - [x] Add search function in booking request (vendor)
 - [x] If the wedding project has made booking, don't allow to delete.
-- [ ] Support parent-child attachments for stacked elements so children follow the surface when it moves.
-- [ ] Add grouping, duplicate functionality in 3D venue design *
+- [x] Support parent-child attachments for stacked elements so children follow the surface when it moves.
+- [x] Add grouping, duplicate functionality in 3D venue design *
 - [ ] Think how to connect budget with 3D venue design. *
 - [ ] The rectangle on the floor in the 3D venue is likely due to the lighting, fix it. 
 - [ ] Reporting functionality (Admin & Vendor) *
 - [ ] Couple profile view (from vendor)
 - [ ] Remove service availability in database
-- [ ] Try to enhance the 3D venue design functionality
 - [ ] Change all IDs in database to be meaningful (have prefix)
 - [ ] For the listing image, if there is 3D model, take a screenshot of the 3D model and make it its listing image. But if the vendor choose to upload themselve, use the image uploaded. If none of them is provided, put a default image (need to be appropriate).
 - [ ] Do one more list that store the 3D element that can be added into the 3D space. My idea is like there will be two option, if they click on the add button, the 3D item is added to something like a list that keep all the selected items choose by the user because there might be bundle service that contains many elements. Another option is they directly drag from the catalog to the 3D venue, this will directly put all the elements in the 3D venue instead of the list.

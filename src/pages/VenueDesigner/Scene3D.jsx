@@ -3,11 +3,13 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { ContactShadows, Environment, OrbitControls, PointerLockControls, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import PropTypes from 'prop-types';
+import { Tooltip } from '@mui/material';
 import PlacedElement from './PlacedElement';
 import { useVenueDesigner } from './VenueDesignerContext';
 import { useWASDControls } from './useWASDControls';
 import BudgetTracker from '../../components/BudgetTracker/BudgetTracker';
 import TableTaggingModal from '../../components/TableTaggingModal/TableTaggingModal';
+import HelpModal from '../../components/HelpModal/HelpModal';
 import './Scene3D.css';
 
 const DEFAULT_GRID = {
@@ -216,6 +218,14 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   } = useVenueDesigner();
 
   const [selectedIds, setSelectedIds] = useState([]); // Changed from selectedId to selectedIds array
+  const selectedIdsRef = useRef([]); // Always keep current selectedIds in a ref to avoid stale closures
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+  }, [selectedIds]);
+  
+  const [groupInteractionMode, setGroupInteractionMode] = useState('translate'); // Track active mode for group toolbar
   const [orbitEnabled, setOrbitEnabled] = useState(true);
   const [viewMode, setViewMode] = useState('orbit'); // 'orbit' | 'walk'
   const [pointerLocked, setPointerLocked] = useState(false);
@@ -223,6 +233,10 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   const [taggingModalPlacement, setTaggingModalPlacement] = useState(null);
   const [boxSelectionStart, setBoxSelectionStart] = useState(null); // For box selection
   const [boxSelectionEnd, setBoxSelectionEnd] = useState(null);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const selectedElementRefs = useRef(new Map()); // Store refs to selected elements for real-time updates
+  const selectedInitialPositionsRef = useRef(new Map()); // Store initial positions for multi-selection
+  const currentDragSessionRef = useRef(null); // Track current drag session: { draggedId, selectedIds: Set, initialPositions: Map }
   const venueModelUrl = useMemo(() => normalizeUrl(venueInfo?.modelFile), [venueInfo?.modelFile]);
   const orbitControlsRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -268,7 +282,12 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   }, [effectiveGrid.size]);
 
   const handleCloseSelection = useCallback(() => {
+    selectedIdsRef.current = [];
     setSelectedIds([]);
+    // Clear all drag state when selection is cleared
+    selectedInitialPositionsRef.current.clear();
+    currentDragSessionRef.current = null;
+    setGroupInteractionMode('translate');
   }, []);
 
   const handleOpenTaggingModal = useCallback((placement) => {
@@ -300,15 +319,29 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     if (isShiftKey) {
       // Toggle selection: add if not selected, remove if already selected
       setSelectedIds((prev) => {
-        if (prev.includes(placementId)) {
-          return prev.filter((id) => id !== placementId);
-        } else {
-          return [...prev, placementId];
+        const newSelection = prev.includes(placementId)
+          ? prev.filter((id) => id !== placementId)
+          : [...prev, placementId];
+        // Update ref immediately
+        selectedIdsRef.current = newSelection;
+        // Clear all drag state when selection changes
+        selectedInitialPositionsRef.current.clear();
+        currentDragSessionRef.current = null;
+        // Reset to default move mode when selection changes
+        if (newSelection.length > 1) {
+          setGroupInteractionMode('translate');
         }
+        return newSelection;
       });
     } else {
       // Single selection: replace current selection
-      setSelectedIds([placementId]);
+      const newSelection = [placementId];
+      selectedIdsRef.current = newSelection;
+      setSelectedIds(newSelection);
+      // Clear all drag state when selection changes
+      selectedInitialPositionsRef.current.clear();
+      currentDragSessionRef.current = null;
+      setGroupInteractionMode('translate');
     }
   }, []);
 
@@ -390,6 +423,344 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     [onToggleLock]
   );
 
+  // Initialize drag session - store all initial positions synchronously
+  // This is called directly from PlacedElement on pointer down
+  const initializeDragSession = useCallback((draggedId, draggedInitialPos) => {
+    // Always use the current selectedIds from ref (always up-to-date)
+    const currentSelectedIds = selectedIdsRef.current.filter((id) => 
+      placements.some((p) => p.id === id)
+    );
+    
+    if (currentSelectedIds.length === 0 || !currentSelectedIds.includes(draggedId)) {
+      return null;
+    }
+    
+    const sessionSelectedIds = new Set(currentSelectedIds);
+    const initialPositions = new Map();
+    
+    // Store the dragged element's initial position (passed from PlacedElement)
+    if (draggedInitialPos) {
+      initialPositions.set(draggedId, {
+        x: draggedInitialPos.x,
+        y: draggedInitialPos.y,
+        z: draggedInitialPos.z,
+      });
+    }
+    
+    // Store initial positions for ALL other selected elements immediately from refs
+    currentSelectedIds.forEach((id) => {
+      if (id === draggedId) return; // Already stored above
+      
+      const elementRef = selectedElementRefs.current.get(id);
+      if (elementRef && elementRef.groupRef && elementRef.groupRef.current) {
+        const pos = elementRef.groupRef.current.position;
+        initialPositions.set(id, {
+          x: pos.x,
+          y: pos.y,
+          z: pos.z,
+        });
+      }
+    });
+    
+    // Store drag session
+    currentDragSessionRef.current = {
+      draggedId,
+      selectedIds: sessionSelectedIds,
+      initialPositions,
+      timestamp: Date.now(), // Add timestamp to track session freshness
+    };
+    
+    // Also store in the old ref for backward compatibility
+    initialPositions.forEach((pos, id) => {
+      selectedInitialPositionsRef.current.set(id, pos);
+    });
+    
+    return initialPositions.get(draggedId);
+  }, [placements]);
+  
+  // Expose initialization function directly to PlacedElement
+  const handleInitializeDragSession = useCallback((draggedId, draggedInitialPos) => {
+    return initializeDragSession(draggedId, draggedInitialPos);
+  }, [initializeDragSession]);
+  
+  // Real-time update for multi-selection during drag
+  const handleUpdateOtherSelected = useCallback(
+    (draggedId, positionOffset, selectedIdsParam, rotationDelta = null, initialPosition = null) => {
+      const draggedRef = selectedElementRefs.current.get(draggedId);
+      if (!draggedRef || !draggedRef.groupRef || !draggedRef.groupRef.current) return;
+      
+      const draggedGroupRef = draggedRef.groupRef.current;
+      const draggedPlacement = placements.find((p) => p.id === draggedId);
+      
+      // Get current selectedIds from ref (always use latest, no stale closure)
+      const currentSelectedIds = selectedIdsRef.current.filter((id) => 
+        placements.some((p) => p.id === id)
+      );
+      
+      // Check if selectedIdsParam contains child IDs (for parent-child relationships)
+      // If selectedIdsParam is provided and contains IDs not in currentSelectedIds, they might be children
+      const isParentChildUpdate = selectedIdsParam && 
+        Array.isArray(selectedIdsParam) && 
+        selectedIdsParam.some(id => !currentSelectedIds.includes(id));
+      
+      // Get drag session - should already be initialized in handlePointerDown
+      let dragSession = currentDragSessionRef.current;
+      
+      // Check if we have a valid drag session
+      const hasValidSession = dragSession && 
+          dragSession.draggedId === draggedId && 
+          currentSelectedIds.every(id => dragSession.selectedIds.has(id)) &&
+          dragSession.selectedIds.size === currentSelectedIds.length;
+      
+      if (!hasValidSession) {
+        // Session not initialized or invalid - try to initialize now (fallback)
+        if (initialPosition) {
+          const draggedInitialPos = initializeDragSession(draggedId, {
+            x: initialPosition.x,
+            y: initialPosition.y,
+            z: initialPosition.z,
+          });
+          dragSession = currentDragSessionRef.current;
+        }
+        
+        if (!dragSession) {
+          return; // Failed to initialize
+        }
+      }
+      
+      // Use positions from drag session
+      const sessionSelectedIds = dragSession.selectedIds;
+      const sessionInitialPositions = dragSession.initialPositions;
+      const draggedInitialPos = sessionInitialPositions.get(draggedId);
+      
+      // Initialize initialRotations map if it doesn't exist
+      if (!dragSession.initialRotations) {
+        dragSession.initialRotations = new Map();
+      }
+      
+      if (!draggedInitialPos) {
+        return;
+      }
+      
+      // For parent-child updates, use selectedIdsParam directly (contains child IDs)
+      // For multi-selection, use sessionSelectedIds
+      const idsToUpdate = isParentChildUpdate && selectedIdsParam
+        ? selectedIdsParam
+        : Array.from(sessionSelectedIds);
+      
+      // Update elements (either selected elements or children)
+      // For parent-child updates, skip the first loop and handle in the dedicated section below
+      // For multi-selection, update in this loop
+      if (!isParentChildUpdate) {
+        idsToUpdate.forEach((id) => {
+          if (id === draggedId) return; // Skip the dragged element itself
+          
+          // For multi-selection, only update if still in current selection
+          if (!currentSelectedIds.includes(id)) {
+            return; // This element is no longer selected, skip it
+          }
+          
+          // Get initial position from session
+          const otherInitialPos = sessionInitialPositions.get(id);
+          if (!otherInitialPos) {
+            console.warn('No initial position for element', id);
+            return;
+          }
+          
+          const elementRef = selectedElementRefs.current.get(id);
+          if (!elementRef || !elementRef.groupRef || !elementRef.groupRef.current) return;
+          
+          const groupRef = elementRef.groupRef.current;
+          
+          if (positionOffset) {
+            // Calculate relative position from dragged element's initial position
+            const relativeX = otherInitialPos.x - draggedInitialPos.x;
+            const relativeY = otherInitialPos.y - draggedInitialPos.y;
+            const relativeZ = otherInitialPos.z - draggedInitialPos.z;
+            
+            // Apply dragged element's current position + relative offset
+            const draggedCurrentPos = {
+              x: draggedInitialPos.x + positionOffset.x,
+              y: draggedInitialPos.y + positionOffset.y,
+              z: draggedInitialPos.z + positionOffset.z,
+            };
+            
+            groupRef.position.set(
+              draggedCurrentPos.x + relativeX,
+              draggedCurrentPos.y + relativeY,
+              draggedCurrentPos.z + relativeZ
+            );
+          }
+          
+          if (rotationDelta !== null) {
+            // Only change rotation, don't change position
+            // All elements rotate in place by the same amount
+            groupRef.rotation.y += rotationDelta;
+          }
+        });
+      }
+      
+      // Update children of dragged element (parent-child relationship)
+      // Check both: 1) draggedPlacement.parentElementId === null (saved parent), 
+      // 2) selectedIdsParam contains child IDs (children passed explicitly from PlacedElement)
+      const isParent = draggedPlacement && draggedPlacement.parentElementId === null;
+      const hasExplicitChildren = isParentChildUpdate && selectedIdsParam && Array.isArray(selectedIdsParam);
+      
+      // Find children: either from database (parentElementId === draggedId) or from explicit list
+      let children = placements.filter((p) => p.parentElementId === draggedId);
+      
+      // If explicit child IDs were provided, also include those (in case parentElementId not saved yet)
+      if (hasExplicitChildren) {
+        const explicitChildren = placements.filter((p) => selectedIdsParam.includes(p.id));
+        // Merge and deduplicate
+        const childIds = new Set([...children.map(c => c.id), ...explicitChildren.map(c => c.id)]);
+        children = placements.filter((p) => childIds.has(p.id));
+      }
+      
+      // Update children if: (parent is being dragged OR explicit children provided) AND has children AND has movement
+      if ((isParent || hasExplicitChildren) && children.length > 0 && (positionOffset || rotationDelta !== null)) {
+        console.log('[Parent-Child] Updating children:', {
+          draggedId,
+          isParent,
+          hasExplicitChildren,
+          childrenCount: children.length,
+          childIds: children.map(c => c.id),
+          hasPositionOffset: !!positionOffset,
+          hasRotationDelta: rotationDelta !== null
+        });
+        
+        // Note: We don't pre-capture children's positions here anymore
+        // Instead, we capture them on-demand in the rotation logic below
+        // This ensures we always use the child's current visual position
+        
+        children.forEach((child) => {
+          const childRef = selectedElementRefs.current.get(child.id);
+          if (!childRef || !childRef.groupRef || !childRef.groupRef.current) {
+            // If child ref not found, skip - will be updated on commit
+            console.warn('[Parent-Child] Child ref not found for:', child.id);
+            return;
+          }
+          
+          const childGroupRef = childRef.groupRef.current;
+          const childPos = child.position || { x: 0, y: 0, z: 0 };
+          
+          // Use the dragged element's current visual position (from groupRef)
+          const parentCurrentPos = draggedGroupRef.position;
+          
+          // Get parent's initial position from drag session or use placement position as fallback
+          const parentInitialPos = initialPosition || 
+            (sessionInitialPositions.get(draggedId)) || 
+            (draggedPlacement.position || { x: 0, y: 0, z: 0 });
+          
+          if (positionOffset) {
+            // Calculate relative position from parent's original position
+            const relativeX = childPos.x - parentInitialPos.x;
+            const relativeZ = childPos.z - parentInitialPos.z;
+            const relativeY = childPos.y - parentInitialPos.y;
+            
+            // Apply parent's new visual position + relative offset
+            childGroupRef.position.set(
+              parentCurrentPos.x + relativeX,
+              parentCurrentPos.y + relativeY,
+              parentCurrentPos.z + relativeZ
+            );
+            
+            console.log('[Parent-Child] Updated child position:', {
+              childId: child.id,
+              childPos: { x: childPos.x, y: childPos.y, z: childPos.z },
+              parentInitialPos,
+              parentCurrentPos: { x: parentCurrentPos.x, y: parentCurrentPos.y, z: parentCurrentPos.z },
+              relativeOffset: { x: relativeX, y: relativeY, z: relativeZ },
+              newChildPos: {
+                x: parentCurrentPos.x + relativeX,
+                y: parentCurrentPos.y + relativeY,
+                z: parentCurrentPos.z + relativeZ
+              }
+            });
+          }
+          
+          if (rotationDelta !== null) {
+            // Rotate child around parent's initial center
+            // Get the child's initial position from session (where it was when rotation started)
+            // If not in session yet, use the child's current visual position (capture it now)
+            let childInitialPos = sessionInitialPositions.get(child.id);
+            if (!childInitialPos) {
+              // Capture current visual position as initial position
+              const currentPos = childGroupRef.position;
+              childInitialPos = {
+                x: currentPos.x,
+                y: currentPos.y,
+                z: currentPos.z
+              };
+              sessionInitialPositions.set(child.id, childInitialPos);
+              
+              // Also capture parent's initial rotation if not already stored
+              if (!dragSession.initialRotations) {
+                dragSession.initialRotations = new Map();
+              }
+              const parentInitialRotation = draggedGroupRef.rotation.y;
+              dragSession.initialRotations.set(draggedId, parentInitialRotation);
+              
+              console.log('[Parent-Child] Captured child initial position on first rotation:', {
+                childId: child.id,
+                initialPos: childInitialPos,
+                parentInitialRotation
+              });
+            }
+            
+            // Get parent's initial rotation from session
+            const parentInitialRotation = dragSession.initialRotations?.get(draggedId) ?? draggedPlacement.rotation ?? 0;
+            // Get parent's current rotation
+            const parentCurrentRotation = draggedGroupRef.rotation.y;
+            // Calculate total rotation from start (in radians)
+            // Negate to match the parent's rotation direction
+            const totalRotationDelta = -(parentCurrentRotation - parentInitialRotation);
+            
+            // Calculate relative position from parent's initial position
+            // This is the position where the child is on the parent (like "at 12 o'clock")
+            const relativeX = childInitialPos.x - parentInitialPos.x;
+            const relativeZ = childInitialPos.z - parentInitialPos.z;
+            
+            // Rotate the relative position by the total rotation
+            const cos = Math.cos(totalRotationDelta);
+            const sin = Math.sin(totalRotationDelta);
+            const rotatedX = relativeX * cos - relativeZ * sin;
+            const rotatedZ = relativeX * sin + relativeZ * cos;
+            
+            // Apply rotation to child position
+            // Rotate the child's position around the parent's center
+            childGroupRef.position.set(
+              parentCurrentPos.x + rotatedX,
+              childInitialPos.y, // Keep Y from initial position (relative to parent)
+              parentCurrentPos.z + rotatedZ
+            );
+            // Note: We do NOT rotate the child's orientation - it should maintain its original direction
+            // The child's position orbits around the parent, but the child itself doesn't rotate
+            
+            console.log('[Parent-Child] Rotated child position:', {
+              childId: child.id,
+              incrementalRotationDelta: rotationDelta,
+              totalRotationDelta,
+              parentInitialRotation,
+              parentCurrentRotation,
+              childInitialPos,
+              parentInitialPos,
+              parentCurrentPos,
+              relativePos: { x: relativeX, z: relativeZ },
+              rotatedPos: { x: rotatedX, z: rotatedZ },
+              newWorldPos: {
+                x: parentCurrentPos.x + rotatedX,
+                y: childInitialPos.y,
+                z: parentCurrentPos.z + rotatedZ
+              }
+            });
+          }
+        });
+      }
+    },
+    [placements, initializeDragSession]
+  );
+
   const handleTransformCommit = useCallback(
     async (placementId, nextState) => {
       if (!placementId || !nextState) return;
@@ -404,44 +775,105 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
         payload.parentElementId = nextState.parentElementId;
       }
       if (Object.keys(payload).length === 0) return;
+      
+      // Clear drag session after commit
+      selectedInitialPositionsRef.current.clear();
+      currentDragSessionRef.current = null;
+      
       try {
+        const draggedPlacement = placements.find((p) => p.id === placementId);
+        if (!draggedPlacement) return;
+
+        // Calculate offset for multi-selection movement
+        const isMultiSelect = selectedIds.length > 1 && selectedIds.includes(placementId);
+        let positionOffset = null;
+        let rotationOffset = null;
+        
+        if (isMultiSelect && nextState.position) {
+          const oldPos = draggedPlacement.position || { x: 0, y: 0, z: 0 };
+          positionOffset = {
+            x: nextState.position.x - oldPos.x,
+            y: nextState.position.y - oldPos.y,
+            z: nextState.position.z - oldPos.z,
+          };
+        }
+        
+        if (isMultiSelect && typeof nextState.rotation === 'number' && draggedPlacement.rotation !== undefined) {
+          rotationOffset = nextState.rotation - draggedPlacement.rotation;
+        }
+
+        // Update the dragged element
         await onUpdatePlacement?.(placementId, payload);
-        // If this element has children, update their positions/rotations
-        const placement = placements.find((p) => p.id === placementId);
-        if (placement && nextState.position) {
-          // Find all child elements
+
+        // Update all other selected elements (multi-selection movement)
+        if (isMultiSelect) {
+          const otherSelected = placements.filter(
+            (p) => selectedIds.includes(p.id) && p.id !== placementId && !p.isLocked
+          );
+          
+          for (const other of otherSelected) {
+            const otherPayload = {};
+            
+            if (positionOffset) {
+              const otherPos = other.position || { x: 0, y: 0, z: 0 };
+              otherPayload.position = {
+                x: otherPos.x + positionOffset.x,
+                y: otherPos.y + positionOffset.y,
+                z: otherPos.z + positionOffset.z,
+              };
+            }
+            
+            if (rotationOffset !== null && other.rotation !== undefined) {
+              otherPayload.rotation = (other.rotation || 0) + rotationOffset;
+            }
+            
+            if (Object.keys(otherPayload).length > 0) {
+              await onUpdatePlacement?.(other.id, otherPayload);
+            }
+          }
+        }
+
+        // If this element has children, update their positions/rotations (parent-child relationship)
+        // Only update if this element is a parent (not a child itself)
+        // Update children when parent moves OR rotates
+        if (draggedPlacement && draggedPlacement.parentElementId === null && (nextState.position || typeof nextState.rotation === 'number')) {
+          // Find all child elements (children that have this element as parent)
           const children = placements.filter((p) => p.parentElementId === placementId);
-          for (const child of children) {
-            // Calculate relative offset from parent
-            const relativeX = child.position.x - placement.position.x;
-            const relativeZ = child.position.z - placement.position.z;
-            const relativeY = child.position.y - placement.position.y;
+          
+          if (children.length > 0) {
+            // Get the current visual position from the element ref if available
+            const draggedRef = selectedElementRefs.current.get(placementId);
+            const parentVisualPos = draggedRef?.groupRef?.current?.position 
+              ? { 
+                  x: draggedRef.groupRef.current.position.x,
+                  y: draggedRef.groupRef.current.position.y,
+                  z: draggedRef.groupRef.current.position.z,
+                }
+              : (nextState.position || draggedPlacement.position || { x: 0, y: 0, z: 0 });
             
-            // Apply parent's new position with relative offset
-            const newChildPosition = {
-              x: nextState.position.x + relativeX,
-              y: nextState.position.y + relativeY,
-              z: nextState.position.z + relativeZ,
-            };
-            
-            // If parent rotated, rotate child position around parent center
-            if (typeof nextState.rotation === 'number' && placement.rotation !== undefined) {
-              const rotationDelta = (nextState.rotation - placement.rotation) * (Math.PI / 180);
-              const cos = Math.cos(rotationDelta);
-              const sin = Math.sin(rotationDelta);
-              const rotatedX = relativeX * cos - relativeZ * sin;
-              const rotatedZ = relativeX * sin + relativeZ * cos;
-              newChildPosition.x = nextState.position.x + rotatedX;
-              newChildPosition.z = nextState.position.z + rotatedZ;
+            for (const child of children) {
+              // Get child's current visual position if available (already updated in real-time)
+              const childRef = selectedElementRefs.current.get(child.id);
+              const childVisualPos = childRef?.groupRef?.current?.position
+                ? {
+                    x: childRef.groupRef.current.position.x,
+                    y: childRef.groupRef.current.position.y,
+                    z: childRef.groupRef.current.position.z,
+                  }
+                : (child.position || { x: 0, y: 0, z: 0 });
               
-              // Also rotate child's rotation
-              const newChildRotation = (child.rotation || 0) + (nextState.rotation - (placement.rotation || 0));
+              // Use the child's current visual position directly - it's already correctly positioned
+              // from the real-time updates during drag/rotation
+              // Do NOT recalculate or re-rotate - just save what's already there
+              // Also, do NOT change the child's rotation - it should maintain its original orientation
               await onUpdatePlacement?.(child.id, {
-                position: newChildPosition,
-                rotation: newChildRotation,
+                position: {
+                  x: Number(childVisualPos.x.toFixed(3)),
+                  y: Number(childVisualPos.y.toFixed(3)),
+                  z: Number(childVisualPos.z.toFixed(3)),
+                },
+                // Don't change child's rotation - it should maintain its original orientation
               });
-            } else {
-              await onUpdatePlacement?.(child.id, { position: newChildPosition });
             }
           }
         }
@@ -449,7 +881,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
         // Errors already handled upstream, no-op to keep interaction smooth
       }
     },
-    [onUpdatePlacement, placements]
+    [onUpdatePlacement, placements, selectedIds]
   );
 
   const updateGridSetting = useCallback(
@@ -609,6 +1041,15 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
         )}
       </div>
       <div className="scene3d-view-mode-controls">
+        <Tooltip title="Help - How to use 3D Venue Design">
+          <button
+            type="button"
+            className="scene3d-view-mode-btn"
+            onClick={() => setShowHelpModal(true)}
+          >
+            <i className="fas fa-info-circle"></i>
+          </button>
+        </Tooltip>
         <button
           type="button"
           className={`scene3d-view-mode-btn ${viewMode === 'orbit' ? 'active' : ''}`}
@@ -634,6 +1075,103 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
           <i className="fas fa-map"></i>
         </button>
       </div>
+      
+      {/* Group actions toolbar - middle bottom */}
+      {selectedIds.length > 1 && (
+        <div 
+          className="scene3d-group-actions-bottom" 
+          style={{ 
+            position: 'absolute',
+            bottom: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            gap: '10px',
+            alignItems: 'center',
+            backgroundColor: 'rgba(255, 255, 255, 0.15)',
+            backdropFilter: 'blur(8px)',
+            padding: '10px 16px',
+            borderRadius: '50px',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            zIndex: 1000,
+            border: '1px solid rgba(255, 255, 255, 0.3)'
+          }}
+        >
+          <span style={{ 
+            marginRight: '12px', 
+            fontSize: '14px', 
+            fontWeight: 500, 
+            color: 'rgba(255, 255, 255, 0.9)'
+          }}>
+            {selectedIds.length} selected
+          </span>
+          <button
+            type="button"
+            className={`scene3d-view-mode-btn ${groupInteractionMode === 'rotate' ? 'active' : ''}`}
+            onClick={() => {
+              setGroupInteractionMode('rotate');
+              // Set rotate mode for all selected elements
+              selectedPlacements.forEach((p) => {
+                const elementRef = selectedElementRefs.current.get(p.id);
+                if (elementRef && elementRef.setInteractionMode) {
+                  elementRef.setInteractionMode('rotate');
+                }
+              });
+            }}
+            title="Rotate selected"
+          >
+            <i className="fas fa-redo"></i>
+          </button>
+          <button
+            type="button"
+            className={`scene3d-view-mode-btn ${groupInteractionMode === 'translate' ? 'active' : ''}`}
+            onClick={() => {
+              setGroupInteractionMode('translate');
+              // Set move mode for all selected elements
+              selectedPlacements.forEach((p) => {
+                const elementRef = selectedElementRefs.current.get(p.id);
+                if (elementRef && elementRef.setInteractionMode) {
+                  elementRef.setInteractionMode('translate');
+                }
+              });
+            }}
+            title="Move selected"
+          >
+            <i className="fas fa-arrows-alt"></i>
+          </button>
+          <button
+            type="button"
+            className="scene3d-view-mode-btn"
+            onClick={() => {
+              const allLocked = selectedPlacements.every((p) => p.isLocked);
+              onLockMultiple?.(selectedIds, !allLocked);
+            }}
+            title={selectedPlacements.every((p) => p.isLocked) ? 'Unlock selected' : 'Lock selected'}
+          >
+            <i className={`fas fa-${selectedPlacements.every((p) => p.isLocked) ? 'unlock' : 'lock'}`}></i>
+          </button>
+          <button
+            type="button"
+            className="scene3d-view-mode-btn"
+            onClick={() => {
+              if (onDuplicateMultiple) {
+                onDuplicateMultiple(selectedIds);
+              }
+            }}
+            title="Duplicate selected"
+          >
+            <i className="fas fa-copy"></i>
+          </button>
+          <button
+            type="button"
+            className="scene3d-view-mode-btn"
+            onClick={handleCloseSelection}
+            title="Clear selection"
+          >
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+      )}
       <div className="scene3d-meta">
         <span>Wedding Venue Space</span>
         {savingState?.lastSaved && (
@@ -698,6 +1236,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
                 key={placement.id}
                 placement={placement}
                 isSelected={selectedIds.includes(placement.id)}
+                selectedIds={selectedIds}
                 onSelect={handleSelect}
                 availability={availabilityMap[placement.metadata?.serviceListingId]}
                 snapIncrement={effectiveGrid.snapToGrid ? effectiveGrid.size || 1 : null}
@@ -712,6 +1251,11 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
                 onClose={handleCloseSelection}
                 venueBounds={venueBounds}
                 onOpenTaggingModal={handleOpenTaggingModal}
+                onRegisterElementRef={(id, ref) => {
+                  selectedElementRefs.current.set(id, ref);
+                }}
+                onUpdateOtherSelected={handleUpdateOtherSelected}
+                onInitializeDragSession={handleInitializeDragSession}
               />
             ))}
         </Suspense>
@@ -760,6 +1304,9 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
           onTagUpdate={handleTagUpdate}
         />
       )}
+
+      {/* Help Modal */}
+      <HelpModal open={showHelpModal} onClose={() => setShowHelpModal(false)} />
     </div>
   );
 };

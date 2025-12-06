@@ -181,6 +181,7 @@ const isStackable = (p) => {
 const PlacedElement = ({
   placement,
   isSelected,
+  selectedIds = [],
   onSelect,
   availability,
   snapIncrement,
@@ -195,11 +196,36 @@ const PlacedElement = ({
   removable = false,
   venueBounds,
   onOpenTaggingModal,
+  onRegisterElementRef,
+  onUpdateOtherSelected,
+  onInitializeDragSession,
 }) => {
   const { scene, camera, raycaster } = useThree();
   const groupRef = useRef();
   const modelGroupRef = useRef();
   const boundingBoxRef = useRef(new THREE.Box3());
+  const setInteractionModeRef = useRef(null);
+  
+  // Expose methods for parent component - register for all elements, not just selected
+  useEffect(() => {
+    if (onRegisterElementRef) {
+      onRegisterElementRef(placement.id, {
+        groupRef,
+        setInteractionMode: (mode) => {
+          if (setInteractionModeRef.current) {
+            setInteractionModeRef.current(mode);
+          }
+        },
+      });
+    }
+    // Cleanup on unmount
+    return () => {
+      if (onRegisterElementRef) {
+        // Unregister - pass null or remove from map
+        // The parent component will handle cleanup
+      }
+    };
+  }, [placement.id, onRegisterElementRef]);
   const dragStateRef = useRef({
     mode: null,
     plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
@@ -210,9 +236,12 @@ const PlacedElement = ({
     pointerId: null,
     captureTarget: null,
     parentElementId: null, // Track parent element when stacking
+    initialPosition: null, // For multi-selection
+    otherSelectedInitialPositions: null, // For multi-selection
   });
   const [isLockedLocal, setIsLockedLocal] = useState(Boolean(placement.isLocked));
   const [interactionMode, setInteractionMode] = useState('translate'); // 'translate' | 'rotate'
+  setInteractionModeRef.current = setInteractionMode;
   const { venueDesignId, projectId } = useVenueDesigner();
 
   const footprintRadius = useMemo(() => getFootprintRadius(placement), [placement]);
@@ -254,11 +283,50 @@ const PlacedElement = ({
     if (!groupRef.current) return;
     const { x, y, z } = groupRef.current.position;
     const rotation = normalizeDegrees(radToDeg(groupRef.current.rotation.y));
-    onTransformCommit?.(placement.id, {
+    const commitData = {
       position: { x: Number(x.toFixed(3)), y: Number(y.toFixed(3)), z: Number(z.toFixed(3)) },
       rotation,
+    };
+    // Include parentElementId if it was detected during drag
+    // Note: Placement IDs are ULIDs (e.g., "ple_01KBSEGMKNM3TWK9VWNHYWRKJ6"), not UUIDs
+    const detectedParentId = dragStateRef.current.parentElementId;
+    
+    // Always check if we need to update parentElementId
+    // 1. If detectedParentId is set and valid, use it
+    // 2. If detectedParentId is null and placement had a parent, clear it
+    // 3. If detectedParentId is null and placement never had a parent, don't send (no change)
+    // Check if parentElementId changed during this drag
+    const parentChanged = detectedParentId !== undefined && 
+                          detectedParentId !== (placement.parentElementId || null);
+    
+    if (parentChanged) {
+      if (detectedParentId && typeof detectedParentId === 'string') {
+        const trimmedId = detectedParentId.trim();
+        if (trimmedId !== '' && trimmedId !== placement.id) {
+          commitData.parentElementId = trimmedId;
+          console.log('[Parent-Child] Saving parentElementId:', trimmedId, 'for placement:', placement.id);
+        } else {
+          // Invalid or self-reference - log error but don't send it
+          console.warn('[Parent-Child] Invalid parentElementId or self-reference:', trimmedId);
+        }
+      } else if (detectedParentId === null && placement.parentElementId) {
+        // Explicitly clearing a previously set parent
+        commitData.parentElementId = null;
+        console.log('[Parent-Child] Clearing parentElementId for placement:', placement.id);
+      }
+    }
+    
+    console.log('[Parent-Child] Commit data:', { 
+      placementId: placement.id, 
+      hasParentElementId: !!commitData.parentElementId,
+      parentElementId: commitData.parentElementId,
+      detectedParentId,
+      currentPlacementParentId: placement.parentElementId,
+      parentChanged
     });
-  }, [onTransformCommit, placement.id]);
+    
+    onTransformCommit?.(placement.id, commitData);
+  }, [onTransformCommit, placement.id, placement.parentElementId]);
 
   const endInteraction = useCallback(() => {
     if (!dragStateRef.current.mode) return;
@@ -266,9 +334,15 @@ const PlacedElement = ({
     dragStateRef.current.pointerId = null;
     dragStateRef.current.captureTarget = null;
     dragStateRef.current.mode = null;
+    // Clear initial position tracking
+    dragStateRef.current.initialPosition = null;
+    dragStateRef.current.otherSelectedInitialPositions = null;
+    // Note: Don't clear parentElementId here - it will be saved in commitTransform
     onOrbitToggle?.(true);
     commitTransform();
-  }, [commitTransform, onOrbitToggle]);
+    // Clear parentElementId after commit to reset for next drag
+    dragStateRef.current.parentElementId = placement.parentElementId || null;
+  }, [commitTransform, onOrbitToggle, placement.parentElementId]);
 
   const handlePointerDown = useCallback(
     (event) => {
@@ -282,6 +356,21 @@ const PlacedElement = ({
       if (!groupRef.current || isLockedLocal) return;
 
       const state = dragStateRef.current;
+      
+      // Store initial position for this element
+      state.initialPosition = groupRef.current.position.clone();
+      
+      // For multi-selection, initialize drag session immediately and synchronously
+      if (selectedIds.length > 1 && selectedIds.includes(placement.id)) {
+        // Call initialization directly - this must happen synchronously before any move events
+        if (onInitializeDragSession) {
+          onInitializeDragSession(placement.id, {
+            x: state.initialPosition.x,
+            y: state.initialPosition.y,
+            z: state.initialPosition.z,
+          });
+        }
+      }
       
       if (interactionMode === 'translate') {
         if (event.ray.intersectPlane(state.plane, state.intersection)) {
@@ -301,7 +390,7 @@ const PlacedElement = ({
       state.captureTarget = event.target;
       state.captureTarget?.setPointerCapture?.(event.pointerId);
     },
-    [onSelect, placement.id, onOrbitToggle, isSelected, isLockedLocal, interactionMode]
+    [onSelect, placement.id, onOrbitToggle, isSelected, isLockedLocal, interactionMode, selectedIds, allPlacements]
   );
 
   const handlePointerMove = useCallback(
@@ -338,6 +427,7 @@ const PlacedElement = ({
              // Intersect with all objects in scene
              const intersects = raycaster.intersectObjects(scene.children, true);
              
+             let foundValidParent = false;
              for (const hit of intersects) {
                // Ignore self
                let isSelf = false;
@@ -361,6 +451,7 @@ const PlacedElement = ({
 
                if (isPlacement) {
                  // Found a valid surface!
+                 foundValidParent = true;
                  // Get the world bounding box of the hit object (or the specific mesh)
                  const box = new THREE.Box3().setFromObject(hit.object);
                  // Stack on top
@@ -372,14 +463,34 @@ const PlacedElement = ({
                    if (!parentGroup.parent) break;
                    parentGroup = parentGroup.parent;
                  }
-                 if (parentGroup?.userData?.placementId && parentGroup.userData.placementId !== placement.id) {
-                   dragStateRef.current.parentElementId = parentGroup.userData.placementId;
-                 } else {
-                   // If we couldn't find parent or it's self, clear parent
-                   dragStateRef.current.parentElementId = null;
-                 }
+                const detectedParentId = parentGroup?.userData?.placementId;
+                
+                // Only set parent if it's a valid non-empty string and not self
+                // Note: Placement IDs are ULIDs (e.g., "ple_01KBSEGMKNM3TWK9VWNHYWRKJ6"), not UUIDs
+                if (detectedParentId && 
+                    typeof detectedParentId === 'string') {
+                  const trimmedId = detectedParentId.trim();
+                  if (trimmedId !== '' && trimmedId !== placement.id) {
+                    dragStateRef.current.parentElementId = trimmedId;
+                    console.log('[Parent-Child] Detected parent during drag:', trimmedId, 'for child:', placement.id);
+                  } else {
+                    // Self-reference, clear parent
+                    dragStateRef.current.parentElementId = null;
+                    console.log('[Parent-Child] Self-reference detected, clearing parent');
+                  }
+                } else {
+                  // If we couldn't find parent or it's invalid, clear parent
+                  dragStateRef.current.parentElementId = null;
+                  console.log('[Parent-Child] No valid parent found, clearing parent');
+                }
                  break; // Stop at first valid surface (closest to camera)
                }
+             }
+             
+             // If no valid placement was found (element is on the ground), clear parent
+             if (!foundValidParent) {
+               dragStateRef.current.parentElementId = null;
+               console.log('[Parent-Child] No placement found (on ground), clearing parent for:', placement.id);
              }
           } else {
             // If not stackable and we're on the ground, clear parent
@@ -441,14 +552,81 @@ const PlacedElement = ({
           }
 
           if (!collisionFound) {
+            const oldX = groupRef.current.position.x;
+            const oldY = groupRef.current.position.y;
+            const oldZ = groupRef.current.position.z;
+            
             groupRef.current.position.set(nextX, nextY, nextZ);
+            
+            // Update other selected elements in real-time for multi-selection
+            // Calculate offset from initial position, not from previous position
+            if (selectedIds.length > 1 && selectedIds.includes(placement.id) && state.initialPosition) {
+              const offset = {
+                x: nextX - state.initialPosition.x,
+                y: nextY - state.initialPosition.y,
+                z: nextZ - state.initialPosition.z,
+              };
+              
+              // Notify parent to update other selected elements
+              // Always call, even on first move - the session should already be initialized
+              if (onUpdateOtherSelected) {
+                onUpdateOtherSelected(placement.id, offset, selectedIds, null, state.initialPosition);
+              }
+            }
+            
+            // Update children in real-time (parent-child relationship)
+            // An element is a parent if it has no parent itself (parentElementId is null)
+            // and it has children (other elements that have this element as their parent)
+            const isParent = placement.parentElementId === null;
+            if (isParent) {
+              // This element is a parent, update its children
+              const children = allPlacements.filter((p) => p.parentElementId === placement.id);
+              if (children.length > 0 && onUpdateOtherSelected) {
+                const offset = {
+                  x: nextX - (state.initialPosition?.x || oldX),
+                  y: nextY - (state.initialPosition?.y || oldY),
+                  z: nextZ - (state.initialPosition?.z || oldZ),
+                };
+                // Pass children IDs to update them
+                const childIds = children.map((c) => c.id);
+                console.log('[Parent-Child] Parent moving, updating children:', {
+                  parentId: placement.id,
+                  childCount: children.length,
+                  childIds,
+                  offset
+                });
+                onUpdateOtherSelected(placement.id, offset, childIds, null, state.initialPosition);
+              }
+            }
           }
         }
       } else if (state.mode === 'rotate') {
         const pointerX = event.clientX ?? event.nativeEvent?.clientX ?? 0;
         const delta = pointerX - state.startPointerX;
         // Sensitivity factor: 0.01 radians per pixel
-        groupRef.current.rotation.y = state.startRotation + delta * 0.01;
+        const oldRotation = groupRef.current.rotation.y;
+        const newRotation = state.startRotation + delta * 0.01;
+        groupRef.current.rotation.y = newRotation;
+        
+        // Update other selected elements in real-time for multi-selection rotation
+        if (selectedIds.length > 1 && selectedIds.includes(placement.id) && state.initialPosition) {
+          const rotationDelta = newRotation - oldRotation;
+          // Always call, even on first rotation - the session should already be initialized
+          if (onUpdateOtherSelected && Math.abs(rotationDelta) > 0.001) {
+            onUpdateOtherSelected(placement.id, null, selectedIds, rotationDelta, state.initialPosition);
+          }
+        }
+        
+        // Update children in real-time (parent-child relationship)
+        if (placement.parentElementId === null) {
+          // This element is a parent, update its children
+          const children = allPlacements.filter((p) => p.parentElementId === placement.id);
+          if (children.length > 0 && onUpdateOtherSelected) {
+            const rotationDelta = newRotation - oldRotation;
+            const childIds = children.map((c) => c.id);
+            onUpdateOtherSelected(placement.id, null, childIds, rotationDelta, groupRef.current.position);
+          }
+        }
       }
     },
     [snapIncrement, allPlacements, footprintRadius, placement.id, placement, scene, camera, raycaster, venueBounds]
@@ -525,7 +703,7 @@ const PlacedElement = ({
         />
       </mesh>
 
-      {isSelected && (
+      {isSelected && selectedIds.length === 1 && (
         <Html
           position={[0, (boundingBoxRef.current.max.y || 1.2) + 1, 0]}
           center
@@ -631,6 +809,7 @@ PlacedElement.propTypes = {
     metadata: PropTypes.object,
   }).isRequired,
   isSelected: PropTypes.bool,
+  selectedIds: PropTypes.arrayOf(PropTypes.string),
   onSelect: PropTypes.func,
   availability: PropTypes.object,
   snapIncrement: PropTypes.number,
@@ -652,6 +831,9 @@ PlacedElement.propTypes = {
     maxZ: PropTypes.number,
   }),
   onOpenTaggingModal: PropTypes.func,
+  onRegisterElementRef: PropTypes.func,
+  onUpdateOtherSelected: PropTypes.func,
+  onInitializeDragSession: PropTypes.func,
 };
 
 export default PlacedElement;

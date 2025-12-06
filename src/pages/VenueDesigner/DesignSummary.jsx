@@ -421,6 +421,18 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
       // For per_table services, quantity is controlled by table tagging
       // Users cannot manually change the quantity
       if (item.isPerTableService) {
+        // If the service is booked, show a message about needing to cancel the booking first
+        if (item.isBooked) {
+          const message = 'This per-table service is currently booked. To reduce the quantity, you need to cancel the booking first. After cancellation, you can untag tables from the 3D design by clicking on a table and selecting "Tag Services".';
+          if (setToastNotification) {
+            setToastNotification({ open: true, message, severity: 'warning' });
+          } else {
+            window.alert(message);
+          }
+          return;
+        }
+        
+        // If not booked, show the standard message about tagging/untagging
         const message = 'This service uses per-table pricing. Quantity is automatically calculated from the number of tagged tables.\n\n' +
           'To change the quantity, tag or untag tables in the 3D design by clicking on a table and selecting "Tag Services".';
         if (setToastNotification) {
@@ -442,9 +454,9 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
       
       if (item.isBooked) {
         if (setToastNotification) {
-          setToastNotification({ open: true, message: 'This service is linked to a booking and cannot be modified.', severity: 'error' });
+          setToastNotification({ open: true, message: 'This service is linked to a booking and cannot be modified. Please cancel the booking first if you need to make changes.', severity: 'error' });
         } else {
-        window.alert('This service is linked to a booking and cannot be modified.');
+        window.alert('This service is linked to a booking and cannot be modified. Please cancel the booking first if you need to make changes.');
         }
         return;
       }
@@ -699,7 +711,9 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
                                 <Tooltip 
                                   title={
                                     item.isPerTableService 
-                                      ? "Quantity is automatically calculated from tagged tables. Tag or untag tables in the 3D design to change quantity."
+                                      ? item.isBooked
+                                        ? "This per-table service is booked. Cancel the booking first to modify the quantity."
+                                        : "Quantity is automatically calculated from tagged tables. Tag or untag tables in the 3D design to change quantity."
                                       : "Reduce quantity"
                                   }
                                 >

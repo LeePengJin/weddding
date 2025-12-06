@@ -27,7 +27,8 @@ const UPDATE_ELEMENT_SCHEMA = z.object({
     position: VECTOR_SCHEMA.optional(),
     rotation: z.coerce.number().optional(),
     isLocked: z.boolean().optional(),
-    parentElementId: z.string().uuid().nullable().optional(),
+    // parentElementId is a PlacedElement ID, which is a ULID (e.g., "ple_01KBSEGMKNM3TWK9VWNHYWRKJ6"), not a UUID
+    parentElementId: z.string().min(1).nullable().optional(),
     metadata: z
       .object({
         role: z.string().max(50).nullable().optional(),
@@ -127,6 +128,12 @@ const PLACEMENT_INCLUDE = {
     },
   },
   position: true,
+  parentElement: {
+    select: {
+      id: true,
+      position: true,
+    },
+  },
 };
 
 function buildDefaultLayoutData() {
@@ -178,6 +185,7 @@ function serializePlacement(placement, meta, serviceMap) {
     id: placement.id,
     rotation: placement.rotation ?? 0,
     isLocked: placement.isLocked,
+    parentElementId: placement.parentElementId || null, // Include parent element ID for parent-child relationships
     position: {
       x: safePosition.x,
       y: safePosition.y,
@@ -717,6 +725,8 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
 
     // Get booked quantities for all services in this project (for checkout quantity adjustment)
     const bookedQuantities = {};
+    // Get BookedTable records to track which specific tables are booked for per-table services
+    const bookedTablesMap = {}; // Map: serviceListingId -> Set of placedElementIds
     if (project.weddingDate) {
       const weddingDate = project.weddingDate instanceof Date ? project.weddingDate : new Date(project.weddingDate);
       const startOfDay = new Date(weddingDate);
@@ -756,7 +766,41 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
           bookedQuantities[serviceId] += service.quantity || 0;
         });
       });
+
+      // Get BookedTable records for per-table services
+      const bookedTableRecords = await prisma.bookedTable.findMany({
+        where: {
+          booking: {
+            projectId: project.id,
+            reservedDate: {
+              gte: startOfDay,
+              lte: endOfDay,
+            },
+            status: {
+              notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
+            },
+          },
+        },
+        select: {
+          serviceListingId: true,
+          placedElementId: true,
+        },
+      });
+
+      // Build map: serviceListingId -> Set of placedElementIds
+      bookedTableRecords.forEach((bt) => {
+        if (!bookedTablesMap[bt.serviceListingId]) {
+          bookedTablesMap[bt.serviceListingId] = new Set();
+        }
+        bookedTablesMap[bt.serviceListingId].add(bt.placedElementId);
+      });
     }
+
+    // Convert bookedTablesMap Sets to arrays for JSON serialization
+    const bookedTables = {};
+    Object.keys(bookedTablesMap).forEach((serviceId) => {
+      bookedTables[serviceId] = Array.from(bookedTablesMap[serviceId]);
+    });
 
     return res.json({
       project: {
@@ -768,6 +812,7 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
             : project.weddingDate,
       },
       bookedQuantities, // Include booked quantities for checkout adjustment
+      bookedTables, // Include booked table IDs per service (for per-table services)
       venue: venueListing
         ? {
             id: venueListing.id,
@@ -1205,6 +1250,11 @@ router.patch('/:projectId/elements/:elementId', requireAuth, async (req, res, ne
         if (payload.rotation !== undefined) updateData.rotation = payload.rotation;
         if (payload.isLocked !== undefined) updateData.isLocked = payload.isLocked;
         if (payload.parentElementId !== undefined) {
+          console.log('[Backend] Updating parentElementId:', {
+            placementId: placement.id,
+            newParentElementId: payload.parentElementId,
+            currentParentElementId: placement.parentElementId,
+          });
           // Validate parent exists and is in same venue design
           if (payload.parentElementId !== null) {
             const parentExists = await tx.placedElement.findFirst({
@@ -1214,19 +1264,24 @@ router.patch('/:projectId/elements/:elementId', requireAuth, async (req, res, ne
               },
             });
             if (!parentExists) {
+              console.error('[Backend] Parent element not found:', payload.parentElementId);
               throw new Error('Parent element not found');
             }
             // Prevent circular references
             if (payload.parentElementId === placement.id) {
+              console.error('[Backend] Circular reference detected:', payload.parentElementId);
               throw new Error('Element cannot be its own parent');
             }
           }
           updateData.parentElementId = payload.parentElementId;
         }
-        await tx.placedElement.update({
-          where: { id: placement.id },
-          data: updateData,
-        });
+        if (Object.keys(updateData).length > 0) {
+          await tx.placedElement.update({
+            where: { id: placement.id },
+            data: updateData,
+          });
+          console.log('[Backend] Updated placement:', placement.id, 'with data:', updateData);
+        }
       }
 
       if (payload.metadata) {
@@ -1610,6 +1665,7 @@ router.post('/:projectId/elements/:elementId/duplicate', requireAuth, async (req
     const newBundleId = bundleId ? prefixedUlid('bnd') : null;
 
     // Duplicate all placements in the bundle
+    // Note: Tagged services are NOT copied - users can tag the duplicated element manually if needed
     const duplicatedPlacements = await prisma.$transaction(async (tx) => {
       const newPlacements = [];
       
@@ -1629,6 +1685,9 @@ router.post('/:projectId/elements/:elementId/duplicate', requireAuth, async (req
           },
         });
 
+        // Don't copy tagged services - duplicated element starts with no tags
+        // User can tag it manually if needed
+
         const newPlacementRecord = await tx.placedElement.create({
           data: {
             venueDesignId: venueDesign.id,
@@ -1637,7 +1696,7 @@ router.post('/:projectId/elements/:elementId/duplicate', requireAuth, async (req
             rotation: originalPlacement.rotation || 0,
             isLocked: false,
             parentElementId: originalPlacement.parentElementId, // Preserve parent if original had one
-            serviceListingIds: originalPlacement.serviceListingIds || [],
+            serviceListingIds: [], // Don't copy tagged services - user can tag manually
             elementType: originalPlacement.elementType,
           },
         });

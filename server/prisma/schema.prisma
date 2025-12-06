@@ -138,6 +138,7 @@ model ServiceListing {
   packagePlacements PackagePlacedElement[]
   venueProjects  WeddingProject[] @relation("ProjectVenue") // Projects that selected this service as venue
   packageDesigns PackageDesign[] @relation("PackageDesignVenue") // Package templates using this venue
+  bookedTables  BookedTable[] // Per-table service bookings
 
   @@index([vendorId])
   @@index([isActive])
@@ -498,6 +499,7 @@ model PlacedElement {
   designElement DesignElement @relation(fields: [designElementId], references: [id], onDelete: Cascade)
   position      Coordinates   @relation(fields: [positionId], references: [id], onDelete: Cascade)
   booking       Booking?      @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  bookedTableBookings BookedTable[] @relation("BookedTablePlacedElement") // Per-table service bookings for this table
 
   @@index([venueDesignId])
   @@index([designElementId])
@@ -609,6 +611,7 @@ model Booking {
   reviews         Review[]
   placedElements  PlacedElement[]
   projectServices ProjectService[]
+  bookedTables    BookedTable[] // Per-table service bookings
   cancellation    Cancellation?
 
   @@index([coupleId])
@@ -630,6 +633,26 @@ model SelectedService {
 
   @@index([bookingId])
   @@index([serviceListingId])
+}
+
+// Track which specific tables (PlacedElements) are included in per-table service bookings
+// This allows us to know exactly which tables are booked, not just the quantity
+model BookedTable {
+  id               String   @id @default(uuid())
+  bookingId        String
+  serviceListingId String   // The per-table service that was booked
+  placedElementId  String   // The specific table (PlacedElement) that is part of this booking
+
+  booking        Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  serviceListing ServiceListing @relation(fields: [serviceListingId], references: [id], onDelete: Cascade)
+  placedElement  PlacedElement  @relation("BookedTablePlacedElement", fields: [placedElementId], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime @default(now())
+
+  @@unique([bookingId, serviceListingId, placedElementId]) // Prevent duplicate entries
+  @@index([bookingId])
+  @@index([serviceListingId])
+  @@index([placedElementId])
 }
 
 model Payment {

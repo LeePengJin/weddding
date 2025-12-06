@@ -608,6 +608,26 @@ const MyBookings = () => {
                       </Box>
                     )}
 
+                    {/* Services List */}
+                    {booking.selectedServices && booking.selectedServices.length > 0 && (
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                          Services ({booking.selectedServices.length})
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          {booking.selectedServices.map((service, index) => (
+                            <Chip
+                              key={index}
+                              label={`${service.serviceListing?.name || 'Service'} (${service.quantity || 1})`}
+                              size="small"
+                              variant="outlined"
+                              sx={{ fontSize: '0.75rem' }}
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                       {statusConfig.description}
                     </Typography>

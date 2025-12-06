@@ -34,18 +34,27 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
       try {
         // Fetch services already added to the project
         const designResponse = await apiFetch(`/venue-designs/${projectId}`);
+        
+        // Get booked tables map: serviceListingId -> array of placedElementIds
+        // This tells us which specific tables are booked for each per-table service
+        const bookedTables = designResponse.bookedTables || {}; // e.g., { "service-id": ["table-id-1", "table-id-2"] }
 
         // Get services from project (from ProjectService entries)
         // Include ALL per_table services, regardless of whether they have 3D models or not
         const projectServices = [];
         if (designResponse.projectServices) {
-          designResponse.projectServices.forEach((ps) => {
+          for (const ps of designResponse.projectServices) {
             if (ps.serviceListing && 
                 ps.serviceListing.pricingPolicy === 'per_table' && 
                 ps.serviceListing.isActive) {
               // Ensure ID is a string and valid
               const serviceId = String(ps.serviceListing.id || '').trim();
               if (serviceId) {
+                // Check if THIS SPECIFIC TABLE is booked for this service
+                // by checking if placement.id is in the bookedTables array for this service
+                const bookedTableIds = bookedTables[serviceId] || [];
+                const isThisTableBookedForService = placement?.id && bookedTableIds.includes(placement.id);
+                
                 projectServices.push({
                   id: serviceId,
                   name: ps.serviceListing.name,
@@ -53,12 +62,13 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
                   pricingPolicy: ps.serviceListing.pricingPolicy,
                   isActive: ps.serviceListing.isActive,
                   vendor: ps.serviceListing.vendor,
-                  isBooked: ps.isBooked || false, // Include booked status
+                  isBooked: ps.isBooked || false, // Service has some booking
+                  isThisTableBookedForService, // This specific table is booked for this service
                   has3DModel: ps.serviceListing.has3DModel || false, // Track if service has 3D model
                 });
               }
             }
-          });
+          }
         }
 
         // Also check placements for services with per_table pricing
@@ -79,18 +89,10 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
         setCurrentTags(tags);
         
         // Filter services: 
-        // - Hide booked services that are NOT currently tagged (can't add new booked services)
-        // - Show booked services that ARE currently tagged (but disable unchecking)
-        const currentTagIds = new Set(tags.map(id => String(id).trim()));
-        const filteredServices = projectServices.filter((service) => {
-          const serviceId = String(service.id).trim();
-          // If booked and not currently tagged, hide it
-          if (service.isBooked && !currentTagIds.has(serviceId)) {
-            return false;
-          }
-          // Otherwise, show it
-          return true;
-        });
+        // - Show ALL per_table services (including booked ones) to allow tagging additional tables
+        // - Booked services that are currently tagged will be disabled from untagging
+        // - Booked services that are NOT currently tagged can be tagged (for additional tables)
+        const filteredServices = projectServices;
         
         setAvailableServices(filteredServices);
         setSelectedServiceIds(tags);
@@ -104,12 +106,13 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
     loadServices();
   }, [open, projectId, placement]);
 
-  const handleServiceToggle = (serviceId, isBooked, isCurrentlyTagged) => {
-    // Prevent unchecking if service is booked and currently tagged
-    if (isBooked && isCurrentlyTagged) {
-      // If trying to uncheck a booked service that's currently tagged, prevent it
+  const handleServiceToggle = (serviceId, isThisTableBookedForService, isCurrentlyTagged) => {
+    // Prevent unchecking if THIS SPECIFIC TABLE is booked for THIS SPECIFIC SERVICE
+    // Note: Table booking and service booking are separate - we only care if this table is part of a service booking
+    if (isThisTableBookedForService && isCurrentlyTagged) {
+      // If trying to uncheck a service that this table is booked for, prevent it
       if (selectedServiceIds.includes(serviceId)) {
-        return; // Cannot uncheck booked services that are already tagged
+        return; // Cannot uncheck services that this table is booked for
       }
     }
     
@@ -234,8 +237,11 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
                 const serviceId = String(service.id).trim();
                 const isChecked = selectedServiceIds.includes(serviceId);
                 const isCurrentlyTagged = currentTags.includes(serviceId);
-                const isBooked = service.isBooked || false;
-                const isDisabled = isBooked && isCurrentlyTagged; // Disable unchecking booked services that are tagged
+                const serviceHasBooking = service.isBooked || false; // Service has some booking
+                const isThisTableBookedForService = service.isThisTableBookedForService || false; // This specific table is booked for this service
+                // Only disable if THIS SPECIFIC TABLE is booked for THIS SPECIFIC SERVICE
+                // Note: Table booking is separate and doesn't affect service tagging
+                const isDisabled = isThisTableBookedForService && isCurrentlyTagged;
                 
                 return (
                   <FormControlLabel
@@ -243,7 +249,7 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
                     control={
                       <Checkbox
                         checked={isChecked}
-                        onChange={() => handleServiceToggle(serviceId, isBooked, isCurrentlyTagged)}
+                        onChange={() => handleServiceToggle(serviceId, isThisTableBookedForService, isCurrentlyTagged)}
                         disabled={isDisabled}
                       />
                     }
@@ -253,11 +259,19 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
                           <Typography variant="body1" sx={{ fontWeight: 500 }}>
                             {service.name}
                           </Typography>
-                          {isBooked && isCurrentlyTagged && (
+                          {isThisTableBookedForService && isCurrentlyTagged && (
                             <Chip 
                               label="Booked" 
                               size="small" 
                               color="warning" 
+                              sx={{ height: 20, fontSize: '0.65rem' }}
+                            />
+                          )}
+                          {serviceHasBooking && !isThisTableBookedForService && (
+                            <Chip 
+                              label="Partially Booked" 
+                              size="small" 
+                              color="info" 
                               sx={{ height: 20, fontSize: '0.65rem' }}
                             />
                           )}
@@ -268,6 +282,11 @@ const TableTaggingModal = ({ open, onClose, placement, venueDesignId, projectId,
                           {isDisabled && (
                             <span style={{ display: 'block', color: '#d32f2f', marginTop: 2 }}>
                               This service is booked and cannot be untagged
+                            </span>
+                          )}
+                          {serviceHasBooking && !isThisTableBookedForService && (
+                            <span style={{ display: 'block', color: '#1976d2', marginTop: 2 }}>
+                              Tagging this table will create a new booking for additional tables
                             </span>
                           )}
                         </Typography>

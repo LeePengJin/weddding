@@ -429,6 +429,8 @@ const VenueDesigner = () => {
         if (newPlacements.length > 0) {
           setPlacements((prev) => [...prev, ...newPlacements]);
           const itemCount = newPlacements.length > 1 ? `${newPlacements.length} elements` : 'element';
+          
+          // Show warning if booked services were filtered out, otherwise show success
           if (response.warning) {
             setToastNotification({ open: true, message: response.warning, severity: 'warning' });
           } else {
@@ -477,6 +479,7 @@ const VenueDesigner = () => {
       const uniqueIds = [...Array.from(bundleGroups.values()), ...singlePlacements];
       const results = [];
       
+      const warnings = [];
       for (const id of uniqueIds) {
         try {
           const result = await handleDuplicatePlacement(id);
@@ -487,20 +490,37 @@ const VenueDesigner = () => {
             } else {
               results.push(result);
             }
+            // Collect warnings from the response
+            // Note: handleDuplicatePlacement shows toast, but we collect for summary
           }
         } catch (err) {
           // Continue with other elements even if one fails
           console.error(`Failed to duplicate element ${id}:`, err);
+          // Check if it's a warning (exclusive service, etc.)
+          if (err.message && (err.message.includes('exclusive') || err.message.includes('maximum quantity'))) {
+            warnings.push(err.message);
+          }
         }
       }
       
-      if (results.length > 0) {
-        const itemCount = results.length > 1 ? `${results.length} elements` : 'element';
-        setToastNotification({
-          open: true,
-          message: `Duplicated ${itemCount}`,
-          severity: 'success',
-        });
+      if (results.length > 0 || warnings.length > 0) {
+        const itemCount = results.length > 1 ? `${results.length} elements` : results.length === 1 ? 'element' : 'elements';
+        if (warnings.length > 0) {
+          // Show warning if some duplications failed
+          setToastNotification({
+            open: true,
+            message: results.length > 0 
+              ? `Duplicated ${itemCount}. Some elements could not be duplicated.`
+              : `Some elements could not be duplicated.`,
+            severity: 'warning',
+          });
+        } else if (results.length > 0) {
+          setToastNotification({
+            open: true,
+            message: `Duplicated ${itemCount} successfully`,
+            severity: 'success',
+          });
+        }
       }
     },
     [handleDuplicatePlacement, placements]

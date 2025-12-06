@@ -88,31 +88,53 @@ async function updateLinkedDesignItemsForBooking(bookingId, status) {
   const layoutData = venueDesign.layoutData || {};
   const placementsMeta = layoutData.placementsMeta || {};
 
+  // Get service listings to check which are per_table
+  const serviceListings = await prisma.serviceListing.findMany({
+    where: { id: { in: serviceListingIds } },
+    select: { id: true, pricingPolicy: true },
+  });
+
+  const perTableServiceIds = serviceListings
+    .filter(sl => sl.pricingPolicy === 'per_table')
+    .map(sl => sl.id);
+  const nonPerTableServiceIds = serviceListings
+    .filter(sl => sl.pricingPolicy !== 'per_table')
+    .map(sl => sl.id);
+
   // Find all placements that match the booked services
+  // Note: For per_table services, we don't mark tables as booked (isBooked/bookingId)
+  // because table bookings and service bookings are separate.
+  // We only mark ProjectService as booked, and the frontend checks that.
   const placementIdsForServices = venueDesign.placedElements
     .filter((placement) => {
       const meta = placementsMeta[placement.id];
-      if (!meta) return false;
       
-      // Check if this placement's serviceListingId matches any booked service
-      if (meta.serviceListingId && serviceListingIds.includes(meta.serviceListingId)) {
-        return true;
-      }
+      // For per_table services: we don't mark tables as booked here
+      // Tables can be booked separately, and service bookings are tracked via ProjectService
+      // So we skip per_table services for placement marking
       
-      // For bundle items, also check if any placement in the same bundle is booked
-      // This ensures all placements in a bundle are marked as booked together
-      if (meta.bundleId) {
-        // Find all placements in the same bundle
-        const bundlePlacements = venueDesign.placedElements.filter((p) => {
-          const pMeta = placementsMeta[p.id];
-          return pMeta && pMeta.bundleId === meta.bundleId;
-        });
+      // For non-per_table services: check meta.serviceListingId (3D element placements)
+      if (nonPerTableServiceIds.length > 0 && meta) {
+        // Check if this placement's serviceListingId matches any booked service
+        if (meta.serviceListingId && nonPerTableServiceIds.includes(meta.serviceListingId)) {
+          return true;
+        }
         
-        // If any placement in the bundle matches a booked service, mark all
-        return bundlePlacements.some((p) => {
-          const pMeta = placementsMeta[p.id];
-          return pMeta && pMeta.serviceListingId && serviceListingIds.includes(pMeta.serviceListingId);
-        });
+        // For bundle items, also check if any placement in the same bundle is booked
+        // This ensures all placements in a bundle are marked as booked together
+        if (meta.bundleId) {
+          // Find all placements in the same bundle
+          const bundlePlacements = venueDesign.placedElements.filter((p) => {
+            const pMeta = placementsMeta[p.id];
+            return pMeta && pMeta.bundleId === meta.bundleId;
+          });
+          
+          // If any placement in the bundle matches a booked service, mark all
+          return bundlePlacements.some((p) => {
+            const pMeta = placementsMeta[p.id];
+            return pMeta && pMeta.serviceListingId && nonPerTableServiceIds.includes(pMeta.serviceListingId);
+          });
+        }
       }
       
       return false;
@@ -120,7 +142,9 @@ async function updateLinkedDesignItemsForBooking(bookingId, status) {
     .map((placement) => placement.id);
 
   if (isActiveStatus) {
-    // Mark linked 3D elements and non-3D services as booked
+    // Mark linked 3D elements (non-per_table services) as booked
+    // Note: We don't mark tables as booked for per_table services because
+    // table bookings and service bookings are separate
     if (placementIdsForServices.length > 0) {
       await prisma.placedElement.updateMany({
         where: {
@@ -133,6 +157,61 @@ async function updateLinkedDesignItemsForBooking(bookingId, status) {
       });
     }
 
+    // For per_table services, create BookedTable records to track which specific tables are booked
+    if (perTableServiceIds.length > 0) {
+      // Get all tables that have each per-table service tagged
+      const allPlacements = await prisma.placedElement.findMany({
+        where: {
+          venueDesignId: venueDesign.id,
+        },
+        select: {
+          id: true,
+          elementType: true,
+          serviceListingIds: true,
+          designElement: {
+            select: {
+              elementType: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      // Filter to only tables
+      const tables = allPlacements.filter(pe => {
+        const isTableByElementType = pe.elementType === 'table' || pe.designElement?.elementType === 'table';
+        const isTableByName = pe.designElement?.name?.toLowerCase().includes('table');
+        return isTableByElementType || isTableByName;
+      });
+
+      // For each per-table service, find tables that have it tagged and create BookedTable records
+      const bookedTableRecords = [];
+      for (const serviceId of perTableServiceIds) {
+        const taggedTables = tables.filter(table => {
+          const serviceListingIds = table.serviceListingIds || [];
+          return serviceListingIds.includes(serviceId);
+        });
+
+        // Create a BookedTable record for each tagged table
+        for (const table of taggedTables) {
+          bookedTableRecords.push({
+            bookingId,
+            serviceListingId: serviceId,
+            placedElementId: table.id,
+          });
+        }
+      }
+
+      // Create all BookedTable records in one batch
+      if (bookedTableRecords.length > 0) {
+        await prisma.bookedTable.createMany({
+          data: bookedTableRecords,
+          skipDuplicates: true, // In case records already exist
+        });
+      }
+    }
+
+    // Mark ProjectService as booked (this applies to both per_table and non-per_table services)
     await prisma.projectService.updateMany({
       where: {
         projectId: booking.projectId,
@@ -145,6 +224,16 @@ async function updateLinkedDesignItemsForBooking(bookingId, status) {
     });
   } else if (status === 'cancelled_by_couple' || status === 'cancelled_by_vendor' || status === 'rejected') {
     // Booking no longer locks linked items – clear flags for this bookingId
+    // Note: For per_table services, we only clear ProjectService flags
+    // Table bookings (placement.isBooked) are separate and unaffected
+    
+    // Delete BookedTable records for this booking
+    await prisma.bookedTable.deleteMany({
+      where: {
+        bookingId,
+      },
+    });
+
     await prisma.placedElement.updateMany({
       where: {
         bookingId,
@@ -1809,6 +1898,11 @@ router.post('/:id/cancel', requireAuth, async (req, res, next) => {
         data: { status: newStatus },
       });
 
+      // Delete BookedTable records for this booking
+      await tx.bookedTable.deleteMany({
+        where: { bookingId: booking.id },
+      });
+
       // Update linked design items (clear booking references)
       await tx.placedElement.updateMany({
         where: { bookingId: booking.id },
@@ -2084,6 +2178,11 @@ router.post('/:id/cancellation-fee-payment', requireAuth, async (req, res, next)
       await tx.booking.update({
         where: { id: booking.id },
         data: { status: 'cancelled_by_couple' },
+      });
+
+      // Delete BookedTable records for this booking
+      await tx.bookedTable.deleteMany({
+        where: { bookingId: booking.id },
       });
 
       // Update linked design items (clear booking references)

@@ -28,28 +28,43 @@ async function getTableCount(venueDesignId, serviceListingId = null) {
     throw new Error('Venue design not found');
   }
 
-  // Build where clause
-  const where = {
-    venueDesignId,
-    designElement: {
-      elementType: 'table', // Only count elements marked as tables
+  // Get all placed elements in the venue design
+  // We need to check multiple conditions to identify tables (matching frontend logic)
+  const placedElements = await prisma.placedElement.findMany({
+    where: {
+      venueDesignId,
     },
-  };
+    select: {
+      id: true,
+      elementType: true,
+      serviceListingIds: true,
+      designElement: {
+        select: {
+          elementType: true,
+          name: true,
+        },
+      },
+    },
+  });
+
+  // Filter to only tables - check both PlacedElement.elementType and DesignElement.elementType
+  // Also check if name contains "table" as a fallback (matching frontend logic)
+  const tables = placedElements.filter(pe => {
+    const isTableByElementType = pe.elementType === 'table' || pe.designElement?.elementType === 'table';
+    const isTableByName = pe.designElement?.name?.toLowerCase().includes('table');
+    return isTableByElementType || isTableByName;
+  });
 
   // If serviceListingId is provided, filter by tags
   if (serviceListingId) {
-    where.serviceListingIds = {
-      has: serviceListingId, // PostgreSQL array contains operator
-    };
+    const taggedTables = tables.filter(table => {
+      const serviceListingIds = table.serviceListingIds || [];
+      return serviceListingIds.includes(serviceListingId);
+    });
+    return taggedTables.length;
   }
 
-  // Count tables matching the criteria
-  // Note: count() doesn't support include/select, only where clause
-  const count = await prisma.placedElement.count({
-    where,
-  });
-
-  return count;
+  return tables.length;
 }
 
 /**
@@ -152,16 +167,65 @@ async function tagTables(venueDesignId, placedElementIds, serviceListingIds) {
     throw new Error(`Some placed elements are not tables: ${nonTableIds.join(', ')}`);
   }
 
-  // Verify all service listings exist
+  // Verify all service listings exist and get their pricing policies
   const serviceListings = await prisma.serviceListing.findMany({
     where: {
       id: { in: serviceListingIds },
     },
-    select: { id: true },
+    select: { 
+      id: true,
+      pricingPolicy: true,
+    },
   });
 
   if (serviceListings.length !== serviceListingIds.length) {
     throw new Error('Some service listings not found');
+  }
+
+  // Get venue design to find project ID
+  const venueDesign = await prisma.venueDesign.findUnique({
+    where: { id: venueDesignId },
+    select: {
+      projectId: true,
+    },
+  });
+
+  if (!venueDesign) {
+    throw new Error('Venue design not found');
+  }
+
+  // For per_table services, ensure they exist in ProjectService
+  // This is required for them to appear in checkout
+  const perTableServiceIds = serviceListings
+    .filter(sl => sl.pricingPolicy === 'per_table')
+    .map(sl => sl.id);
+
+  if (perTableServiceIds.length > 0) {
+    const projectServicePromises = perTableServiceIds.map(async (serviceListingId) => {
+      try {
+        await prisma.projectService.upsert({
+          where: {
+            projectId_serviceListingId: {
+              projectId: venueDesign.projectId,
+              serviceListingId: serviceListingId,
+            },
+          },
+          update: {
+            // Don't update quantity - it's managed by table tags
+          },
+          create: {
+            projectId: venueDesign.projectId,
+            serviceListingId: serviceListingId,
+            quantity: 0, // Quantity is managed by table tags, not ProjectService.quantity
+          },
+        });
+      } catch (error) {
+        console.error(`Error ensuring ProjectService for ${serviceListingId}:`, error);
+        // Don't throw - this is a best-effort operation
+      }
+    });
+
+    await Promise.all(projectServicePromises);
   }
 
   // Update each placed element to add service listing IDs to tags

@@ -575,8 +575,8 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
               some: {
                 serviceListing: {
                   category: 'Venue',
-                },
               },
+            },
             },
           },
           include: {

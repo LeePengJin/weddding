@@ -9,7 +9,8 @@
     "prisma:migrate": "prisma migrate dev --name vendor_booking_phase1",
     "prisma:seed": "prisma db seed",
     "create-review-test-data": "node create-review-test-data.js",
-    "clear-booking-data": "node clear-booking-data.js"
+    "clear-booking-data": "node clear-booking-data.js",
+    "clear-test-data": "node clear-test-data.js"
   },
   "keywords": [],
   "author": "",
