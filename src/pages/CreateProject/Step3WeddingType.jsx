@@ -119,7 +119,15 @@ const Step3WeddingType = ({ formData, updateFormData, error, setError }) => {
                   >
                     <div className="package-card__image">
                       {pkg.previewImage ? (
-                        <img src={formatImageUrl(pkg.previewImage)} alt={`${pkg.packageName} preview`} />
+                        <img 
+                          src={formatImageUrl(pkg.previewImage)} 
+                          alt={`${pkg.packageName} preview`}
+                          onError={(e) => {
+                            if (e.target.src !== '/images/default-listing.jpg') {
+                              e.target.src = '/images/default-listing.jpg';
+                            }
+                          }}
+                        />
                       ) : (
                         <div className="package-card__image--placeholder">
                           <i className="fas fa-cube"></i>

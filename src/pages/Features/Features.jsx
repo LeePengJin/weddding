@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../components/Button/Button';
+import { PetalCursor } from '../../components/PetalCursor/PetalCursor';
 import Footer from '../../components/Footer/Footer';
 import './Features.styles.css';
 
@@ -9,6 +10,7 @@ const Features = () => {
 
   return (
     <div className="features-page">
+      <PetalCursor />
       <section className="features-hero">
         <span className="hero-tag">The Toolkit</span>
         <h1>
@@ -22,7 +24,7 @@ const Features = () => {
 
       <div className="features-divider" aria-hidden="true" />
 
-      <section className="feature-row">
+      <section id="budget-tracker" className="feature-row">
         <div className="feature-content">
           <p className="feature-eyebrow">Budget Management</p>
           <h2>Project-Aware Budget Tracker</h2>
@@ -54,7 +56,7 @@ const Features = () => {
         </div>
       </section>
 
-      <section className="feature-row">
+      <section id="checklist" className="feature-row">
         <div className="feature-media">
           <img
             src="https://images.unsplash.com/photo-1512413914633-b5043f4041ea?auto=format&fit=crop&w=1000&q=80"
@@ -77,7 +79,7 @@ const Features = () => {
         </div>
       </section>
 
-      <section className="features-spotlight">
+      <section id="3d-venue-designer" className="features-spotlight">
         <div className="spotlight-inner">
           <div className="spotlight-content">
             <h2>Immersive 3D Venue Designer</h2>

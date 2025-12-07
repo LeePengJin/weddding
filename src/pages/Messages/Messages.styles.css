@@ -27,6 +27,25 @@
   height: 100vh;
 }
 
+/* Messages in vendor layout - adjust for sidebar and header */
+.messages-container.in-vendor-layout {
+  position: relative;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(100vh - 54px); /* Subtract vendor header height */
+  margin: 0;
+  padding: 0;
+}
+
+/* Remove all padding for vendor layout */
+.messages-container.in-vendor-layout .conversations-list,
+.messages-container.in-vendor-layout .chat-window {
+  margin: 0;
+  padding: 0;
+}
+
 /* Conversations List */
 .conversations-list {
   border-right: 1px solid #e5e7eb;
@@ -46,6 +65,10 @@
   top: 0;
   background: white;
   z-index: 10;
+}
+
+.messages-container.in-vendor-layout .conversations-header {
+  padding: 1rem;
 }
 
 .mobile-back-btn {
@@ -70,6 +93,9 @@
   color: #111827;
   margin: 0;
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .conversations {
@@ -178,8 +204,12 @@
 }
 
 /* Add top spacing for normal users (couples) who have navbar */
-.messages-container:not(.vendor-view) .chat-header {
+.messages-container:not(.vendor-view):not(.in-vendor-layout) .chat-header {
   padding-top: 1.5rem;
+}
+
+.messages-container.in-vendor-layout .chat-header {
+  padding: 1rem;
 }
 
 .chat-participant {
@@ -214,6 +244,10 @@ a.participant-name:hover {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.messages-container.in-vendor-layout .messages-list {
+  padding: 1rem;
 }
 
 .message {
@@ -271,6 +305,10 @@ a.participant-name:hover {
   background: white;
   display: flex;
   gap: 1rem;
+}
+
+.messages-container.in-vendor-layout .message-input {
+  padding: 1rem;
 }
 
 .message-input input {

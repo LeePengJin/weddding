@@ -139,7 +139,7 @@ const ProjectDashboard = () => {
   };
 
   const getImageUrl = (url) => {
-    if (!url) return '/placeholder-venue.jpg';
+    if (!url) return '/images/default-listing.jpg';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
     if (url.startsWith('/uploads')) return `http://localhost:4000${url}`;
     return url;
@@ -1160,7 +1160,9 @@ const ProjectDashboard = () => {
                             alt={venue.name}
                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                             onError={(e) => {
-                              e.target.src = '/placeholder-venue.jpg';
+                              if (e.target.src !== '/images/default-listing.jpg') {
+                                e.target.src = '/images/default-listing.jpg';
+                              }
                             }}
                           />
                           <Button
@@ -1316,7 +1318,7 @@ const ProjectDashboard = () => {
                   </>
                 )}
                 <img
-                  src={getImageUrl(activeImage || '/placeholder-venue.jpg')}
+                  src={getImageUrl(activeImage || '/images/default-listing.jpg')}
                   alt={detailsVenue.name}
                   onClick={openImageFullscreen}
                   role={venueImages.length ? 'button' : undefined}
@@ -1327,7 +1329,9 @@ const ProjectDashboard = () => {
                     }
                   }}
                   onError={(e) => {
-                    e.target.src = '/placeholder-venue.jpg';
+                    if (e.target.src !== '/images/default-listing.jpg') {
+                      e.target.src = '/images/default-listing.jpg';
+                    }
                   }}
                 />
               </div>
@@ -1346,7 +1350,9 @@ const ProjectDashboard = () => {
                         src={getImageUrl(image)}
                         alt={`${detailsVenue.name} thumbnail ${index + 1}`}
                         onError={(e) => {
-                          e.target.src = '/placeholder-venue.jpg';
+                          if (e.target.src !== '/images/default-listing.jpg') {
+                            e.target.src = '/images/default-listing.jpg';
+                          }
                         }}
                       />
                     </button>

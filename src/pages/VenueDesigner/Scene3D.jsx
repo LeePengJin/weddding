@@ -27,7 +27,7 @@ const CAMERA_BOUNDS = {
   maxY: 18,
 };
 
-const FIRST_PERSON_HEIGHT = 1.55;
+const FIRST_PERSON_HEIGHT = 1.7;
 
 const exitPointerLockIfNeeded = () => {
   if (document.exitPointerLock && document.pointerLockElement) {
@@ -44,7 +44,7 @@ const SceneGround = ({ size = 160 }) => (
     <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow userData={{ isGround: true }}>
       <planeGeometry args={[size, size]} />
       <meshStandardMaterial
-        color="#dae0ea"
+        color="#f3f4f6"
         roughness={0.92}
         metalness={0}
         polygonOffset
@@ -1204,7 +1204,16 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
           position={[18, 30, 20]}
           intensity={1.2}
           castShadow
-          shadow-mapSize={[2048, 2048]}
+          shadow-mapSize={[4096, 4096]}
+          shadow-camera-left={-110}
+          shadow-camera-right={110}
+          shadow-camera-top={110}
+          shadow-camera-bottom={-110}
+          shadow-camera-near={0.1}
+          shadow-camera-far={200}
+          shadow-bias={-0.0005}
+          shadow-normalBias={0.04}
+          shadow-radius={2}
         />
         <directionalLight position={[-20, 15, -10]} intensity={0.4} />
 
@@ -1223,10 +1232,10 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
         {/* ContactShadows positioned very low to prevent overlay on elements */}
         <ContactShadows
           position={[0, 0.001, 0]}
-          opacity={0.12}
+          opacity={0.08}
           width={200}
           height={200}
-          blur={3.5}
+          blur={4}
           far={50}
           scale={1.2}
         />

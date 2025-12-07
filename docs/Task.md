@@ -131,13 +131,17 @@ _Last updated: November 18, 2025_
 - [x] If the wedding project has made booking, don't allow to delete.
 - [x] Support parent-child attachments for stacked elements so children follow the surface when it moves.
 - [x] Add grouping, duplicate functionality in 3D venue design *
-- [ ] Think how to connect budget with 3D venue design. *
-- [ ] Reporting functionality (Admin & Vendor) *
-- [ ] The rectangle on the floor in the 3D venue is likely due to the lighting, fix it. 
-- [ ] Change all IDs in database to be meaningful (have prefix)
-- [ ] For the listing image, if there is 3D model, take a screenshot of the 3D model and make it its listing image. But if the vendor choose to upload themselve, use the image uploaded. If none of them is provided, put a default image (need to be appropriate).
-- [ ] Use the new floorplan
-- [ ] For exclusive service, ensure the quantity only can be one, bcs exclusive service is one day can have only one booking.
+- [x] Think how to connect budget with 3D venue design. *
+- [x] Reporting functionality (Admin & Vendor) *
+- [x] Use the new floorplan
+- [x] Vendor dashboard
+- [x] Redirect couple to the wedding project page. Not project dashboard.
+- [x] When creating venue listing, the type can only be exclusive, can require the vendor to draw the floorplan, which means venue listing must have 3D model. And for edit venue listing, don't allow them to change the 3D model. 
+- [x] The rectangle on the floor in the 3D venue is likely due to the lighting, fix it.
+- [x] (adding service in 3D venue) For exclusive service, ensure the quantity only can be one, bcs exclusive service is one day can have only one booking.
+- [x] Redesign the message page, especially for vendor.
+- [ ] Change all IDs in database to be meaningful (have prefix) 
+- [x] For the listing image, if there is no image put a default image.
 
 - [/] Do one more list that store the 3D element that can be added into the 3D space. My idea is like there will be two option, if they click on the add button, the 3D item is added to something like a list that keep all the selected items choose by the user because there might be bundle service that contains many elements. Another option is they directly drag from the catalog to the 3D venue, this will directly put all the elements in the 3D venue instead of the list.
 - [/] Couple profile view (from vendor)

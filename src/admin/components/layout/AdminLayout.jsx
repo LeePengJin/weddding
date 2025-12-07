@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { Box, Drawer, AppBar, Toolbar } from '@mui/material';
+import { Box, Drawer, AppBar, Toolbar, IconButton, Tooltip } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
   VerifiedUser as VerifiedUserIcon,
@@ -10,6 +10,7 @@ import {
   Payment as PaymentIcon,
   Assessment as AssessmentIcon,
   Cancel as CancelIcon,
+  Menu as MenuIcon,
 } from '@mui/icons-material';
 import { apiFetch } from '../../../lib/api';
 import { useAuth } from '../../../context/AuthContext';
@@ -17,17 +18,23 @@ import UserAvatar from '../../../components/UserAvatar/UserAvatar';
 import './AdminLayout.css';
 
 const drawerWidth = 213;
+const collapsedDrawerWidth = 80;
 
 export default function AdminLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
 
   const onLogout = async () => {
     try {
       await apiFetch('/admin/auth/logout', { method: 'POST' });
     } catch {}
     navigate('/admin/login');
+  };
+
+  const toggleSidebar = () => {
+    setCollapsed(!collapsed);
   };
 
   const menuItems = [
@@ -74,22 +81,24 @@ export default function AdminLayout({ children }) {
       <Drawer
         variant="permanent"
         sx={{
-          width: drawerWidth,
+          width: collapsed ? collapsedDrawerWidth : drawerWidth,
           flexShrink: 0,
+          transition: 'width 0.3s ease',
           [`& .MuiDrawer-paper`]: {
-            width: drawerWidth,
+            width: collapsed ? collapsedDrawerWidth : drawerWidth,
             boxSizing: 'border-box',
             borderRight: '1px solid #d9d9d9',
             borderTop: 'none',
             borderBottom: 'none',
             borderLeft: 'none',
             overflow: 'hidden',
+            transition: 'width 0.3s ease',
           },
         }}
       >
-        <Box className="admin-sidebar-content">
+        <Box className="admin-sidebar-content" sx={{ padding: collapsed ? '10px' : '10px 20px' }}>
           {/* Logo */}
-          <Box className="admin-sidebar-header">
+          <Box className="admin-sidebar-header" sx={{ justifyContent: collapsed ? 'center' : 'flex-start' }}>
             <Box className="admin-logo-icon">
               <svg width="100%" height="100%" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path
@@ -101,39 +110,72 @@ export default function AdminLayout({ children }) {
                 />
               </svg>
             </Box>
-            <Box className="admin-logo-text">Weddding</Box>
+            {!collapsed && <Box className="admin-logo-text">Weddding</Box>}
           </Box>
 
           {/* Divider */}
-          <Box className="admin-sidebar-divider">
-            <Box sx={{ width: '100%', height: '1px', backgroundColor: '#d9d9d9' }} />
-          </Box>
+          {!collapsed && (
+            <Box className="admin-sidebar-divider">
+              <Box sx={{ width: '100%', height: '1px', backgroundColor: '#d9d9d9' }} />
+            </Box>
+          )}
 
           {/* Menu Items */}
           <Box className="admin-sidebar-nav">
             {menuItems.map((item) => {
               const IconComponent = item.icon;
-              return (
+              const menuItem = (
                 <Link
                   key={item.path}
                   to={item.path}
                   className={`admin-nav-item ${location.pathname === item.path ? 'active' : ''}`}
+                  style={{
+                    justifyContent: collapsed ? 'center' : 'flex-start',
+                    padding: collapsed ? '10px' : '10px',
+                    maxWidth: collapsed ? '60px' : '193px',
+                  }}
                 >
                   <Box className="admin-nav-icon">
                     <IconComponent sx={{ fontSize: '15px', color: 'inherit' }} />
                   </Box>
-                  <Box className="admin-nav-label">{item.label}</Box>
+                  {!collapsed && <Box className="admin-nav-label">{item.label}</Box>}
                 </Link>
+              );
+              
+              return collapsed ? (
+                <Tooltip key={item.path} title={item.label} placement="right" arrow>
+                  {menuItem}
+                </Tooltip>
+              ) : (
+                menuItem
               );
             })}
 
             {/* Logout */}
-            <Box className="admin-nav-item admin-logout-item" onClick={onLogout}>
-              <Box className="admin-nav-icon">
-                <LogoutIcon sx={{ fontSize: '15px', color: 'inherit' }} />
+            {collapsed ? (
+              <Tooltip title="Logout" placement="right" arrow>
+                <Box 
+                  className="admin-nav-item admin-logout-item" 
+                  onClick={onLogout}
+                  sx={{
+                    justifyContent: 'center',
+                    padding: '10px',
+                    maxWidth: '60px',
+                  }}
+                >
+                  <Box className="admin-nav-icon">
+                    <LogoutIcon sx={{ fontSize: '15px', color: 'inherit' }} />
+                  </Box>
+                </Box>
+              </Tooltip>
+            ) : (
+              <Box className="admin-nav-item admin-logout-item" onClick={onLogout}>
+                <Box className="admin-nav-icon">
+                  <LogoutIcon sx={{ fontSize: '15px', color: 'inherit' }} />
+                </Box>
+                <Box className="admin-nav-label">Logout</Box>
               </Box>
-              <Box className="admin-nav-label">Logout</Box>
-            </Box>
+            )}
           </Box>
         </Box>
       </Drawer>
@@ -151,7 +193,19 @@ export default function AdminLayout({ children }) {
             height: '54px',
           }}
         >
-          <Toolbar sx={{ minHeight: '54px !important', justifyContent: 'flex-end', paddingX: 2 }}>
+          <Toolbar sx={{ minHeight: '54px !important', justifyContent: 'space-between', paddingX: 2 }}>
+            <IconButton
+              onClick={toggleSidebar}
+              sx={{
+                color: '#000000',
+                padding: '8px',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.04)',
+                },
+              }}
+            >
+              <MenuIcon />
+            </IconButton>
             <UserAvatar
               user={user}
               size={35}

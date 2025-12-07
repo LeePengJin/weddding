@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useWebSocket } from '../../context/WebSocketContext';
 import { apiFetch } from '../../lib/api';
 import UserAvatar from '../../components/UserAvatar/UserAvatar';
+import { IconButton, Tooltip, Box } from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import './Messages.styles.css';
 
 const Messages = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const { socket, isConnected, joinConversation, leaveConversation } = useWebSocket();
@@ -289,8 +292,9 @@ const Messages = () => {
     return message.senderId === user?.id;
   };
 
-  // Check if user is vendor (no navbar for vendors)
+  // Check if user is vendor and if we're in vendor layout
   const isVendor = user?.role === 'vendor';
+  const isInVendorLayout = location.pathname.startsWith('/vendor/messages');
 
   if (loading && conversations.length === 0) {
     return (
@@ -303,60 +307,49 @@ const Messages = () => {
     );
   }
 
+  // Get connection status color
+  const getConnectionStatusColor = () => {
+    if (isConnected) return '#4caf50'; // Green - connected
+    if (socket && !isConnected) return '#ff9800'; // Orange - connecting/reconnecting
+    return '#f44336'; // Red - disconnected/not connected
+  };
+
   return (
-    <div className={`messages-container ${isVendor ? 'vendor-view' : ''}`}>
-      {/* WebSocket Connection Status Indicator - Only show when connected or reconnecting */}
-      {isConnected && (
-        <div className="websocket-status" style={{
-          position: 'fixed',
-          top: isVendor ? '20px' : '80px', // Moved down for normal users to avoid navbar overlap
-          right: '20px',
-          background: '#4caf50',
-          color: 'white',
-          padding: '8px 16px',
-          borderRadius: '8px',
-          fontSize: '0.85rem',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-        }}>
-          <i className="fas fa-circle" style={{ fontSize: '0.6rem' }}></i>
-          <span>Connected</span>
-        </div>
-      )}
-      {socket && !isConnected && (
-        <div className="websocket-status" style={{
-          position: 'fixed',
-          top: isVendor ? '20px' : '80px', // Moved down for normal users to avoid navbar overlap
-          right: '20px',
-          background: '#ff9800',
-          color: 'white',
-          padding: '8px 16px',
-          borderRadius: '8px',
-          fontSize: '0.85rem',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-        }}>
-          <i className="fas fa-exclamation-triangle"></i>
-          <span>Reconnecting...</span>
-        </div>
-      )}
+    <div className={`messages-container ${isVendor && !isInVendorLayout ? 'vendor-view' : ''} ${isInVendorLayout ? 'in-vendor-layout' : ''}`}>
 
       {/* Conversations List */}
       <div className={`conversations-list ${selectedConversation ? 'mobile-hidden' : 'mobile-visible'}`}>
         <div className="conversations-header">
-          <h2>Messages</h2>
+          {isInVendorLayout && (
+            <Tooltip title="Back to Dashboard">
+              <IconButton
+                onClick={() => navigate('/vendor/dashboard')}
+                sx={{ mr: 1, color: '#111827' }}
+                aria-label="Back to dashboard"
+              >
+                <ArrowBackIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            Messages
+            <Box
+              sx={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: getConnectionStatusColor(),
+                flexShrink: 0,
+              }}
+            />
+          </h2>
           {selectedConversation && (
             <button
               className="mobile-back-btn"
               onClick={() => {
                 setSelectedConversation(null);
-                navigate('/messages', { replace: true });
+                const basePath = isInVendorLayout ? '/vendor/messages' : '/messages';
+                navigate(basePath, { replace: true });
               }}
               aria-label="Back to conversations"
             >
@@ -384,7 +377,8 @@ const Messages = () => {
                   onClick={() => {
                     setSelectedConversation(conversation);
                     // Update URL without reload
-                    navigate(`/messages?conversationId=${conversation.id}`, { replace: true });
+                    const basePath = isInVendorLayout ? '/vendor/messages' : '/messages';
+                    navigate(`${basePath}?conversationId=${conversation.id}`, { replace: true });
                   }}
                 >
                   <div className="conversation-avatar">
@@ -429,6 +423,17 @@ const Messages = () => {
           <>
             {/* Chat Header */}
             <div className="chat-header">
+              {isInVendorLayout && (
+                <Tooltip title="Back to Dashboard">
+                  <IconButton
+                    onClick={() => navigate('/vendor/dashboard')}
+                    sx={{ mr: 1, color: '#111827' }}
+                    aria-label="Back to dashboard"
+                  >
+                    <ArrowBackIcon />
+                  </IconButton>
+                </Tooltip>
+              )}
               <div className="chat-participant">
                 <UserAvatar
                   user={{

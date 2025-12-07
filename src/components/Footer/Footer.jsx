@@ -4,25 +4,14 @@ import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import { Link as RouterLink } from 'react-router-dom';
 
 const planningLinks = [
-  { label: 'Projects Overview', to: '/projects' },
-  { label: 'Create Project', to: '/create-project' },
-  { label: 'Budget Manager', to: '/budget' },
-  { label: 'Checklist', to: '/checklist' },
-  { label: 'Payment Center', to: '/payment-center' },
+  { label: 'Budget Tracker', to: '/features#budget-tracker' },
+  { label: 'Checklist', to: '/features#checklist' },
+  { label: '3D Venue Designer', to: '/features#3d-venue-designer' },
 ];
 
 const supportLinks = [
   { label: 'About Us', to: '/about' },
   { label: 'FAQ', to: '/faq' },
-  { label: 'Support Center', to: '/support' },
-  { label: 'Contact', to: '/contact' },
-];
-
-const policyLinks = [
-  { label: 'Privacy Policy', to: '/privacy' },
-  { label: 'Terms of Service', to: '/terms' },
-  { label: 'Security', to: '/security' },
-  { label: 'Status', to: '/status' },
 ];
 
 const linkStyles = {
@@ -116,7 +105,6 @@ export default function Footer({ sx }) {
             {[
               { title: 'Planning Tools', links: planningLinks },
               { title: 'Support', links: supportLinks },
-              { title: 'Policies', links: policyLinks },
             ].map((section) => (
               <Box
                 key={section.title}

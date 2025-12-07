@@ -252,7 +252,10 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       // Recalculate totals
       const totals = await calculateBudgetTotals(req.params.id);
       updateData.totalSpent = totals.totalSpent;
-      updateData.totalRemaining = totals.totalRemaining;
+      // Calculate totalRemaining using the NEW totalBudget value (not the old one from DB)
+      const newTotalBudget = parseFloat(data.totalBudget);
+      const currentPlannedSpend = parseFloat(budget.plannedSpend || 0);
+      updateData.totalRemaining = newTotalBudget - totals.totalSpent - currentPlannedSpend;
     }
 
     const updatedBudget = await prisma.budget.update({

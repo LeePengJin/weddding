@@ -1,5 +1,5 @@
 export function formatImageUrl(url) {
-  if (!url) return '/images/default-product.jpg';
+  if (!url) return '/images/default-listing.jpg';
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;
   }

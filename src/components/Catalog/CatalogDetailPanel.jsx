@@ -111,7 +111,7 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
   const hasImages = imageSources.length > 0;
   const hasModels = modelSources.length > 0;
 
-  const [viewMode, setViewMode] = useState(hasImages ? 'images' : 'models');
+  const [viewMode, setViewMode] = useState(hasImages ? 'images' : (hasModels ? 'models' : 'images'));
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [activeModelIndex, setActiveModelIndex] = useState(0);
   const [imageLightbox, setImageLightbox] = useState(null);
@@ -217,6 +217,11 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
                 alt={item.name}
                 onClick={() => setImageLightbox(activeImage)}
                 style={{ cursor: 'zoom-in' }}
+                onError={(e) => {
+                  if (e.target.src !== '/images/default-listing.jpg') {
+                    e.target.src = '/images/default-listing.jpg';
+                  }
+                }}
               />
               {imageSources.length > 1 && (
                 <>
@@ -255,9 +260,11 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
             </>
           ) : (
             <div className="media-preview empty">
-              <Typography variant="body2" color="text.secondary">
-                No media available
-              </Typography>
+              <img
+                src="/images/default-listing.jpg"
+                alt="Default listing"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
             </div>
           )}
           {viewMode === 'images' && activeImage && (

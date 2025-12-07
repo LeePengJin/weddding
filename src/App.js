@@ -40,12 +40,31 @@ import VendorLayout from './vendor/components/layout/VendorLayout';
 import Profile from './pages/Profile/Profile';
 import VendorProfile from './pages/VendorProfile/VendorProfile';
 import VendorPayments from './pages/VendorPayments/VendorPayments';
+import VendorReports from './pages/VendorReports/VendorReports';
+import AdminReports from './pages/AdminReports/AdminReports';
 import NotFound from './pages/NotFound/NotFound';
 import About from './pages/About/About';
 import Features from './pages/Features/Features';
 import FAQ from './pages/FAQ/FAQ';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WebSocketProvider } from './context/WebSocketContext';
+
+// Component to redirect vendors to vendor messages route
+const MessagesRedirect = () => {
+  const { user } = useAuth();
+  const location = useLocation();
+  
+  if (user?.role === 'vendor') {
+    const searchParams = new URLSearchParams(location.search);
+    const conversationId = searchParams.get('conversationId');
+    const redirectPath = conversationId 
+      ? `/vendor/messages?conversationId=${conversationId}`
+      : '/vendor/messages';
+    return <Navigate to={redirectPath} replace />;
+  }
+  
+  return <Messages />;
+};
 
 const AppContent = () => {
   const location = useLocation();
@@ -69,7 +88,7 @@ const AppContent = () => {
     location.pathname === '/reset-password' ||
     location.pathname === '/payment' ||
     isAdminRoute ||
-    (isMessagesRoute && isVendorUser); // Hide navbar for vendors on messages page
+    (isMessagesRoute && isVendorUser && !location.pathname.startsWith('/vendor')); // Hide navbar for vendors on messages page (but not when in vendor layout)
 
   return (
     <div className="App">
@@ -83,6 +102,8 @@ const AppContent = () => {
           <Route path="/vendor/venue-floorplan/:listingId?" element={<RequireAuth requiredRole="vendor"><VendorLayout><VenueFloorplanEditor /></VendorLayout></RequireAuth>} />
           <Route path="/vendor/profile" element={<RequireAuth requiredRole="vendor"><VendorLayout><VendorProfile /></VendorLayout></RequireAuth>} />
           <Route path="/vendor/payments" element={<RequireAuth requiredRole="vendor"><VendorLayout><VendorPayments /></VendorLayout></RequireAuth>} />
+          <Route path="/vendor/reports" element={<RequireAuth requiredRole="vendor"><VendorLayout><VendorReports /></VendorLayout></RequireAuth>} />
+          <Route path="/vendor/messages" element={<RequireAuth requiredRole="vendor"><VendorLayout><Messages /></VendorLayout></RequireAuth>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       ) : (
@@ -122,14 +143,14 @@ const AppContent = () => {
               <Route path="/admin/accounts" element={<AdminLayout><AccountManagement /></AdminLayout>} />
               <Route path="/admin/vendor-payment" element={<AdminLayout><VendorPayment /></AdminLayout>} />
               <Route path="/admin/refunds-cancellations" element={<AdminLayout><RefundsAndCancellations /></AdminLayout>} />
-              <Route path="/admin/reports" element={<AdminLayout><Box sx={{ p: 3 }}><Typography variant="h4">Report</Typography><Typography variant="body1" sx={{ mt: 2 }}>Coming soon...</Typography></Box></AdminLayout>} />
+              <Route path="/admin/reports" element={<AdminLayout><AdminReports /></AdminLayout>} />
               <Route path="/" element={<Home />} />
               <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
               <Route path="/create-project" element={<RequireAuth><CreateProject /></RequireAuth>} />
               <Route path="/project-dashboard" element={<RequireAuth><ProjectDashboard /></RequireAuth>} />
               <Route path="/budget" element={<RequireAuth><BudgetManagement /></RequireAuth>} />
               <Route path="/checklist" element={<RequireAuth><ChecklistPage /></RequireAuth>} />
-              <Route path="/messages" element={<RequireAuth><Messages /></RequireAuth>} />
+              <Route path="/messages" element={<RequireAuth><MessagesRedirect /></RequireAuth>} />
               <Route path="/venue-designer" element={<RequireAuth><VenueDesigner /></RequireAuth>} />
               <Route path="/projects/:projectId/venue-designer" element={<RequireAuth><VenueDesigner /></RequireAuth>} />
               <Route path="/my-bookings" element={<RequireAuth><MyBookings /></RequireAuth>} />

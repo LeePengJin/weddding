@@ -19,7 +19,15 @@ const ServiceListingCard = ({ item, onAdd, onShowDetails }) => {
       className={`catalog-card ${isUnavailable ? 'catalog-card-unavailable' : ''}`}
     >
       <Box className="catalog-card-thumb">
-        <img src={image} alt={item.name} />
+        <img 
+          src={image} 
+          alt={item.name}
+          onError={(e) => {
+            if (e.target.src !== '/images/default-listing.jpg') {
+              e.target.src = '/images/default-listing.jpg';
+            }
+          }}
+        />
         <div className="catalog-card-overlay">
           <IconButton
             className="catalog-fab add"

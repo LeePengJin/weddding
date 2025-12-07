@@ -343,7 +343,7 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
   };
 
   const getImageUrl = (url) => {
-    if (!url) return '/placeholder-venue.jpg';
+    if (!url) return '/images/default-listing.jpg';
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return url;
     }
@@ -442,7 +442,9 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
                     src={getImageUrl(venue.images?.[0] || venue.imageUrl)}
                     alt={venue.name}
                     onError={(e) => {
-                      e.target.src = '/placeholder-venue.jpg';
+                      if (e.target.src !== '/images/default-listing.jpg') {
+                        e.target.src = '/images/default-listing.jpg';
+                      }
                     }}
                   />
                   {isSelected && (
@@ -538,7 +540,7 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
                   </>
                 )}
                 <img
-                  src={getImageUrl(activeImage || '/placeholder-venue.jpg')}
+                  src={getImageUrl(activeImage || '/images/default-listing.jpg')}
                   alt={detailsVenue.name}
                   onClick={openImageFullscreen}
                   role={venueImages.length ? 'button' : undefined}
@@ -549,7 +551,9 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
                     }
                   }}
                   onError={(e) => {
-                    e.target.src = '/placeholder-venue.jpg';
+                    if (e.target.src !== '/images/default-listing.jpg') {
+                      e.target.src = '/images/default-listing.jpg';
+                    }
                   }}
                 />
               </div>
@@ -568,7 +572,9 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
                         src={getImageUrl(image)}
                         alt={`${detailsVenue.name} thumbnail ${index + 1}`}
                         onError={(e) => {
-                          e.target.src = '/placeholder-venue.jpg';
+                          if (e.target.src !== '/images/default-listing.jpg') {
+                            e.target.src = '/images/default-listing.jpg';
+                          }
                         }}
                       />
                     </button>
@@ -716,7 +722,9 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
                   src={getImageUrl(activeImage)}
                   alt={`${detailsVenue.name} fullscreen`}
                   onError={(e) => {
-                    e.target.src = '/placeholder-venue.jpg';
+                    if (e.target.src !== '/images/default-listing.jpg') {
+                      e.target.src = '/images/default-listing.jpg';
+                    }
                   }}
                 />
 

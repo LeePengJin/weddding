@@ -589,17 +589,17 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     // and create/update venue expense in budget
     if (data.venueServiceListingId !== undefined) {
       if (project.venueServiceListing) {
-        const venueDesign = await prisma.venueDesign.findUnique({
-          where: { projectId: project.id },
+      const venueDesign = await prisma.venueDesign.findUnique({
+        where: { projectId: project.id },
+      });
+      
+      if (venueDesign) {
+        await prisma.venueDesign.update({
+          where: { id: venueDesign.id },
+          data: {
+            venueName: project.venueServiceListing.name,
+          },
         });
-        
-        if (venueDesign) {
-          await prisma.venueDesign.update({
-            where: { id: venueDesign.id },
-            data: {
-              venueName: project.venueServiceListing.name,
-            },
-          });
         }
 
         // Create or update venue expense in budget
@@ -959,6 +959,18 @@ router.patch('/:projectId/services/:serviceListingId', requireAuth, async (req, 
       return res.status(400).json({
         error:
           'This service is part of a booking and cannot be modified. Please contact your vendor if you need to change a booked service.',
+      });
+    }
+
+    // Check if service is exclusive - exclusive services can only have quantity 1
+    const serviceListing = await prisma.serviceListing.findUnique({
+      where: { id: serviceListingId },
+      select: { availabilityType: true },
+    });
+
+    if (serviceListing?.availabilityType === 'exclusive' && quantity !== 1) {
+      return res.status(400).json({
+        error: 'This is an exclusive service. Only one booking per day is allowed, so the quantity must be 1.',
       });
     }
 

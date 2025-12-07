@@ -14,6 +14,7 @@ import {
 } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon, Search as SearchIcon, HelpOutline as HelpIcon } from '@mui/icons-material';
 import { motion, AnimatePresence } from 'framer-motion';
+import { PetalCursor } from '../../components/PetalCursor/PetalCursor';
 import Footer from '../../components/Footer/Footer';
 
 const faqData = {
@@ -86,6 +87,7 @@ export default function FAQ() {
 
   return (
     <Box sx={{ bgcolor: '#FAFAFA', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <PetalCursor />
       <Box sx={{ flex: 1 }}>
         {/* Header Section */}
         <Box

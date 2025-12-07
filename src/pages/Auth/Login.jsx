@@ -30,7 +30,7 @@ export default function Login() {
         if (from && !from.startsWith('/vendor') && !from.startsWith('/admin')) {
           navigate(from, { replace: true });
         } else {
-          navigate('/project-dashboard', { replace: true });
+          navigate('/projects', { replace: true });
         }
       } else {
         // Default to homepage

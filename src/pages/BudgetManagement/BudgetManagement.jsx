@@ -31,6 +31,7 @@ import {
   Select,
   FormControl,
   InputLabel,
+  Tooltip,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -122,7 +123,7 @@ const CircularProgressChart = ({ value, maxValue, size = 120, strokeWidth = 10 }
   );
 };
 
-// Bar Chart Component for Estimated vs Actual
+// Bar Chart Component for Estimated vs Actual (Stacked Bar Chart)
 const BarChart = ({ data, maxValue }) => {
   if (!data || data.length === 0) {
     return (
@@ -136,14 +137,16 @@ const BarChart = ({ data, maxValue }) => {
 
   const maxBarValue = maxValue || Math.max(...data.map(d => Math.max(d.estimated, d.actual)));
   const barHeight = 200;
-  const barWidth = Math.max(300 / data.length, 40);
+  const barWidth = 60;
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: barHeight + 40, px: 1 }}>
+    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: barHeight + 60, px: 2, py: 2 }}>
       {data.map((item, index) => {
         const estimatedHeight = (item.estimated / maxBarValue) * barHeight;
         const actualHeight = (item.actual / maxBarValue) * barHeight;
         const isOverBudget = item.actual > item.estimated;
+        const overBudgetAmount = isOverBudget ? item.actual - item.estimated : 0;
+        const overBudgetHeight = (overBudgetAmount / maxBarValue) * barHeight;
 
         return (
           <Box
@@ -153,37 +156,106 @@ const BarChart = ({ data, maxValue }) => {
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: 0.5,
-              minWidth: 60,
+              gap: 1,
+              minWidth: 80,
             }}
           >
-            <Box sx={{ position: 'relative', width: '100%', height: barHeight, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-              {/* Estimated bar (background) */}
-              <Box
-                sx={{
-                  position: 'absolute',
-                  bottom: 0,
-                  width: '60%',
-                  height: `${estimatedHeight}px`,
-                  backgroundColor: 'rgba(225, 103, 137, 0.2)',
-                  borderRadius: '4px 4px 0 0',
-                  transition: 'height 0.3s ease',
-                }}
-              />
-              {/* Actual bar (foreground) */}
-              <Box
-                sx={{
-                  position: 'absolute',
-                  bottom: 0,
-                  width: '60%',
-                  height: `${actualHeight}px`,
-                  backgroundColor: isOverBudget ? '#f57c00' : '#e16789',
-                  borderRadius: '4px 4px 0 0',
-                  transition: 'height 0.3s ease',
-                  zIndex: 1,
-                }}
-              />
+            {/* Stacked bar container - single bar per category */}
+            <Box 
+              sx={{ 
+                position: 'relative', 
+                width: barWidth, 
+                height: barHeight, 
+                display: 'flex', 
+                alignItems: 'flex-end',
+                justifyContent: 'center',
+              }}
+            >
+              {/* Over Budget segment (back layer, z-index: 1) - shows excess above estimated when over budget */}
+              {isOverBudget && (
+                <Tooltip
+                  title={`Over Budget: RM ${overBudgetAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  arrow
+                  placement="top"
+                >
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      bottom: estimatedHeight,
+                      left: 0,
+                      right: 0,
+                      height: `${overBudgetHeight}px`,
+                      backgroundColor: '#f57c00',
+                      borderRadius: '4px 4px 0 0',
+                      transition: 'all 0.3s ease',
+                      zIndex: 1,
+                      cursor: 'pointer',
+                      border: '1px solid rgba(0, 0, 0, 0.1)',
+                      '&:hover': {
+                        opacity: 0.85,
+                        borderColor: 'rgba(0, 0, 0, 0.2)',
+                      },
+                    }}
+                  />
+                </Tooltip>
+              )}
+              
+              {/* Estimated segment (middle layer, z-index: 2) - always visible as base */}
+              <Tooltip
+                title={`Estimated: RM ${item.estimated.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                arrow
+                placement="top"
+              >
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: `${estimatedHeight}px`,
+                    backgroundColor: 'rgba(225, 103, 137, 0.2)',
+                    borderRadius: isOverBudget ? '0' : '4px 4px 0 0',
+                    transition: 'all 0.3s ease',
+                    zIndex: 2,
+                    cursor: 'pointer',
+                    border: '1px solid rgba(0, 0, 0, 0.1)',
+                    '&:hover': {
+                      opacity: 0.85,
+                      borderColor: 'rgba(0, 0, 0, 0.2)',
+                    },
+                  }}
+                />
+              </Tooltip>
+              
+              {/* Actual segment (front layer, z-index: 3) - shows actual up to estimated height */}
+              <Tooltip
+                title={`Actual: RM ${item.actual.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                arrow
+                placement="top"
+              >
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: `${Math.min(actualHeight, estimatedHeight)}px`,
+                    backgroundColor: '#e16789',
+                    borderRadius: isOverBudget ? '0' : '4px 4px 0 0',
+                    transition: 'all 0.3s ease',
+                    zIndex: 3,
+                    cursor: 'pointer',
+                    border: '1px solid rgba(0, 0, 0, 0.1)',
+                    '&:hover': {
+                      opacity: 0.85,
+                      borderColor: 'rgba(0, 0, 0, 0.2)',
+                    },
+                  }}
+                />
+              </Tooltip>
             </Box>
+            
+            {/* Category name below the bar */}
             <Typography
               sx={{
                 fontFamily: "'Literata', serif",
@@ -194,7 +266,7 @@ const BarChart = ({ data, maxValue }) => {
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
                 width: '100%',
-                maxWidth: barWidth,
+                fontWeight: 500,
               }}
             >
               {item.name}
@@ -1975,7 +2047,7 @@ const BudgetManagement = () => {
                               color: totalRemaining >= 0 ? '#10b981' : '#c62828',
                             }}
                           >
-                            RM {Math.abs(totalRemaining).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {totalRemaining >= 0 ? 'RM ' : '-RM '}{Math.abs(totalRemaining).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </Typography>
                         </Box>
                       </Box>

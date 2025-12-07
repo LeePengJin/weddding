@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography, Grid, Container, Divider, Paper } from '@mui/material';
 import { motion } from 'framer-motion';
 import { FavoriteBorder as HeartIcon, DesignServices as DesignIcon, People as PeopleIcon, SentimentSatisfiedAlt as HappyIcon } from '@mui/icons-material';
+import { PetalCursor } from '../../components/PetalCursor/PetalCursor';
 import Footer from '../../components/Footer/Footer';
 
 const stats = [
@@ -52,6 +53,7 @@ const values = [
 export default function About() {
   return (
     <Box sx={{ bgcolor: '#FAFAFA', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <PetalCursor />
       <Box sx={{ flex: 1 }}>
         {/* Hero Section */}
         <Box

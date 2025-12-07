@@ -10,7 +10,8 @@
     "prisma:seed": "prisma db seed",
     "create-review-test-data": "node create-review-test-data.js",
     "clear-booking-data": "node clear-booking-data.js",
-    "clear-test-data": "node clear-test-data.js"
+    "clear-test-data": "node clear-test-data.js",
+    "generate-report-data": "node scripts/generateReportData.js"
   },
   "keywords": [],
   "author": "",

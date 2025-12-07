@@ -171,6 +171,13 @@ const PackagePreview3D = ({ packageId, height = '500px' }) => {
           intensity={1.2}
           castShadow
           shadow-mapSize={[2048, 2048]}
+          shadow-camera-left={-100}
+          shadow-camera-right={100}
+          shadow-camera-top={100}
+          shadow-camera-bottom={-100}
+          shadow-camera-near={0.1}
+          shadow-camera-far={100}
+          shadow-bias={-0.0001}
         />
         <directionalLight position={[-20, 15, -10]} intensity={0.4} />
 

@@ -16,7 +16,7 @@ const BlueprintEditor = ({
   // Get initial floorplan data (plancraft format)
   const getInitialData = () => {
     if (!initialFloorplan) {
-      return { points: [], walls: [] };
+      return { points: [], walls: [], doors: [], windows: [], stages: [] };
     }
     
     try {
@@ -24,17 +24,24 @@ const BlueprintEditor = ({
         ? JSON.parse(initialFloorplan) 
         : initialFloorplan;
       
-      // Expect plancraft format: { points: [], walls: [] }
+      // Expect plancraft format: { points: [], walls: [] } or enhanced format with doors/windows/stages
       if (parsed && Array.isArray(parsed.points) && Array.isArray(parsed.walls)) {
-        return parsed;
+        // Backward compatibility: ensure new fields exist
+        return {
+          points: parsed.points || [],
+          walls: parsed.walls || [],
+          doors: parsed.doors || [],
+          windows: parsed.windows || [],
+          stages: parsed.stages || [],
+        };
       }
       
       // If format is invalid, return empty
       console.warn('Invalid floorplan format. Expected { points: [], walls: [] }');
-      return { points: [], walls: [] };
+      return { points: [], walls: [], doors: [], windows: [], stages: [] };
     } catch (err) {
       console.warn('Failed to parse initial floorplan:', err);
-      return { points: [], walls: [] };
+      return { points: [], walls: [], doors: [], windows: [], stages: [] };
     }
   };
 
@@ -148,7 +155,7 @@ const BlueprintEditor = ({
 
   const handleConfirmClear = () => {
     setShowClearDialog(false);
-    const emptyData = { points: [], walls: [] };
+    const emptyData = { points: [], walls: [], doors: [], windows: [], stages: [] };
     handleFloorplanUpdate(emptyData, true);
     setNotification({
       open: true,
@@ -315,12 +322,16 @@ const BlueprintEditor = ({
                 m: 0,
                 '& li': { mb: 1 }
               }}>
-                <li>Use <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>Select Mode</Box> to drag corners/walls.</li>
+                <li>Use <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>Select Mode (V)</Box> to drag corners/walls/doors/windows.</li>
                 <li>Hold <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>Space</Box> or Middle Mouse to Pan.</li>
-                <li>Select a wall to manually input <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>length</Box>.</li>
-                <li>Click corners or walls to select and <Box component="span" sx={{ color: '#d32f2f', fontWeight: 600 }}>delete</Box> them.</li>
-                <li>Use <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>Draw Mode</Box> to create new layouts.</li>
-                <li><Box component="span" sx={{ color: '#333', fontFamily: 'monospace', fontSize: '0.625rem' }}>CTRL+Z</Box> to Undo.</li>
+                <li>Use <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>Draw Mode (P)</Box> to create walls.</li>
+                <li>Use <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>Door Mode (D)</Box> to place doors on walls.</li>
+                <li>Use <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>Window Mode (W)</Box> to place windows on walls.</li>
+                <li>Select elements to edit properties: <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>height</Box>, <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>thickness</Box>, <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>texture</Box>.</li>
+                <li>Use mouse <Box component="span" sx={{ color: '#e16789', fontWeight: 600 }}>wheel</Box> or zoom buttons to zoom in/out.</li>
+                <li>Click elements to select and <Box component="span" sx={{ color: '#d32f2f', fontWeight: 600 }}>delete</Box> them.</li>
+                <li><Box component="span" sx={{ color: '#333', fontFamily: 'monospace', fontSize: '0.625rem' }}>CTRL+Z</Box> to Undo, <Box component="span" sx={{ color: '#333', fontFamily: 'monospace', fontSize: '0.625rem' }}>CTRL+Y</Box> to Redo.</li>
+                <li>Press <Box component="span" sx={{ color: '#333', fontFamily: 'monospace', fontSize: '0.625rem' }}>ESC</Box> to cancel placement modes.</li>
               </Box>
             </Box>
           </Box>

@@ -20,7 +20,7 @@ import {
   Snackbar,
   Stack,
   Menu,
-  Pagination,
+  TablePagination,
   Table,
   TableBody,
   TableCell,
@@ -106,8 +106,8 @@ const ManageListings = () => {
   const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [sortBy, setSortBy] = useState('dateAdded'); // 'name', 'price', 'dateAdded', 'category'
   const [sortOrder, setSortOrder] = useState('desc'); // 'asc' or 'desc'
-  const [page, setPage] = useState(1);
-  const [itemsPerPage] = useState(12);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedListing, setSelectedListing] = useState(null);
 
@@ -384,7 +384,7 @@ const ManageListings = () => {
     }
     setFieldErrors({});
     setError('');
-    setPage(1); // Reset to first page when opening modal
+    setPage(0); // Reset to first page when opening modal
     setOpenModal(true);
   };
 
@@ -635,35 +635,25 @@ const ManageListings = () => {
         ? 'Max quantity is required and must be greater than 0'
         : '';
 
-    // Only update errors that have actual error messages (don't overwrite with empty strings unnecessarily)
-    setFieldErrors((prev) => {
-      const newErrors = { ...prev };
-      // Update only fields that have errors or need to be cleared
-      if (nameError) newErrors.name = nameError;
-      else if (prev.name) newErrors.name = ''; // Clear if was previously set
-      
-      if (descriptionError) newErrors.description = descriptionError;
-      else if (prev.description) newErrors.description = '';
-      
-      if (priceError) newErrors.price = priceError;
-      else if (prev.price) newErrors.price = '';
-      
-      if (categoryError) newErrors.category = categoryError;
-      else if (prev.category) newErrors.category = '';
-      
-      if (customCategoryError) newErrors.customCategory = customCategoryError;
-      else if (prev.customCategory && category !== 'Other') newErrors.customCategory = '';
-      
-      if (imageError) newErrors.images = imageError;
-      else if (prev.images) newErrors.images = '';
-      
-      if (maxQuantityError) newErrors.maxQuantity = maxQuantityError;
-      else if (prev.maxQuantity) newErrors.maxQuantity = '';
-      
-      return newErrors;
-    });
+    // Store errors for reference (but don't display inline)
+    const errors = {};
+    if (nameError) errors.name = nameError;
+    if (descriptionError) errors.description = descriptionError;
+    if (priceError) errors.price = priceError;
+    if (categoryError) errors.category = categoryError;
+    if (customCategoryError) errors.customCategory = customCategoryError;
+    if (imageError) errors.images = imageError;
+    if (maxQuantityError) errors.maxQuantity = maxQuantityError;
+    
+    setFieldErrors(errors);
 
-    return !nameError && !descriptionError && !priceError && !categoryError && !customCategoryError && !imageError && !maxQuantityError;
+    const isValid = !nameError && !descriptionError && !priceError && !categoryError && !customCategoryError && !imageError && !maxQuantityError;
+    
+    // Return object with validation result and first error message
+    const firstErrorKey = Object.keys(errors).find(key => errors[key]);
+    const firstErrorMessage = firstErrorKey ? errors[firstErrorKey] : null;
+    
+    return { isValid, firstErrorMessage };
   };
 
   const handleSave = async (wizardDataOrEvent = null) => {
@@ -680,8 +670,10 @@ const ManageListings = () => {
     const dataToUse = !isReactEvent && wizardDataOrEvent ? wizardDataOrEvent : formData;
 
     // Validate with the chosen data
-    if (!validateAllFields(dataToUse)) {
-      setToastNotification({ open: true, message: 'Please fix the errors before saving', severity: 'error' });
+    const validationResult = validateAllFields(dataToUse);
+    if (!validationResult.isValid) {
+      const errorMessage = validationResult.firstErrorMessage || 'Please fix the errors before saving';
+      setToastNotification({ open: true, message: errorMessage, severity: 'error' });
       return;
     }
 
@@ -1101,7 +1093,7 @@ const ManageListings = () => {
 
   // Helper function to convert relative image URLs to full backend URLs
   const getImageUrl = (url) => {
-    if (!url) return null;
+    if (!url) return '/images/default-listing.jpg';
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return url;
     }
@@ -1154,19 +1146,26 @@ const ManageListings = () => {
   });
 
   // Pagination
-  const totalPages = Math.ceil(sortedListings.length / itemsPerPage);
-  const startIndex = (page - 1) * itemsPerPage;
-  const paginatedListings = sortedListings.slice(startIndex, startIndex + itemsPerPage);
-
-  const handlePageChange = (event, value) => {
-    setPage(value);
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
   };
 
   // Reset page when filters change
   useEffect(() => {
-    setPage(1);
+    setPage(0);
   }, [searchQuery, showActiveOnly, sortBy, sortOrder]);
+
+  // Paginate listings
+  const paginatedListings = sortedListings.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
 
   const handle3DModelChange = (e) => {
     const file = e.target.files[0];
@@ -1686,28 +1685,18 @@ const ManageListings = () => {
                           position: 'relative',
                         }}
                       >
-                        {listing.images && listing.images.length > 0 ? (
-                          <img
-                            src={getImageUrl(listing.images[0])}
-                            alt={listing.name}
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover',
-                            }}
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                              const icon = e.target.nextElementSibling;
-                              if (icon) icon.style.display = 'flex';
-                            }}
-                          />
-                        ) : null}
-                        <ImageIcon
-                          sx={{
-                            color: '#ccc',
-                            fontSize: 32,
-                            display: (!listing.images || listing.images.length === 0) ? 'flex' : 'none',
-                            position: 'absolute',
+                        <img
+                          src={getImageUrl(listing.images?.[0])}
+                          alt={listing.name}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                          }}
+                          onError={(e) => {
+                            if (e.target.src !== '/images/default-listing.jpg') {
+                              e.target.src = '/images/default-listing.jpg';
+                            }
                           }}
                         />
                       </Box>
@@ -1817,32 +1806,16 @@ const ManageListings = () => {
                 ))}
               </TableBody>
             </Table>
-          </TableContainer>
-        )}
-
-        {/* Pagination */}
-        {sortedListings.length > itemsPerPage && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4, mb: 2 }}>
-            <Pagination
-              count={totalPages}
+            <TablePagination
+              component="div"
+              count={sortedListings.length}
               page={page}
-              onChange={handlePageChange}
-              color="primary"
-              size="large"
-              sx={{
-                '& .MuiPaginationItem-root': {
-                  fontSize: '1rem',
-                },
-                '& .MuiPaginationItem-page.Mui-selected': {
-                  backgroundColor: '#e16789',
-                  color: '#fff',
-                  '&:hover': {
-                    backgroundColor: '#d1537a',
-                  },
-                },
-              }}
+              onPageChange={handleChangePage}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              rowsPerPageOptions={[5, 10, 25, 50]}
             />
-          </Box>
+          </TableContainer>
         )}
       </Box>
 
@@ -1932,8 +1905,7 @@ const ManageListings = () => {
               label="Service Name"
               value={formData.name}
               onChange={(e) => handleInputChange('name', e.target.value)}
-              error={!!fieldErrors.name}
-              helperText={fieldErrors.name || '10-100 characters, no special characters'}
+              helperText="10-100 characters, no special characters"
               required
               sx={{ '& .MuiInputBase-input':{border: 'none'}, '& .MuiFormHelperText-root': { fontSize: '12px' } }}
             />
@@ -2088,8 +2060,7 @@ const ManageListings = () => {
                   handleInputChange('customCategory', '');
                 }
               }}
-              error={!!fieldErrors.category}
-              helperText={fieldErrors.category}
+              helperText="Select the category for this service"
               required
               sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
             >
@@ -2107,8 +2078,7 @@ const ManageListings = () => {
                 label="Custom Category Name"
                 value={formData.customCategory}
                 onChange={(e) => handleInputChange('customCategory', e.target.value)}
-                error={!!fieldErrors.customCategory}
-                helperText={fieldErrors.customCategory || 'Enter a custom category name (2-50 characters)'}
+                helperText="Enter a custom category name (2-50 characters)"
                 required
                 sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
               />
@@ -2120,11 +2090,7 @@ const ManageListings = () => {
               label="Description"
               value={formData.description}
               onChange={(e) => handleInputChange('description', e.target.value)}
-              error={!!fieldErrors.description}
-              helperText={
-                fieldErrors.description ||
-                `${formData.description.length}/2000 characters (optional, min 10 if provided)`
-              }
+              helperText={`${formData.description.length}/2000 characters (optional, min 10 if provided)`}
               multiline
               rows={4}
               sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
@@ -2137,38 +2103,54 @@ const ManageListings = () => {
               type="number"
               value={formData.price}
               onChange={(e) => handleInputChange('price', e.target.value)}
-              error={!!fieldErrors.price}
               helperText={
-                fieldErrors.price || 
-                (formData.pricingPolicy === 'time_based' 
+                formData.pricingPolicy === 'time_based' 
                   ? 'Not required for this pricing policy' 
-                  : 'Base price for this service')
+                  : 'Base price for this service'
               }
               required={formData.pricingPolicy !== 'time_based'}
               inputProps={{ min: 0, step: 0.01 }}
               sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
             />
 
-            {/* Availability Type */}
-            <TextField
-              fullWidth
-              select
-              label="Availability Type"
-              value={formData.availabilityType}
-              onChange={(e) => handleInputChange('availabilityType', e.target.value)}
-              helperText="How this service can be booked"
-              sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
-            >
-              <MenuItem value="exclusive">
-                Exclusive - One booking per date (e.g., single ballroom)
-              </MenuItem>
-              <MenuItem value="reusable">
-                Reusable - Multiple bookings allowed (e.g., bouquets)
-              </MenuItem>
-              <MenuItem value="quantity_based">
-                Quantity-based - Track available quantity (e.g., table sets)
-              </MenuItem>
-            </TextField>
+            {/* Availability Type - Disabled for venues (always exclusive) */}
+            {formData.category === 'Venue' ? (
+              <Box
+                sx={{
+                  p: 2,
+                  border: '1px solid #e0e0e0',
+                  borderRadius: 1,
+                  backgroundColor: '#f8f9fa',
+                }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+                  Availability Type: Exclusive
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Venue listings are always exclusive - one booking per date
+                </Typography>
+              </Box>
+            ) : (
+              <TextField
+                fullWidth
+                select
+                label="Availability Type"
+                value={formData.availabilityType}
+                onChange={(e) => handleInputChange('availabilityType', e.target.value)}
+                helperText="How this service can be booked"
+                sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
+              >
+                <MenuItem value="exclusive">
+                  Exclusive - One booking per date (e.g., single ballroom)
+                </MenuItem>
+                <MenuItem value="reusable">
+                  Reusable - Multiple bookings allowed (e.g., bouquets)
+                </MenuItem>
+                <MenuItem value="quantity_based">
+                  Quantity-based - Track available quantity (e.g., table sets)
+                </MenuItem>
+              </TextField>
+            )}
 
             {/* Max Quantity - Only show when quantity_based */}
             {formData.availabilityType === 'quantity_based' && (
@@ -2178,8 +2160,7 @@ const ManageListings = () => {
                 type="number"
                 value={formData.maxQuantity}
                 onChange={(e) => handleInputChange('maxQuantity', e.target.value)}
-                error={!!fieldErrors.maxQuantity}
-                helperText={fieldErrors.maxQuantity || 'Maximum available quantity for this service'}
+                helperText="Maximum available quantity for this service"
                 required
                 inputProps={{ min: 1, step: 1 }}
                 sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
@@ -2211,8 +2192,7 @@ const ManageListings = () => {
                 type="number"
                 value={formData.hourlyRate}
                 onChange={(e) => handleInputChange('hourlyRate', e.target.value)}
-                error={!!fieldErrors.hourlyRate}
-                helperText={fieldErrors.hourlyRate || 'The rate charged per hour for this service'}
+                helperText="The rate charged per hour for this service"
                 required
                 inputProps={{ min: 0, step: 0.01 }}
                 sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
@@ -2220,7 +2200,8 @@ const ManageListings = () => {
             )}
 
 
-            {/* Bundle Toggle */}
+            {/* Bundle Toggle - Hide for venue listings when editing */}
+            {!(editingListing && editingListing.category === 'Venue') && (
             <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 1, backgroundColor: '#fafafa' }}>
               <FormControlLabel
                 control={
@@ -2247,6 +2228,7 @@ const ManageListings = () => {
                 }
               />
             </Box>
+            )}
 
             {/* Service Components Section - Only show when bundle is enabled */}
             {formData.isBundle && (
@@ -2516,11 +2498,6 @@ const ManageListings = () => {
                 </Button>
               </label>
 
-              {fieldErrors.images && (
-                <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1 }}>
-                  {fieldErrors.images}
-                </Typography>
-              )}
 
               {/* Image Previews */}
               {imagePreviews.length > 0 && (
@@ -2562,7 +2539,8 @@ const ManageListings = () => {
               )}
             </Box>
 
-            {/* 3D Model Upload */}
+            {/* 3D Model Upload - Hide for venue listings when editing */}
+            {!(editingListing && editingListing.category === 'Venue') && (
             <Box>
               {components.length === 0 ? (
                 // Single 3D model for non-bundle services
@@ -2921,6 +2899,7 @@ const ManageListings = () => {
                 </>
               )}
             </Box>
+            )}
 
             {/* Active Status Toggle */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

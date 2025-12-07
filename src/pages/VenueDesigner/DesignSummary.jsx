@@ -418,6 +418,18 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
   const handleDecreaseQuantity = async (item) => {
     // Handle non-3D services (ProjectService entries)
     if (item.isNon3DService) {
+      // For exclusive services, quantity must always be 1
+      const isExclusive = item.serviceListing?.availabilityType === 'exclusive';
+      if (isExclusive && item.quantity <= 1) {
+        const message = 'This is an exclusive service. Only one booking per day is allowed, so the quantity must be 1.';
+        if (setToastNotification) {
+          setToastNotification({ open: true, message, severity: 'info' });
+        } else {
+          window.alert(message);
+        }
+        return;
+      }
+      
       // For per_table services, quantity is controlled by table tagging
       // Users cannot manually change the quantity
       if (item.isPerTableService) {
@@ -710,7 +722,9 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
                               <Stack direction="row" alignItems="center" spacing={0.5}>
                                 <Tooltip 
                                   title={
-                                    item.isPerTableService 
+                                    item.serviceListing?.availabilityType === 'exclusive' && item.quantity <= 1
+                                      ? "This is an exclusive service. Quantity must be 1 (only one booking per day allowed)."
+                                      : item.isPerTableService 
                                       ? item.isBooked
                                         ? "This per-table service is booked. Cancel the booking first to modify the quantity."
                                         : "Quantity is automatically calculated from tagged tables. Tag or untag tables in the 3D design to change quantity."
@@ -725,7 +739,8 @@ const DesignSummary = ({ open, onClose, onProceedToCheckout, eventStartTime, eve
                                         item.quantity === 0 || 
                                         item.isBooked || 
                                         item.isPerTableService || // Disable for per_table services
-                                        item.isVenue // Disable for venue
+                                        item.isVenue || // Disable for venue
+                                        (item.serviceListing?.availabilityType === 'exclusive' && item.quantity <= 1) // Disable for exclusive services when quantity is 1
                                       }
                                       sx={{ color: 'text.secondary' }}
                                     >

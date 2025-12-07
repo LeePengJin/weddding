@@ -1693,8 +1693,10 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
     // If no 3D models, add to ProjectService instead of PlacedElement
     if (elementDescriptors.length === 0) {
       // For per_table services, initial quantity should be 0 (until tables are tagged)
+      // For exclusive services, quantity must always be 1
       // For other services, use quantity 1
       const isPerTable = serviceListing.pricingPolicy === 'per_table';
+      const isExclusive = serviceListing.availabilityType === 'exclusive';
       const initialQuantity = isPerTable ? 0 : 1;
       
       // Add to ProjectService table (for non-3D services)
@@ -1706,8 +1708,10 @@ router.post('/:projectId/elements', requireAuth, async (req, res, next) => {
           },
         },
         update: {
-          // Only increment if not per_table (per_table quantity is managed by table tags)
-          ...(isPerTable ? {} : { quantity: { increment: 1 } }),
+          // For exclusive services, keep quantity at 1 (don't increment)
+          // For per_table services, quantity is managed by table tags
+          // For other services, increment quantity
+          ...(isExclusive || isPerTable ? {} : { quantity: { increment: 1 } }),
         },
         create: {
           projectId: project.id,

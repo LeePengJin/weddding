@@ -19,6 +19,7 @@ import {
   Divider,
   IconButton,
   Switch,
+  Snackbar,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -185,6 +186,7 @@ const ListingWizard = ({
 
   const [fieldErrors, setFieldErrors] = useState({});
   const [dimensionPreviewUrl, setDimensionPreviewUrl] = useState(null);
+  const [toastNotification, setToastNotification] = useState({ open: false, message: '', severity: 'error' });
 
   // Load initial data if editing
   useEffect(() => {
@@ -267,8 +269,10 @@ const ListingWizard = ({
     setFormData(prev => {
       const updated = { ...prev, [field]: value };
       // Auto-set availability type to exclusive for Venue category
+      // Also force has3DModel to true for venues (venues must have 3D model)
       if (field === 'category' && value === 'Venue') {
         updated.availabilityType = 'exclusive';
+        updated.has3DModel = true; // Venues must have 3D model
       }
       
       // Reset pricing policy if availabilityType changes and current policy is not available
@@ -315,52 +319,60 @@ const ListingWizard = ({
 
   const validateStep = (step) => {
     const errors = {};
+    let errorMessage = '';
     
     if (step === 0) {
       // Step 1: Type & Availability
       if (!formData.category) {
         errors.category = 'Please select a category';
-      }
-      if (formData.category === 'Other' && !formData.customCategory) {
+        errorMessage = 'Please select a category';
+      } else if (formData.category === 'Other' && !formData.customCategory) {
         errors.customCategory = 'Please enter a custom category name';
-      }
-      if (formData.availabilityType === 'quantity_based' && (!formData.maxQuantity || parseFloat(formData.maxQuantity) <= 0)) {
+        errorMessage = 'Please enter a custom category name';
+      } else if (formData.availabilityType === 'quantity_based' && (!formData.maxQuantity || parseFloat(formData.maxQuantity) <= 0)) {
         errors.maxQuantity = 'Please enter a valid maximum quantity';
+        errorMessage = 'Please enter a valid maximum quantity';
       }
     } else if (step === 1) {
       // Step 2: Basic Information
       if (!formData.name || formData.name.trim().length < 10) {
         errors.name = 'Name must be at least 10 characters';
-      }
-      if (formData.name && formData.name.trim().length > 100) {
+        errorMessage = 'Name must be at least 10 characters';
+      } else if (formData.name && formData.name.trim().length > 100) {
         errors.name = 'Name must be at most 100 characters';
-      }
-      if (formData.description && formData.description.length < 10) {
+        errorMessage = 'Name must be at most 100 characters';
+      } else if (formData.description && formData.description.length < 10) {
         errors.description = 'Description must be at least 10 characters if provided';
-      }
-      if (formData.description && formData.description.length > 2000) {
+        errorMessage = 'Description must be at least 10 characters if provided';
+      } else if (formData.description && formData.description.length > 2000) {
         errors.description = 'Description must be at most 2000 characters';
-      }
-      if (!formData.pricingPolicy) {
+        errorMessage = 'Description must be at most 2000 characters';
+      } else if (!formData.pricingPolicy) {
         errors.pricingPolicy = 'Please select a pricing policy';
-      }
-
-      // Validate price - not required for time_based
-      if (formData.pricingPolicy !== 'time_based') {
+        errorMessage = 'Please select a pricing policy';
+      } else if (formData.pricingPolicy !== 'time_based') {
         if (!formData.price || parseFloat(formData.price) < 0) {
           errors.price = 'Please enter a valid price';
+          errorMessage = 'Please enter a valid price';
         }
-      }
-
-      // Validate time_based pricing
-      if (formData.pricingPolicy === 'time_based') {
+      } else if (formData.pricingPolicy === 'time_based') {
         if (!formData.hourlyRate || parseFloat(formData.hourlyRate) <= 0) {
           errors.hourlyRate = 'Hourly rate is required and must be greater than 0';
+          errorMessage = 'Hourly rate is required and must be greater than 0';
         }
       }
-
+    } else if (step === 2) {
+      // Step 3: Media & 3D Model
+      // For venues, floorplan is required
+      if (formData.category === 'Venue' && !floorplanData) {
+        errors.floorplan = 'Floorplan is required for venue listings. Please draw the floorplan.';
+        errorMessage = 'Floorplan is required for venue listings. Please draw the floorplan.';
+      }
     }
-    // Step 3 (Media) is optional, no validation needed
+    
+    if (Object.keys(errors).length > 0 && errorMessage) {
+      setToastNotification({ open: true, message: errorMessage, severity: 'error' });
+    }
     
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
@@ -441,14 +453,30 @@ const ListingWizard = ({
 
     Object.assign(allErrors, step1Errors);
 
+    // Validate step 2 (Media & 3D Model) - for venues, floorplan is required
+    const step2Errors = {};
+    if (formData.category === 'Venue' && !floorplanData) {
+      step2Errors.floorplan = 'Floorplan is required for venue listings. Please draw the floorplan.';
+      allValid = false;
+    }
+    Object.assign(allErrors, step2Errors);
+
     // Only set errors if validation failed, otherwise clear them
     if (!allValid) {
       setFieldErrors(allErrors);
+      // Show toast with first error message
+      const firstErrorKey = Object.keys(allErrors)[0];
+      const firstErrorMessage = allErrors[firstErrorKey];
+      if (firstErrorMessage) {
+        setToastNotification({ open: true, message: firstErrorMessage, severity: 'error' });
+      }
       // Navigate to the first step with errors
       if (Object.keys(step0Errors).length > 0) {
         setActiveStep(0);
       } else if (Object.keys(step1Errors).length > 0) {
         setActiveStep(1);
+      } else if (Object.keys(step2Errors).length > 0) {
+        setActiveStep(2);
       }
       return;
     }
@@ -469,7 +497,7 @@ const ListingWizard = ({
       modelDimensions: formData.has3DModel ? (modelDimensions || { width: '', height: '', depth: '' }) : { width: '', height: '', depth: '' },
       isStackable: formData.has3DModel ? (isStackable || false) : false,
       components: components || [],
-      floorplanData: formData.has3DModel ? floorplanData : null,
+      floorplanData: (formData.category === 'Venue' ? floorplanData : (formData.has3DModel ? floorplanData : null)),
       // Include pricing-specific fields
       hourlyRate: formData.pricingPolicy === 'time_based' ? formData.hourlyRate : undefined,
       // Include cancellation policy fields
@@ -515,8 +543,7 @@ const ListingWizard = ({
                     handleInputChange('customCategory', '');
                   }
                 }}
-                error={!!fieldErrors.category}
-                helperText={fieldErrors.category || 'What type of service is this?'}
+                helperText="What type of service is this?"
                 required
               >
                 {VENDOR_CATEGORIES.map((category) => (
@@ -532,8 +559,7 @@ const ListingWizard = ({
                   label="Custom Category Name"
                   value={formData.customCategory}
                   onChange={(e) => handleInputChange('customCategory', e.target.value)}
-                  error={!!fieldErrors.customCategory}
-                  helperText={fieldErrors.customCategory || 'Enter a custom category name (2-50 characters)'}
+                  helperText="Enter a custom category name (2-50 characters)"
                   required
                   sx={{ mt: 2 }}
                 />
@@ -546,47 +572,69 @@ const ListingWizard = ({
                 How can this service be booked?
               </Typography>
               
-              <FormControl component="fieldset" fullWidth>
-                <RadioGroup
-                  value={formData.availabilityType}
-                  onChange={(e) => handleInputChange('availabilityType', e.target.value)}
+              {formData.category === 'Venue' ? (
+                // For venues, show exclusive as read-only
+                <Box
+                  sx={{
+                    p: 2,
+                    border: '2px solid #e16789',
+                    borderRadius: 1,
+                    backgroundColor: '#fef2f2',
+                  }}
                 >
-                  {Object.entries(AVAILABILITY_TYPES).map(([key, info]) => (
-                    <Card
-                      key={key}
-                      sx={{
-                        mb: 2,
-                        border: formData.availabilityType === key ? '2px solid #e16789' : '1px solid #e0e0e0',
-                        cursor: 'pointer',
-                        '&:hover': { borderColor: '#e16789' },
-                        transition: 'all 0.2s',
-                      }}
-                      onClick={() => handleInputChange('availabilityType', key)}
-                    >
-                      <CardContent>
-                        <FormControlLabel
-                          value={key}
-                          control={<Radio />}
-                          label={
-                            <Box>
-                              <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
-                                {info.label}
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                                {info.description}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                                Examples: {info.examples}
-                              </Typography>
-                            </Box>
-                          }
-                          sx={{ width: '100%', m: 0 }}
-                        />
-                      </CardContent>
-                    </Card>
-                  ))}
-                </RadioGroup>
-              </FormControl>
+                  <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    {AVAILABILITY_TYPES.exclusive.label}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    {AVAILABILITY_TYPES.exclusive.description}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                    Venue listings are always exclusive - one booking per date
+                  </Typography>
+                </Box>
+              ) : (
+                <FormControl component="fieldset" fullWidth>
+                  <RadioGroup
+                    value={formData.availabilityType}
+                    onChange={(e) => handleInputChange('availabilityType', e.target.value)}
+                  >
+                    {Object.entries(AVAILABILITY_TYPES).map(([key, info]) => (
+                      <Card
+                        key={key}
+                        sx={{
+                          mb: 2,
+                          border: formData.availabilityType === key ? '2px solid #e16789' : '1px solid #e0e0e0',
+                          cursor: 'pointer',
+                          '&:hover': { borderColor: '#e16789' },
+                          transition: 'all 0.2s',
+                        }}
+                        onClick={() => handleInputChange('availabilityType', key)}
+                      >
+                        <CardContent>
+                          <FormControlLabel
+                            value={key}
+                            control={<Radio />}
+                            label={
+                              <Box>
+                                <Typography variant="body1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                                  {info.label}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                  {info.description}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                  Examples: {info.examples}
+                                </Typography>
+                              </Box>
+                            }
+                            sx={{ width: '100%', m: 0 }}
+                          />
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </RadioGroup>
+                </FormControl>
+              )}
 
               {formData.availabilityType === 'quantity_based' && (
                 <TextField
@@ -595,8 +643,7 @@ const ListingWizard = ({
                   type="number"
                   value={formData.maxQuantity}
                   onChange={(e) => handleInputChange('maxQuantity', e.target.value)}
-                  error={!!fieldErrors.maxQuantity}
-                  helperText={fieldErrors.maxQuantity || 'How many units are available?'}
+                  helperText="How many units are available?"
                   required
                   inputProps={{ min: 1, step: 1 }}
                   sx={{ mt: 2 }}
@@ -629,8 +676,7 @@ const ListingWizard = ({
               label="Service Name"
               value={formData.name}
               onChange={(e) => handleInputChange('name', e.target.value)}
-              error={!!fieldErrors.name}
-                  helperText={fieldErrors.name || 'A clear, descriptive name for your service (10-100 characters)'}
+              helperText="A clear, descriptive name for your service (10-100 characters)"
               required
               sx={{ mb: 3 }}
             />
@@ -641,11 +687,7 @@ const ListingWizard = ({
               label="Description"
               value={formData.description}
               onChange={(e) => handleInputChange('description', e.target.value)}
-              error={!!fieldErrors.description}
-              helperText={
-                fieldErrors.description ||
-                `${formData.description.length}/2000 characters (optional, min 10 if provided)`
-              }
+              helperText={`${formData.description.length}/2000 characters (optional, min 10 if provided)`}
               multiline
               rows={4}
               sx={{ mb: 3 }}
@@ -658,12 +700,10 @@ const ListingWizard = ({
               type="number"
               value={formData.price}
               onChange={(e) => handleInputChange('price', e.target.value)}
-              error={!!fieldErrors.price}
               helperText={
-                fieldErrors.price || 
-                (formData.pricingPolicy === 'time_based' 
+                formData.pricingPolicy === 'time_based' 
                   ? 'Not required for this pricing policy' 
-                  : 'The base price for this service')
+                  : 'The base price for this service'
               }
               required={formData.pricingPolicy !== 'time_based'}
               inputProps={{ min: 0, step: 0.01 }}
@@ -718,11 +758,6 @@ const ListingWizard = ({
                 </RadioGroup>
               </FormControl>
               
-              {fieldErrors.pricingPolicy && (
-                <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
-                  {fieldErrors.pricingPolicy}
-                </Typography>
-              )}
 
               {/* Hourly Rate Input for time_based pricing */}
               {formData.pricingPolicy === 'time_based' && (
@@ -733,8 +768,7 @@ const ListingWizard = ({
                     type="number"
                     value={formData.hourlyRate}
                     onChange={(e) => handleInputChange('hourlyRate', e.target.value)}
-                    error={!!fieldErrors.hourlyRate}
-                    helperText={fieldErrors.hourlyRate || 'The hourly rate for this service'}
+                    helperText="The hourly rate for this service"
                     required
                     inputProps={{ min: 0, step: 0.01 }}
                   />
@@ -875,7 +909,17 @@ const ListingWizard = ({
               Step 3: Media & 3D Model
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Add images and optionally a 3D model to help couples visualize your service. <strong>3D models are optional</strong> - you can create listings without them.
+              {formData.category === 'Venue' 
+                ? (
+                    <>
+                      Add images and draw the floorplan to generate a 3D model. <strong>Floorplan is required for venue listings.</strong>
+                    </>
+                  )
+                : (
+                    <>
+                      Add images and optionally a 3D model to help couples visualize your service. <strong>3D models are optional</strong> - you can create listings without them.
+                    </>
+                  )}
             </Typography>
 
             {/* Images Upload */}
@@ -952,50 +996,55 @@ const ListingWizard = ({
             {/* Hide 3D model section if bundle is enabled (components will have their own 3D models) */}
             {!formData.isBundle && (
             <Box>
-              <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                    Include 3D Model
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Enable this if your listing has a 3D model for visualization
-                  </Typography>
+              {formData.category !== 'Venue' && (
+                <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      Include 3D Model
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Enable this if your listing has a 3D model for visualization
+                    </Typography>
+                  </Box>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={formData.has3DModel || false}
+                        onChange={(e) => {
+                          handleInputChange('has3DModel', e.target.checked);
+                          // Clear 3D model data if toggle is turned off
+                          if (!e.target.checked) {
+                            if (on3DModelRemove) on3DModelRemove();
+                            if (onDesignElementSelect) onDesignElementSelect('');
+                            if (onModel3DSourceChange) onModel3DSourceChange('upload');
+                          }
+                        }}
+                      />
+                    }
+                    label=""
+                  />
                 </Box>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.has3DModel || false}
-                      onChange={(e) => {
-                        handleInputChange('has3DModel', e.target.checked);
-                        // Clear 3D model data if toggle is turned off
-                        if (!e.target.checked) {
-                          if (on3DModelRemove) on3DModelRemove();
-                          if (onDesignElementSelect) onDesignElementSelect('');
-                          if (onModel3DSourceChange) onModel3DSourceChange('upload');
-                        }
-                      }}
-                    />
-                  }
-                  label=""
-                />
-              </Box>
+              )}
               
-              {/* Only show 3D model fields if toggle is enabled */}
-              {formData.has3DModel && (
+              {/* For venues, always show floorplan (required); for others, only if toggle is enabled */}
+              {(formData.has3DModel || formData.category === 'Venue') && (
                 <>
                   {/* For venues, only show floorplan option; for others, show all options */}
                   {formData.category === 'Venue' ? (
                 <Box
                   sx={{
                     p: 2,
-                    border: '1px solid #e0e0e0',
+                    border: floorplanData ? '1px solid #10b981' : '1px solid #e0e0e0',
                     borderRadius: 1,
-                    backgroundColor: '#f8f9fa',
+                    backgroundColor: floorplanData ? '#f0fdf4' : '#f8f9fa',
                     mb: 2,
                   }}
                 >
+                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 500, color: floorplanData ? '#065f46' : '#666' }}>
+                    {floorplanData ? '✓ Floorplan Ready' : 'Draw your venue floorplan (Required)'}
+                  </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                    Draw your venue floorplan to generate a 3D model automatically.
+                    Draw your venue floorplan to generate a 3D model automatically. This is required for venue listings.
                   </Typography>
                   <Button
                     variant="outlined"
@@ -1441,17 +1490,8 @@ const ListingWizard = ({
     }
   };
 
-  // Check if there are any errors to show error banner
-  const hasErrors = Object.keys(fieldErrors).length > 0;
-
   return (
     <Box sx={{ width: '100%', maxWidth: '800px', mx: 'auto', p: 3 }}>
-      {/* Error Banner */}
-      {hasErrors && (
-        <Alert severity="error" sx={{ mb: 3 }} onClose={() => setFieldErrors({})}>
-          Please fix the errors before saving
-        </Alert>
-      )}
 
       <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
         {steps.map((label) => (
@@ -1487,6 +1527,22 @@ const ListingWizard = ({
           {activeStep === steps.length - 1 ? 'Complete' : 'Next'}
         </Button>
       </Box>
+
+      {/* Toast Notification */}
+      <Snackbar
+        open={toastNotification.open}
+        autoHideDuration={6000}
+        onClose={() => setToastNotification({ ...toastNotification, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setToastNotification({ ...toastNotification, open: false })}
+          severity={toastNotification.severity}
+          sx={{ width: '100%' }}
+        >
+          {toastNotification.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };
