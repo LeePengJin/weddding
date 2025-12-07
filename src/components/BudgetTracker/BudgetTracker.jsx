@@ -75,15 +75,15 @@ const BudgetTracker = ({
             <span className="budget-figure planned">RM {planned.toLocaleString()}</span>
           </div>
           <div className="budget-stat">
-            <span className="budget-label">Actual Spent</span>
+            <span className="budget-label">Total Spent</span>
             <span className="budget-figure spent">RM {actual.toLocaleString()}</span>
           </div>
         </>
       ) : (
-        <div className="budget-stat">
-          <span className="budget-label">Spend</span>
-          <span className="budget-figure spent">RM {planned.toLocaleString()}</span>
-        </div>
+      <div className="budget-stat">
+        <span className="budget-label">Spend</span>
+        <span className="budget-figure spent">RM {planned.toLocaleString()}</span>
+      </div>
       )}
       <div className="budget-stat">
         <span className="budget-label">Remaining</span>

@@ -101,7 +101,15 @@ const VenueDesigner = () => {
   }, []);
 
   // Calculate remaining: totalBudget - plannedSpend - totalSpent
-  const totalSpent = budget?.totalSpent ? parseFloat(budget.totalSpent) : 0;
+  // Parse totalSpent - handle both string and number types
+  let totalSpent = 0;
+  if (budget?.totalSpent != null) {
+    const totalSpentStr = String(budget.totalSpent);
+    totalSpent = parseFloat(totalSpentStr);
+    if (isNaN(totalSpent)) {
+      totalSpent = 0;
+    }
+  }
   // Always use backend plannedSpend - it's calculated using the same logic as checkout summary
   // The backend updatePlannedSpend function matches the checkout summary calculation
   const effectivePlannedSpend = budget?.plannedSpend !== undefined && budget?.plannedSpend !== null
@@ -325,11 +333,11 @@ const VenueDesigner = () => {
           
           // Show helpful toast notification for per_table services
           if (response.isPerTable) {
-            setToastNotification({
-              open: true,
-              message: 'Service added! This service uses per-table pricing. Please tag tables in the 3D design by clicking on a table and selecting "Tag Services" to set the quantity.',
-              severity: 'info',
-            });
+              setToastNotification({
+                open: true,
+                message: 'Service added! This service uses per-table pricing. Please tag tables in the 3D design by clicking on a table and selecting "Tag Services" to set the quantity.',
+                severity: 'info',
+              });
           } else {
             setToastNotification({
               open: true,

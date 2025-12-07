@@ -1024,6 +1024,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
           <BudgetTracker
             total={budgetData.total}
             planned={budgetData.planned}
+            actual={budgetData.actual}
             remaining={budgetData.remaining}
             progress={budgetData.progress}
           />

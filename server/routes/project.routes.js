@@ -1065,6 +1065,13 @@ router.delete('/:projectId/services/:serviceListingId', requireAuth, async (req,
       },
     });
 
+    // Update planned spend in background (non-3D services affect budget)
+    // Wait for update to complete so frontend gets fresh data
+    const venueDesignRoutes = require('./venueDesign.routes');
+    if (venueDesignRoutes.updatePlannedSpend) {
+      await venueDesignRoutes.updatePlannedSpend(projectId);
+    }
+
     return res.json({ message: 'Service removed from project successfully' });
   } catch (err) {
     next(err);

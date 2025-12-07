@@ -316,6 +316,7 @@ async function checkProjectCanBeModified(projectId, coupleId) {
  * Helper function to calculate and update planned spend from 3D design
  * This calculates the total cost of all non-booked placements in the venue design
  */
+// Export updatePlannedSpend so it can be used by other route files
 async function updatePlannedSpend(projectId) {
   try {
     const project = await prisma.weddingProject.findUnique({
@@ -1492,6 +1493,14 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
       bookedTables[serviceId] = Array.from(bookedTablesMap[serviceId]);
     });
 
+    // Fetch budget directly from database to ensure we get the latest totalSpent value
+    let budgetData = null;
+    if (project.budget) {
+      budgetData = await prisma.budget.findUnique({
+        where: { id: project.budget.id },
+      });
+    }
+
     return res.json({
       project: {
         id: project.id,
@@ -1502,13 +1511,28 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
             : project.weddingDate,
         eventStartTime: project.eventStartTime || null,
         eventEndTime: project.eventEndTime || null,
-        budget: project.budget ? {
-          id: project.budget.id,
-          totalBudget: project.budget.totalBudget ? String(project.budget.totalBudget) : '0',
-          totalSpent: project.budget.totalSpent ? String(project.budget.totalSpent) : '0',
-          plannedSpend: project.budget.plannedSpend ? String(project.budget.plannedSpend) : '0',
-          totalRemaining: project.budget.totalRemaining ? String(project.budget.totalRemaining) : '0',
-        } : null,
+        budget: budgetData ? (() => {
+          // Prisma Decimal objects need explicit toString() call
+          const totalSpentRaw = budgetData.totalSpent;
+          const totalSpentStr = totalSpentRaw != null 
+            ? (typeof totalSpentRaw.toString === 'function' ? totalSpentRaw.toString() : String(totalSpentRaw))
+            : '0';
+          
+          const budgetObj = {
+            id: budgetData.id,
+            totalBudget: budgetData.totalBudget != null 
+              ? (typeof budgetData.totalBudget.toString === 'function' ? budgetData.totalBudget.toString() : String(budgetData.totalBudget))
+              : '0',
+            totalSpent: totalSpentStr,
+            plannedSpend: budgetData.plannedSpend != null 
+              ? (typeof budgetData.plannedSpend.toString === 'function' ? budgetData.plannedSpend.toString() : String(budgetData.plannedSpend))
+              : '0',
+            totalRemaining: budgetData.totalRemaining != null 
+              ? (typeof budgetData.totalRemaining.toString === 'function' ? budgetData.totalRemaining.toString() : String(budgetData.totalRemaining))
+              : '0',
+          };
+          return budgetObj;
+        })() : null,
       },
       bookedQuantities, // Include booked quantities for checkout adjustment
       bookedTables, // Include booked table IDs per service (for per-table services)
@@ -3239,13 +3263,35 @@ router.get('/:projectId/budget', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Return budget data only
+    // Return budget data only - ensure all Decimal fields are properly converted to strings
+    // totalSpent is stored in Budget.totalSpent field (calculated from sum of Expense.actualCost)
+    // Fetch budget directly from database to ensure we get the latest values
+    const budgetData = await prisma.budget.findUnique({
+      where: { id: project.budget.id },
+    });
+    
+    if (!budgetData) {
+      return res.status(404).json({ error: 'Budget not found' });
+    }
+    
+    // Convert Decimal fields to strings - handle null/undefined cases
+    // Prisma Decimal types need to be converted to string explicitly
+    const totalBudget = budgetData.totalBudget != null ? String(budgetData.totalBudget) : '0';
+    const plannedSpend = budgetData.plannedSpend != null ? String(budgetData.plannedSpend) : '0';
+    
+    // Prisma Decimal objects need explicit toString() call
+    const totalSpentRaw = budgetData.totalSpent;
+    const totalSpent = totalSpentRaw != null 
+      ? (typeof totalSpentRaw.toString === 'function' ? totalSpentRaw.toString() : String(totalSpentRaw))
+      : '0';
+    const totalRemaining = budgetData.totalRemaining != null ? String(budgetData.totalRemaining) : '0';
+    
     return res.json({
       budget: {
-        totalBudget: String(project.budget.totalBudget || '0'),
-        plannedSpend: String(project.budget.plannedSpend || '0'),
-        totalSpent: String(project.budget.totalSpent || '0'),
-        totalRemaining: String(project.budget.totalRemaining || '0'),
+        totalBudget,
+        plannedSpend,
+        totalSpent,
+        totalRemaining,
       },
     });
   } catch (err) {
@@ -3616,6 +3662,8 @@ router.get('/:projectId/checkout-summary', requireAuth, async (req, res, next) =
   }
 });
 
+// Export updatePlannedSpend function for use in other route files
 module.exports = router;
+module.exports.updatePlannedSpend = updatePlannedSpend;
 
 
