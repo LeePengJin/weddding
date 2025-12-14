@@ -1,7 +1,7 @@
 /* Checklist Page - Minimal CSS (most styling moved to Material-UI sx props) */
 
 .checklist-container {
-  font-family: 'Literata', serif;
+  font-family: inherit;
 }
 
 /* Ensure proper spacing and layout */

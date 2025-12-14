@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { Box, Drawer, AppBar, Toolbar, IconButton, Tooltip } from '@mui/material';
 import {
@@ -24,7 +24,24 @@ export default function AdminLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const [adminUser, setAdminUser] = useState(null);
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/admin/auth/me')
+      .then((me) => {
+        if (cancelled) return;
+        setAdminUser({ ...me, role: 'admin' });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAdminUser(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname]);
 
   const onLogout = async () => {
     try {
@@ -207,7 +224,7 @@ export default function AdminLayout({ children }) {
               <MenuIcon />
             </IconButton>
             <UserAvatar
-              user={user}
+              user={adminUser || user}
               size={35}
               onClick={() => navigate('/admin/profile')}
             />

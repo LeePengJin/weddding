@@ -52,7 +52,6 @@ export default function VendorPayment() {
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
 
   useEffect(() => {
-    document.title = 'Weddding Admin — Vendor Payment';
     // Ensure admin session
     apiFetch('/admin/auth/me')
       .then(() => {
@@ -219,7 +218,15 @@ export default function VendorPayment() {
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" sx={{ fontWeight: 600 }}>
+        <Typography
+          variant="h4"
+          sx={{
+            fontWeight: 700,
+            color: '#111827',
+            fontSize: '28px',
+            letterSpacing: '-0.02em',
+          }}
+        >
           Vendor Payment
         </Typography>
         <Button

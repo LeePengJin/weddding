@@ -28,16 +28,14 @@ export default function Vendors() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectingUserId, setRejectingUserId] = useState(null);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [approvingUserId, setApprovingUserId] = useState(null);
   const [toastNotification, setToastNotification] = useState({ open: false, message: '', severity: 'success' });
   const [sortField, setSortField] = useState('name');
   const [sortDirection, setSortDirection] = useState('asc');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
-  // Set browser tab title
-  useEffect(() => {
-    document.title = 'Weddding Admin — Vendor Verification';
-  }, []);
 
   // Fixed column widths for consistent spacing across tabs
   const COLS = {
@@ -151,11 +149,24 @@ export default function Vendors() {
     );
   }, [filtered, page, rowsPerPage]);
 
-  const onApprove = async (userId) => {
+  const handleApproveClick = (userId) => {
+    setApprovingUserId(userId);
+    setApproveDialogOpen(true);
+  };
+
+  const handleApproveCancel = () => {
+    setApproveDialogOpen(false);
+    setApprovingUserId(null);
+  };
+
+  const onApprove = async () => {
+    if (!approvingUserId) return;
+    
     try {
-      await apiFetch(`/admin/vendors/${userId}/approve`, { method: 'POST' });
-      const vendor = rows.find((r) => r.id === userId);
-      setRows((prev) => prev.filter((r) => r.id !== userId));
+      await apiFetch(`/admin/vendors/${approvingUserId}/approve`, { method: 'POST' });
+      const vendor = rows.find((r) => r.id === approvingUserId);
+      setRows((prev) => prev.filter((r) => r.id !== approvingUserId));
+      handleApproveCancel();
       setToastNotification({
         open: true,
         message: `Vendor account "${vendor?.name || vendor?.email}" has been approved successfully.`,
@@ -238,7 +249,18 @@ export default function Vendors() {
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>Vendor Verification</Typography>
+      <Typography
+        variant="h4"
+        sx={{
+          fontWeight: 700,
+          color: '#111827',
+          fontSize: '28px',
+          letterSpacing: '-0.02em',
+          mb: 3,
+        }}
+      >
+        Vendor Verification
+      </Typography>
 
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ mb: 2 }}>
         {STATUS_TABS.map((t) => (
@@ -376,7 +398,7 @@ export default function Vendors() {
                       <IconButton onClick={() => onView(row.id)} title="View"><VisibilityIcon /></IconButton>
                       {tab === 'pending_verification' && (
                         <>
-                          <IconButton color="success" onClick={() => onApprove(row.id)} title="Approve"><CheckIcon /></IconButton>
+                          <IconButton color="success" onClick={() => handleApproveClick(row.id)} title="Approve"><CheckIcon /></IconButton>
                           <IconButton color="error" onClick={() => handleRejectClick(row.id)} title="Reject"><CloseIcon /></IconButton>
                         </>
                       )}
@@ -450,10 +472,49 @@ export default function Vendors() {
           {selected && tab === 'pending_verification' ? (
             <Stack direction="row" spacing={1} sx={{ mr: 1 }}>
               <Button variant="outlined" color="error" onClick={() => { closeDialog(); handleRejectClick(selected.id); }}>Reject</Button>
-              <Button variant="contained" color="success" onClick={() => { closeDialog(); onApprove(selected.id); }}>Approve</Button>
+              <Button variant="contained" color="success" onClick={() => { closeDialog(); handleApproveClick(selected.id); }}>Approve</Button>
             </Stack>
           ) : null}
           <Button onClick={closeDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Approval Confirmation Dialog */}
+      <Dialog open={approveDialogOpen} onClose={handleApproveCancel} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700, color: '#059669' }}>
+          Confirm Vendor Approval
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2, color: '#4b5563' }}>
+            Are you sure you want to approve this vendor account? Once approved, the vendor will be able to:
+          </Typography>
+          <List dense sx={{ mb: 2 }}>
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText primary="• Log in to their vendor account" />
+            </ListItem>
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText primary="• Create and manage service listings" />
+            </ListItem>
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText primary="• Receive booking requests from couples" />
+            </ListItem>
+          </List>
+          {approvingUserId && (() => {
+            const vendor = rows.find((r) => r.id === approvingUserId);
+            return vendor ? (
+              <Typography variant="body2" sx={{ color: '#6b7280', fontStyle: 'italic' }}>
+                Vendor: {vendor.name || vendor.email}
+              </Typography>
+            ) : null;
+          })()}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleApproveCancel} variant="outlined">
+            Cancel
+          </Button>
+          <Button onClick={onApprove} variant="contained" color="success" sx={{ ml: 1 }}>
+            Confirm Approval
+          </Button>
         </DialogActions>
       </Dialog>
 

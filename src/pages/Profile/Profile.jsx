@@ -274,14 +274,6 @@ const Profile = () => {
     }
   };
 
-  // Update document title
-  useEffect(() => {
-    document.title = 'Profile - Weddding';
-    return () => {
-      document.title = 'Weddding';
-    };
-  }, []);
-
   if (loading) {
     return <Box>Loading...</Box>;
   }

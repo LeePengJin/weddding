@@ -208,8 +208,18 @@ const RefundsAndCancellations = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" component="h1" sx={{ mb: 3, fontWeight: 700 }}>
+    <Box>
+      <Typography
+        variant="h4"
+        component="h1"
+        sx={{
+          fontWeight: 700,
+          color: '#111827',
+          fontSize: '28px',
+          letterSpacing: '-0.02em',
+          mb: 3,
+        }}
+      >
         Refunds & Cancellations
       </Typography>
 

@@ -64,9 +64,6 @@ export default function VendorDashboard() {
   const [recentBookings, setRecentBookings] = useState([]);
   const [topListings, setTopListings] = useState([]);
 
-  useEffect(() => {
-    document.title = 'Weddding Vendor — Dashboard';
-  }, []);
 
   useEffect(() => {
     const fetchDashboardData = async () => {

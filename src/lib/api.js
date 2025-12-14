@@ -67,6 +67,12 @@ export function duplicateDesignElement(projectId, elementId) {
   });
 }
 
+export function duplicatePackageDesignElement(packageId, elementId) {
+  return apiFetch(`/admin/package-design/${packageId}/elements/${elementId}/duplicate`, {
+    method: 'POST',
+  });
+}
+
 export function updateVenueCamera(projectId, payload) {
   return apiFetch(`/venue-designs/${projectId}/camera`, {
     method: 'PATCH',
@@ -182,6 +188,10 @@ export function getPackageCatalog(packageId, query = {}) {
 
 export function getPackageVenues(packageId) {
   return apiFetch(`/admin/package-design/${packageId}/venues`);
+}
+
+export function getAvailableVenues() {
+  return apiFetch(`/admin/package-design/venues`);
 }
 
 export function setPackageVenue(packageId, venueServiceListingId) {

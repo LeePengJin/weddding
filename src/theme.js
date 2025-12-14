@@ -1,15 +1,19 @@
 import { createTheme } from '@mui/material/styles';
 
-// Keep your existing fonts: EB Garamond for body, Questrial for headings
 const theme = createTheme({
   typography: {
-    fontFamily: 'EB Garamond, serif',
-    h1: { fontFamily: 'Questrial, sans-serif' },
-    h2: { fontFamily: 'Questrial, sans-serif' },
-    h3: { fontFamily: 'Questrial, sans-serif' },
-    h4: { fontFamily: 'Questrial, sans-serif' },
-    h5: { fontFamily: 'Questrial, sans-serif' },
-    h6: { fontFamily: 'Questrial, sans-serif' },
+    fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
+    h1: { fontFamily: "'Playfair Display', 'Times New Roman', serif", fontWeight: 700 },
+    h2: { fontFamily: "'Playfair Display', 'Times New Roman', serif", fontWeight: 700 },
+    h3: { fontFamily: "'Playfair Display', 'Times New Roman', serif", fontWeight: 700 },
+    h4: { fontFamily: "'Playfair Display', 'Times New Roman', serif", fontWeight: 700 },
+    h5: { fontFamily: "'Playfair Display', 'Times New Roman', serif", fontWeight: 600 },
+    h6: { fontFamily: "'Playfair Display', 'Times New Roman', serif", fontWeight: 600 },
+    button: {
+      fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif",
+      textTransform: 'none',
+      fontWeight: 600,
+    },
   },
   palette: {
     mode: 'light',

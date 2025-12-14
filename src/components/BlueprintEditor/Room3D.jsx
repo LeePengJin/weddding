@@ -1,18 +1,3 @@
-/**
- * Room3D Component
- * 
- * 3D visualization and export of floorplan data.
- * 
- * Features:
- * - Renders walls with doors and windows as openings
- * - Window glass panels with transparency
- * - Wall textures applied from WALL_TEXTURES
- * - GLB export including all features
- * 
- * The component splits walls into segments around doors/windows,
- * creating proper openings while maintaining wall structure.
- */
-
 import React, { useMemo, useEffect, useState } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Environment, Grid } from '@react-three/drei';
@@ -91,7 +76,7 @@ const ComplexWallMesh = ({ wall, start, end, doors, windows, enableShadows = tru
       const opEnd = (op.offset + op.width / 2) / PIXELS_PER_METER;
       const opWidth = op.width / PIXELS_PER_METER;
 
-      // 1. Wall before opening
+      // Wall before opening
       if (opStart > currentPos) {
         const segLen = opStart - currentPos;
         segs.push({
@@ -102,7 +87,7 @@ const ComplexWallMesh = ({ wall, start, end, doors, windows, enableShadows = tru
         });
       }
 
-      // 2. Opening segments
+      // Opening segments
       if (op.type === 'WINDOW') {
         // Sill (below window)
         if (op.elevation > 0) {
@@ -211,7 +196,6 @@ const useRoomShape = (data) => {
     const s = new THREE.Shape();
     if (data.walls.length < 3) return null;
 
-    // Create an adjacency list to find a cycle
     const adj = new Map();
     data.walls.forEach(w => {
       if (!adj.has(w.startPointId)) adj.set(w.startPointId, []);
@@ -220,7 +204,6 @@ const useRoomShape = (data) => {
       adj.get(w.endPointId).push(w.startPointId);
     });
 
-    // Simple cycle detection (DFS) - Find the largest loop
     const startNodeId = Array.from(adj.keys()).find(k => adj.get(k).length >= 2);
     if (!startNodeId) return null;
 
@@ -231,7 +214,6 @@ const useRoomShape = (data) => {
     let curr = startNodeId;
     let prev = null;
     
-    // Try to walk the perimeter
     for(let i = 0; i < data.points.length * 2; i++) {
        const neighbors = adj.get(curr);
        if (!neighbors) break;
@@ -257,9 +239,6 @@ const useRoomShape = (data) => {
     const pathPoints = path.map(id => data.points.find(p => p.id === id)).filter(p => !!p);
     if (pathPoints.length !== path.length) return null;
 
-    // FIX: Negate Y coordinate because plane is rotated -90deg X
-    // SVG Y+ is down (World Z+). Rotated Plane local Y+ maps to World Z-.
-    // To map SVG Y+ to World Z+, we must use negative Y in the shape.
     s.moveTo(pathPoints[0].x / PIXELS_PER_METER, -pathPoints[0].y / PIXELS_PER_METER);
     for (let i = 1; i < pathPoints.length; i++) {
       s.lineTo(pathPoints[i].x / PIXELS_PER_METER, -pathPoints[i].y / PIXELS_PER_METER);
@@ -282,7 +261,7 @@ const FloorMesh = ({ data, enableShadows = true }) => {
   );
 };
 
-// Corner post material (cached)
+// Corner post material
 const cornerPostMaterial = new THREE.MeshStandardMaterial({ color: "#64748b" });
 
 // Adaptive geometry based on camera distance
@@ -373,7 +352,6 @@ const SceneContent = ({ data, cameraDistance = 20, onDistanceChange }) => {
     return [(minX + maxX) / (2 * PIXELS_PER_METER), 0, (minY + maxY) / (2 * PIXELS_PER_METER)];
   }, [data.points]);
 
-  // Track camera distance to room center
   useFrame(() => {
     if (roomContentRef.current && onDistanceChange) {
       const roomCenter = new THREE.Vector3(-center[0], 0, -center[2]);
@@ -381,8 +359,6 @@ const SceneContent = ({ data, cameraDistance = 20, onDistanceChange }) => {
       onDistanceChange(distance);
     }
   });
-
-  // Shadows are disabled to prevent blue box artifacts
 
   // Pre-compute wall data to avoid multiple iterations
   const wallData = useMemo(() => {
@@ -429,7 +405,6 @@ const SceneContent = ({ data, cameraDistance = 20, onDistanceChange }) => {
           />
         ))}
 
-        {/* Window Glass Panels - only render when not too close */}
         {cameraDistance > 2 && wallData.map(({ wall, start, end, windows }) => 
           windows.map(win => (
             <WindowGlass key={win.id} window={win} wall={wall} start={start} end={end} />

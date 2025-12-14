@@ -12,6 +12,7 @@ import {
   updateDesignElement,
   deleteDesignElement,
   duplicateDesignElement,
+  duplicatePackageDesignElement,
   saveVenueDesign,
   getVenueCatalog,
   getVenueAvailability,
@@ -472,13 +473,14 @@ const VenueDesigner = () => {
 
   const handleDuplicatePlacement = useCallback(
     async (placementId) => {
-      if (!resourceId || designerMode === 'package') {
-        // Duplication not supported for package mode yet
-        setToastNotification({ open: true, message: 'Duplication not available in package mode', severity: 'info' });
+      if (!resourceId) {
         return null;
       }
       try {
-        const response = await duplicateDesignElement(projectId, placementId);
+        const response =
+          designerMode === 'package'
+            ? await duplicatePackageDesignElement(packageId, placementId)
+            : await duplicateDesignElement(projectId, placementId);
         // Handle both single placement and bundle (array of placements)
         const newPlacements = response.placements || (response.placement ? [response.placement] : []);
         if (newPlacements.length > 0) {

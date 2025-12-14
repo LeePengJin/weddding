@@ -42,6 +42,7 @@ import VendorProfile from './pages/VendorProfile/VendorProfile';
 import VendorPayments from './pages/VendorPayments/VendorPayments';
 import VendorReports from './pages/VendorReports/VendorReports';
 import AdminReports from './pages/AdminReports/AdminReports';
+import AdminProfile from './admin/pages/AdminProfile';
 import NotFound from './pages/NotFound/NotFound';
 import About from './pages/About/About';
 import Features from './pages/Features/Features';
@@ -89,6 +90,74 @@ const AppContent = () => {
     location.pathname === '/payment' ||
     isAdminRoute ||
     (isMessagesRoute && isVendorUser && !location.pathname.startsWith('/vendor')); // Hide navbar for vendors on messages page (but not when in vendor layout)
+
+  // Centralized browser tab title handling (admin/vendor/couple + auth + marketing)
+  React.useEffect(() => {
+    const p = location.pathname;
+
+    const setRaw = (raw) => {
+      document.title = raw || 'Weddding';
+    };
+    const setCouple = (page) => setRaw(page ? `${page} — Weddding` : 'Weddding');
+    const setVendor = (page) => setRaw(page ? `${page} — Weddding Vendor` : 'Weddding Vendor');
+    const setAdmin = (page) => setRaw(page ? `${page} — Weddding Admin` : 'Weddding Admin');
+
+    // Admin
+    if (p === '/admin/login') return setAdmin('Login');
+    if (p === '/admin/dashboard') return setAdmin('Dashboard');
+    if (p === '/admin/vendors') return setAdmin('Vendor Verification');
+    if (p === '/admin/packages') return setAdmin('Package Management');
+    if (p.startsWith('/admin/packages/')) return setAdmin('Package Designer');
+    if (p === '/admin/accounts') return setAdmin('Account Management');
+    if (p === '/admin/vendor-payment') return setAdmin('Vendor Payment');
+    if (p === '/admin/refunds-cancellations') return setAdmin('Refunds & Cancellations');
+    if (p === '/admin/reports') return setAdmin('Reports');
+    if (p === '/admin/profile') return setAdmin('Profile');
+
+    // Vendor
+    if (p === '/vendor/dashboard') return setVendor('Dashboard');
+    if (p === '/vendor/booking-requests') return setVendor('Booking Requests');
+    if (p === '/vendor/availability') return setVendor('Availability');
+    if (p === '/vendor/listings') return setVendor('Manage Listings');
+    if (p === '/vendor/design-elements') return setVendor('Design Elements');
+    if (p.startsWith('/vendor/venue-floorplan')) return setVendor('Venue Floorplan');
+    if (p === '/vendor/profile') return setVendor('Profile');
+    if (p === '/vendor/payments') return setVendor('Payments');
+    if (p === '/vendor/reports') return setVendor('Reports');
+    if (p === '/vendor/messages') return setVendor('Messages');
+
+    // Auth
+    if (p === '/login') return setCouple('Login');
+    if (p === '/register') return setCouple('Register');
+    if (p === '/vendor/register') return setVendor('Register');
+    if (p === '/vendor/submitted') return setVendor('Submission');
+    if (p === '/forgot-password') return setCouple('Forgot Password');
+    if (p === '/otp') return setCouple('OTP Verification');
+    if (p === '/reset-password') return setCouple('Reset Password');
+
+    // Couple core pages
+    if (p === '/projects') return setCouple('Projects');
+    if (p === '/create-project') return setCouple('Create Project');
+    if (p === '/project-dashboard') return setCouple('Project Dashboard');
+    if (p === '/budget') return setCouple('Budget Management');
+    if (p === '/checklist') return setCouple('Checklist');
+    if (p === '/messages') return setCouple('Messages');
+    if (p === '/venue-designer' || p.includes('/venue-designer')) return setCouple('Venue Designer');
+    if (p === '/my-bookings') return setCouple('My Bookings');
+    if (p === '/payment-center') return setCouple('Payment Center');
+    if (p === '/payment') return setCouple('Payment');
+    if (p === '/booked-suppliers') return setCouple('Booked Suppliers');
+    if (p === '/profile') return setCouple('Profile');
+
+    // Marketing
+    if (p === '/') return setCouple('Home');
+    if (p === '/about') return setCouple('About');
+    if (p === '/features') return setCouple('Features');
+    if (p === '/faq') return setCouple('FAQ');
+
+    // Fallback
+    setRaw('Weddding');
+  }, [location.pathname]);
 
   return (
     <div className="App">
@@ -144,6 +213,7 @@ const AppContent = () => {
               <Route path="/admin/vendor-payment" element={<AdminLayout><VendorPayment /></AdminLayout>} />
               <Route path="/admin/refunds-cancellations" element={<AdminLayout><RefundsAndCancellations /></AdminLayout>} />
               <Route path="/admin/reports" element={<AdminLayout><AdminReports /></AdminLayout>} />
+              <Route path="/admin/profile" element={<AdminLayout><AdminProfile /></AdminLayout>} />
               <Route path="/" element={<Home />} />
               <Route path="/projects" element={<RequireAuth><Projects /></RequireAuth>} />
               <Route path="/create-project" element={<RequireAuth><CreateProject /></RequireAuth>} />

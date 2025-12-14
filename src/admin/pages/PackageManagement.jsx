@@ -36,7 +36,7 @@ import {
   TablePagination,
 } from '@mui/material';
 import { Add, Close, Edit, ErrorOutline, Loop, Refresh, Verified, WarningAmber, Search } from '@mui/icons-material';
-import { apiFetch, getPackageDesign, getPackageVenues, setPackageVenue } from '../../lib/api';
+import { apiFetch, getPackageDesign, getPackageVenues, getAvailableVenues } from '../../lib/api';
 import { formatImageUrl } from '../../utils/image';
 
 const CATEGORY_OPTIONS = [
@@ -138,6 +138,7 @@ const defaultFormState = {
   previewImage: '',
   notes: '',
   status: 'draft',
+  venueServiceListingId: null,
   items: [],
 };
 
@@ -153,8 +154,6 @@ const PackageManagement = () => {
   const [saving, setSaving] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [activePackageId, setActivePackageId] = useState(null);
-  const [venueDialogOpen, setVenueDialogOpen] = useState(false);
-  const [selectedPackageForVenue, setSelectedPackageForVenue] = useState(null);
   const [availableVenues, setAvailableVenues] = useState([]);
   const [venuesLoading, setVenuesLoading] = useState(false);
   const [syncingDesign, setSyncingDesign] = useState(false);
@@ -195,10 +194,12 @@ const PackageManagement = () => {
     fetchPackages();
   }, [fetchPackages]);
 
-  const openCreateDrawer = () => {
+  const openCreateDrawer = async () => {
     setIsEditing(false);
     setFormState(defaultFormState);
     setDrawerOpen(true);
+    // Fetch available venues when opening create drawer
+    await fetchAvailableVenues(null);
   };
 
   const mapPackageToFormState = (pkg) => ({
@@ -208,6 +209,7 @@ const PackageManagement = () => {
     previewImage: pkg.previewImage || '',
     notes: pkg.notes || '',
     status: pkg.status || 'draft',
+    venueServiceListingId: null, // Will be populated from design data
     items: (pkg.items || []).map((item) => ({
       localId: item.id,
       id: item.id,
@@ -222,10 +224,45 @@ const PackageManagement = () => {
     })),
   });
 
-  const openEditDrawer = (pkg) => {
+  const openEditDrawer = async (pkg) => {
     setIsEditing(true);
-    setFormState(mapPackageToFormState(pkg));
+    const mappedState = mapPackageToFormState(pkg);
+    setFormState(mappedState);
     setDrawerOpen(true);
+    
+    // Fetch available venues
+    await fetchAvailableVenues(pkg.id);
+    
+    // Auto-sync items and venue from 3D design if package has been designed
+    if (pkg.id) {
+      try {
+        const data = await getPackageDesign(pkg.id);
+        const venueId = data?.venue?.id || data?.venue?.serviceListingId || null;
+        const placements = data?.design?.placedElements || [];
+        
+        // Set venue if exists
+        if (venueId) {
+          setFormState((prev) => ({
+            ...prev,
+            venueServiceListingId: venueId,
+          }));
+        }
+        
+        // Auto-sync items
+        if (placements.length > 0) {
+          const designItems = buildItemsFromPlacements(placements);
+          if (designItems.length > 0) {
+            setFormState((prev) => ({
+              ...prev,
+              items: designItems,
+            }));
+          }
+        }
+      } catch (err) {
+        // Silently fail - design might not exist yet
+        console.log('No design found for package, skipping auto-sync');
+      }
+    }
   };
 
   const handleItemChange = (index, field, value) => {
@@ -236,26 +273,6 @@ const PackageManagement = () => {
     });
   };
 
-  const handleAddPlaceholderItem = () => {
-    setFormState((prev) => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        {
-          localId: `temp-${Date.now()}`,
-          id: null,
-          label: 'New Slot',
-          category: CATEGORY_OPTIONS[0].value,
-          serviceListingId: '',
-          isRequired: true,
-          minPrice: '',
-          maxPrice: '',
-          replacementTags: [],
-          listingSummary: null,
-        },
-      ],
-    }));
-  };
 
   const handleRemoveItem = (index) => {
     setFormState((prev) => {
@@ -340,6 +357,7 @@ const PackageManagement = () => {
     previewImage: formState.previewImage || null,
     notes: formState.notes || null,
     status: formState.status || 'draft',
+    venueServiceListingId: formState.venueServiceListingId || null,
     items: formState.items.map((item) => ({
       id: item.id || undefined,
       label: item.label.trim(),
@@ -352,13 +370,13 @@ const PackageManagement = () => {
     })),
   });
 
-  const handleSavePackage = async () => {
+  const handleSavePackage = async (navigateToDesign = false) => {
     if (isEditing && formState.status === 'published') {
       showMessage('Unpublish this package before editing.', 'warning');
       return;
     }
-    if (!formState.packageName || formState.items.length === 0) {
-      showMessage('Package name and at least one item are required', 'error');
+    if (!formState.packageName) {
+      showMessage('Package name is required', 'error');
       return;
     }
 
@@ -367,14 +385,35 @@ const PackageManagement = () => {
       const payload = buildPayload();
       const url = isEditing ? `/admin/packages/${formState.id}` : '/admin/packages';
       const method = isEditing ? 'PUT' : 'POST';
-      await apiFetch(url, {
+      const response = await apiFetch(url, {
         method,
         body: JSON.stringify(payload),
       });
+      // Handle response that might be wrapped in data property or direct
+      const packageData = response?.data || response;
+      const savedPackageId = packageData?.id || formState.id;
       showMessage(`Package ${isEditing ? 'updated' : 'created'} successfully`);
-      setDrawerOpen(false);
-      setFormState(defaultFormState);
-      fetchPackages();
+      
+      if (navigateToDesign && savedPackageId) {
+        // Check if venue is selected
+        if (!formState.venueServiceListingId) {
+          showMessage('Please select a venue before designing', 'warning');
+          setSaving(false);
+          return;
+        }
+        // Close dialog first
+        setDrawerOpen(false);
+        setFormState(defaultFormState);
+        fetchPackages();
+        // Navigate to designer after a brief delay to allow state updates
+        setTimeout(() => {
+          handleTemplateClick({ id: savedPackageId, status: formState.status });
+        }, 100);
+      } else {
+        setDrawerOpen(false);
+        setFormState(defaultFormState);
+        fetchPackages();
+      }
     } catch (err) {
       showMessage(err.message || 'Failed to save package', 'error');
     } finally {
@@ -423,44 +462,38 @@ const PackageManagement = () => {
         // Venue already selected, go directly to designer
         navigate(`/admin/packages/${pkg.id}/designer`);
       } else {
-        // No venue selected, show selection dialog
-        setSelectedPackageForVenue(pkg);
-        setVenueDialogOpen(true);
-        await fetchAvailableVenues(pkg.id);
+        // No venue selected, open edit drawer to select venue
+        await openEditDrawer(pkg);
+        showMessage('Please select a venue before designing', 'info');
       }
     } catch (err) {
-      // If design doesn't exist yet or other error, show venue selection
-      setSelectedPackageForVenue(pkg);
-      setVenueDialogOpen(true);
-      await fetchAvailableVenues(pkg.id);
+      // If design doesn't exist yet or other error, open edit drawer
+      await openEditDrawer(pkg);
+      showMessage('Please select a venue before designing', 'info');
     }
   };
 
   const fetchAvailableVenues = async (packageId) => {
     setVenuesLoading(true);
     try {
-      const data = await getPackageVenues(packageId);
-      setAvailableVenues(data.venues || []);
+      if (packageId) {
+        const data = await getPackageVenues(packageId);
+        setAvailableVenues(data.venues || []);
+      } else {
+        // For new packages, use the general venues endpoint
+        const data = await getAvailableVenues();
+        setAvailableVenues(data.venues || []);
+      }
     } catch (err) {
-      showMessage(err.message || 'Failed to load venues', 'error');
+      // Don't show error for new packages - venues might not be critical at creation
+      if (packageId) {
+        showMessage(err.message || 'Failed to load venues', 'error');
+      }
     } finally {
       setVenuesLoading(false);
     }
   };
 
-  const handleVenueSelect = async (venueId) => {
-    if (!selectedPackageForVenue) return;
-    try {
-      await setPackageVenue(selectedPackageForVenue.id, venueId);
-      showMessage('Venue selected successfully');
-      setVenueDialogOpen(false);
-      setSelectedPackageForVenue(null);
-      // Navigate to designer
-      navigate(`/admin/packages/${selectedPackageForVenue.id}/designer`);
-    } catch (err) {
-      showMessage(err.message || 'Failed to select venue', 'error');
-    }
-  };
 
   const statusSummary = useMemo(() => {
     return packages.reduce(
@@ -521,10 +554,18 @@ const PackageManagement = () => {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={3} spacing={2}>
         <Box>
-          <Typography variant="h4" fontWeight={600}>
+          <Typography
+            variant="h4"
+            sx={{
+              fontWeight: 700,
+              color: '#111827',
+              fontSize: '28px',
+              letterSpacing: '-0.02em',
+            }}
+          >
             Wedding Packages
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -929,6 +970,45 @@ const PackageManagement = () => {
                 </Select>
               </Box>
 
+              {/* Venue Selection */}
+              <Box>
+                <Typography variant="body2" fontWeight={600} mb={0.5}>
+                  Venue <Typography component="span" color="error">*</Typography>
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
+                  Select a venue for this package template. The 3D design will be created within this venue.
+                </Typography>
+                {venuesLoading ? (
+                  <Box py={2} display="flex" justifyContent="center">
+                    <CircularProgress size={24} />
+                  </Box>
+                ) : (
+                  <Select
+                    fullWidth
+                    size="small"
+                    value={formState.venueServiceListingId || ''}
+                    onChange={(e) => setFormState((prev) => ({ ...prev, venueServiceListingId: e.target.value || null }))}
+                    displayEmpty
+                    required
+                  >
+                    <MenuItem value="">
+                      <em>Select a venue</em>
+                    </MenuItem>
+                    {availableVenues.map((venue) => (
+                      <MenuItem key={venue.id} value={venue.id}>
+                        {venue.name} {venue.vendor?.name && `(${venue.vendor.name})`}
+                        {venue.price && ` - RM ${Number(venue.price).toLocaleString()}`}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                )}
+                {availableVenues.length === 0 && !venuesLoading && (
+                  <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                    No venues with 3D models available. Please add a venue with a 3D model first.
+                  </Typography>
+                )}
+              </Box>
+
               {/* Included Services - Show after items are added */}
               {formState.items.length > 0 && (
                 <Box>
@@ -1008,39 +1088,27 @@ const PackageManagement = () => {
               <Typography variant="h6" fontWeight={600}>
                 Package items
               </Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="secondary"
-                  startIcon={<Loop />}
-                  onClick={handleSyncFromDesign}
-                  disabled={syncingDesign}
-                  sx={pillButtonSx}
-                >
-                  {syncingDesign ? 'Syncing...' : 'Sync from 3D design'}
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<Add />}
-                  onClick={handleAddPlaceholderItem}
-                  sx={pillButtonSx}
-                >
-                  Add placeholder
-                </Button>
-              </Stack>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<Loop />}
+                onClick={handleSyncFromDesign}
+                disabled={syncingDesign || !formState.id}
+                sx={pillButtonSx}
+              >
+                {syncingDesign ? 'Syncing...' : 'Refresh from 3D'}
+              </Button>
             </Stack>
 
             <Typography variant="caption" color="text.secondary">
-              Services added via the 3D designer will appear after syncing. Use placeholders for vendors without 3D models.
+              Services from the 3D designer are automatically synced when you open this dialog. Use the sync button to manually refresh the list.
             </Typography>
 
             {formState.items.length === 0 && (
               <Card variant="outlined" sx={{ mt: 2, borderRadius: 2 }}>
                 <CardContent>
                   <Typography variant="body2" color="text.secondary">
-                    No items yet. Sync services from the 3D template or create placeholders for requirements without 3D assets.
+                    No items yet. Add services in the 3D designer - they will automatically appear here. Packages are visual templates and only include services with 3D models.
                   </Typography>
                 </CardContent>
               </Card>
@@ -1076,10 +1144,10 @@ const PackageManagement = () => {
                         </Box>
                         <Stack direction="row" spacing={1} alignItems="center">
                           <Chip
-                            label={item.serviceListingId ? 'Linked listing' : 'Placeholder'}
+                            label="Linked listing"
                             size="small"
-                            color={item.serviceListingId ? 'primary' : 'default'}
-                            variant={item.serviceListingId ? 'filled' : 'outlined'}
+                            color="primary"
+                            variant="filled"
                           />
                           <Button color="error" size="small" onClick={() => handleRemoveItem(index)}>
                             Remove
@@ -1188,7 +1256,7 @@ const PackageManagement = () => {
                           </Stack>
                         )}
 
-                        {item.listingSummary && (
+                        {item.listingSummary ? (
                           <Box
                             sx={{
                               p: 1.5,
@@ -1202,6 +1270,23 @@ const PackageManagement = () => {
                             <Typography variant="body2" color="text.secondary">
                               {item.listingSummary.name}
                               {item.listingSummary.vendorName ? ` — ${item.listingSummary.vendorName}` : ''}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Box
+                            sx={{
+                              p: 1.5,
+                              borderRadius: 1,
+                              bgcolor: 'warning.light',
+                              border: '1px solid',
+                              borderColor: 'warning.main',
+                            }}
+                          >
+                            <Typography variant="subtitle2" color="warning.dark">
+                              No service listing linked
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              This item needs to be synced from the 3D designer or linked to a service listing.
                             </Typography>
                           </Box>
                         )}
@@ -1238,6 +1323,21 @@ const PackageManagement = () => {
           <Button variant="outlined" onClick={() => setDrawerOpen(false)} sx={pillButtonSx}>
             Cancel
           </Button>
+          {!isEditing && (
+            <Tooltip title="Save package and open 3D designer">
+              <span>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={() => handleSavePackage(true)}
+                  disabled={saving || !formState.packageName}
+                  sx={pillButtonSx}
+                >
+                  {saving ? 'Saving...' : 'Design'}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           <Tooltip
             title={
               isEditing && formState.status === 'published'
@@ -1248,7 +1348,7 @@ const PackageManagement = () => {
             <span>
               <Button
                 variant="contained"
-                onClick={handleSavePackage}
+                onClick={() => handleSavePackage(false)}
                 disabled={saving || (isEditing && formState.status === 'published')}
                 sx={pillButtonSx}
               >
@@ -1259,76 +1359,6 @@ const PackageManagement = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog fullWidth maxWidth="md" open={venueDialogOpen} onClose={() => setVenueDialogOpen(false)}>
-        <DialogTitle>Select a Venue for Package Template</DialogTitle>
-        <DialogContent dividers>
-          <Typography variant="body2" color="text.secondary" mb={2}>
-            Choose a venue to use as the base for this package template. The 3D design will be created within this venue.
-          </Typography>
-          {venuesLoading ? (
-            <Box py={4} display="flex" justifyContent="center">
-              <CircularProgress size={28} />
-            </Box>
-          ) : (
-            <List dense>
-              {availableVenues.map((venue) => (
-                <ListItem key={venue.id} disablePadding>
-                  <ListItemButton onClick={() => handleVenueSelect(venue.id)} disabled={!venue.has3DModel}>
-                    <ListItemAvatar>
-                      <Box>
-                        <Chip
-                          label="Venue"
-                          color={venue.has3DModel ? 'primary' : 'default'}
-                          size="small"
-                          variant="outlined"
-                        />
-                      </Box>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={venue.name}
-                      secondary={
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Typography variant="body2" color="text.secondary">
-                            {venue.vendor?.name || 'Unknown vendor'}
-                          </Typography>
-                          {venue.price && (
-                            <>
-                              <Typography variant="body2" color="text.secondary">
-                                •
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                RM {Number(venue.price).toLocaleString()}
-                              </Typography>
-                            </>
-                          )}
-                          {!venue.has3DModel && (
-                            <>
-                              <Typography variant="body2" color="text.secondary">
-                                •
-                              </Typography>
-                              <Typography variant="body2" color="error">
-                                No 3D model
-                              </Typography>
-                            </>
-                          )}
-                        </Stack>
-                      }
-                    />
-                  </ListItemButton>
-                </ListItem>
-              ))}
-              {availableVenues.length === 0 && (
-                <Typography variant="body2" color="text.secondary" textAlign="center" py={3}>
-                  No venues with 3D models available
-                </Typography>
-              )}
-            </List>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setVenueDialogOpen(false)}>Cancel</Button>
-        </DialogActions>
-      </Dialog>
 
       <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={closeSnackbar} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert onClose={closeSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>

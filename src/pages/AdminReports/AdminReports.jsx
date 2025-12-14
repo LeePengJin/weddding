@@ -208,10 +208,6 @@ export default function AdminReports() {
     }
   };
 
-  useEffect(() => {
-    document.title = 'Weddding Admin — Reports';
-  }, []);
-
   // Calculate summary stats
   const totalUsers = summary?.totalUsers || 0;
   const totalBookings = summary?.totalBookings || 0;

@@ -33,14 +33,29 @@ export default function ResetPassword() {
     if (!email || !code) { setError('Reset session expired. Please request a new OTP.'); return; }
     const purpose = sessionStorage.getItem('otpPurpose');
     apiFetch('/auth/forgot/reset', { method: 'POST', body: JSON.stringify({ email, code, newPassword: password }) })
-      .then(() => {
+      .then(async () => {
         setSuccess('Your password has been reset successfully. Redirecting…');
         sessionStorage.removeItem('otpPurpose');
         sessionStorage.removeItem('otpEmail');
         sessionStorage.removeItem('otpCode');
-        // Redirect to profile if changing password, otherwise to login
-        const redirectPath = purpose === 'change_password' ? '/profile' : '/login';
-        setTimeout(() => navigate(redirectPath), 1200);
+        // Redirect to correct profile if changing password, otherwise to login
+        if (purpose === 'change_password') {
+          try {
+            const me = await apiFetch('/auth/me');
+            const redirectPath =
+              me?.role === 'admin'
+                ? '/admin/profile'
+                : me?.role === 'vendor'
+                ? '/vendor/profile'
+                : '/profile';
+            setTimeout(() => navigate(redirectPath), 1200);
+            return;
+          } catch {
+            setTimeout(() => navigate('/login'), 1200);
+            return;
+          }
+        }
+        setTimeout(() => navigate('/login'), 1200);
       })
       .catch((e2) => setError(e2.message || 'Reset failed'));
   };

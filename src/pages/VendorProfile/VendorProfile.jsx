@@ -352,14 +352,6 @@ const VendorProfile = () => {
     }
   };
 
-  // Update document title
-  useEffect(() => {
-    document.title = 'Profile - Weddding';
-    return () => {
-      document.title = 'Weddding';
-    };
-  }, []);
-
   // Helper function to convert relative image URLs to full backend URLs
   const getImageUrl = (url) => {
     if (!url) return null;

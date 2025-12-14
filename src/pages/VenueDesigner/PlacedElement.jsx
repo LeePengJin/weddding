@@ -144,7 +144,7 @@ const ModelInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0, targetDim
   );
 };
 
-const COLLISION_RADIUS_DEFAULT = 0.4; // Reduced further to allow very close placement
+const COLLISION_RADIUS_DEFAULT = 0.4;
 
 const getFootprintRadius = (placement) => {
   const metaRadius = parseFloat(placement.metadata?.footprintRadius);
@@ -174,7 +174,6 @@ const isStackable = (p) => {
   if (name.includes('flower') || name.includes('vase') || name.includes('bouquet') || name.includes('centerpiece') || name.includes('plate') || name.includes('glass') || name.includes('candle')) {
     return true;
   }
-  // Tables, chairs, etc are not stackable on other tables usually
   return false;
 };
 
@@ -206,7 +205,6 @@ const PlacedElement = ({
   const boundingBoxRef = useRef(new THREE.Box3());
   const setInteractionModeRef = useRef(null);
   
-  // Expose methods for parent component - register for all elements, not just selected
   useEffect(() => {
     if (onRegisterElementRef) {
       onRegisterElementRef(placement.id, {
@@ -218,7 +216,6 @@ const PlacedElement = ({
         },
       });
     }
-    // Cleanup on unmount
     return () => {
       if (onRegisterElementRef) {
         // Unregister - pass null or remove from map
@@ -248,9 +245,6 @@ const PlacedElement = ({
 
   const position = useMemo(() => {
     const { x = 0, z = 0 } = placement.position || {};
-    // Note: We use y=0 from props, but during drag we might set y > 0 if stacked.
-    // However, on initial render/commit, y is usually 0 unless persisted.
-    // Since the backend/schema might handle y, let's use it if available.
     const y = placement.position?.y || 0;
     return [x, y, z];
   }, [placement.position]);
@@ -287,15 +281,8 @@ const PlacedElement = ({
       position: { x: Number(x.toFixed(3)), y: Number(y.toFixed(3)), z: Number(z.toFixed(3)) },
       rotation,
     };
-    // Include parentElementId if it was detected during drag
-    // Note: Placement IDs are ULIDs (e.g., "ple_01KBSEGMKNM3TWK9VWNHYWRKJ6"), not UUIDs
     const detectedParentId = dragStateRef.current.parentElementId;
     
-    // Always check if we need to update parentElementId
-    // 1. If detectedParentId is set and valid, use it
-    // 2. If detectedParentId is null and placement had a parent, clear it
-    // 3. If detectedParentId is null and placement never had a parent, don't send (no change)
-    // Check if parentElementId changed during this drag
     const parentChanged = detectedParentId !== undefined && 
                           detectedParentId !== (placement.parentElementId || null);
     
@@ -306,11 +293,9 @@ const PlacedElement = ({
           commitData.parentElementId = trimmedId;
           console.log('[Parent-Child] Saving parentElementId:', trimmedId, 'for placement:', placement.id);
         } else {
-          // Invalid or self-reference - log error but don't send it
           console.warn('[Parent-Child] Invalid parentElementId or self-reference:', trimmedId);
         }
       } else if (detectedParentId === null && placement.parentElementId) {
-        // Explicitly clearing a previously set parent
         commitData.parentElementId = null;
         console.log('[Parent-Child] Clearing parentElementId for placement:', placement.id);
       }
@@ -337,10 +322,8 @@ const PlacedElement = ({
     // Clear initial position tracking
     dragStateRef.current.initialPosition = null;
     dragStateRef.current.otherSelectedInitialPositions = null;
-    // Note: Don't clear parentElementId here - it will be saved in commitTransform
     onOrbitToggle?.(true);
     commitTransform();
-    // Clear parentElementId after commit to reset for next drag
     dragStateRef.current.parentElementId = placement.parentElementId || null;
   }, [commitTransform, onOrbitToggle, placement.parentElementId]);
 
@@ -348,7 +331,6 @@ const PlacedElement = ({
     (event) => {
       event.stopPropagation();
       if (!isSelected) {
-        // Check if Shift key is pressed for multi-selection
         const isShiftKey = event.nativeEvent?.shiftKey || false;
         onSelect?.(placement.id, isShiftKey);
         return;
@@ -357,12 +339,9 @@ const PlacedElement = ({
 
       const state = dragStateRef.current;
       
-      // Store initial position for this element
       state.initialPosition = groupRef.current.position.clone();
       
-      // For multi-selection, initialize drag session immediately and synchronously
       if (selectedIds.length > 1 && selectedIds.includes(placement.id)) {
-        // Call initialization directly - this must happen synchronously before any move events
         if (onInitializeDragSession) {
           onInitializeDragSession(placement.id, {
             x: state.initialPosition.x,
@@ -413,34 +392,26 @@ const PlacedElement = ({
 
           let nextY = 0;
           
-          // Perform raycast to find surfaces below
-          // Initialize parent tracking at start of drag if not already set
           if (state.mode === 'translate' && dragStateRef.current.parentElementId === null && placement.parentElementId) {
             dragStateRef.current.parentElementId = placement.parentElementId;
           }
           
           if (isStackable(placement)) {
-             // Manually update raycaster from pointer for reliable intersection
-             // Note: event.pointer is normalized device coordinates
              raycaster.setFromCamera(event.pointer, camera);
              
-             // Intersect with all objects in scene
              const intersects = raycaster.intersectObjects(scene.children, true);
              
              let foundValidParent = false;
              for (const hit of intersects) {
-               // Ignore self
                let isSelf = false;
                hit.object.traverseAncestors((a) => {
                  if (a === groupRef.current) isSelf = true;
                });
                if (isSelf) continue;
 
-               // Ignore ground plane (tagged with userData.isGround)
                if (hit.object.userData?.isGround) continue;
 
-               // If we hit a Placement (tagged with userData.isPlacement), stack on top
-               // Check ancestry for isPlacement tag if needed, or just assume mesh hit is valid surface
+               // If we hit a Placement, stack on top
                let isPlacement = false;
                if (hit.object.userData?.isPlacement) isPlacement = true;
                else {
@@ -450,7 +421,6 @@ const PlacedElement = ({
                }
 
                if (isPlacement) {
-                 // Found a valid surface!
                  foundValidParent = true;
                  // Get the world bounding box of the hit object (or the specific mesh)
                  const box = new THREE.Box3().setFromObject(hit.object);
@@ -465,8 +435,6 @@ const PlacedElement = ({
                  }
                 const detectedParentId = parentGroup?.userData?.placementId;
                 
-                // Only set parent if it's a valid non-empty string and not self
-                // Note: Placement IDs are ULIDs (e.g., "ple_01KBSEGMKNM3TWK9VWNHYWRKJ6"), not UUIDs
                 if (detectedParentId && 
                     typeof detectedParentId === 'string') {
                   const trimmedId = detectedParentId.trim();
@@ -474,26 +442,22 @@ const PlacedElement = ({
                     dragStateRef.current.parentElementId = trimmedId;
                     console.log('[Parent-Child] Detected parent during drag:', trimmedId, 'for child:', placement.id);
                   } else {
-                    // Self-reference, clear parent
                     dragStateRef.current.parentElementId = null;
                     console.log('[Parent-Child] Self-reference detected, clearing parent');
                   }
                 } else {
-                  // If we couldn't find parent or it's invalid, clear parent
                   dragStateRef.current.parentElementId = null;
                   console.log('[Parent-Child] No valid parent found, clearing parent');
                 }
-                 break; // Stop at first valid surface (closest to camera)
+                 break;
                }
              }
              
-             // If no valid placement was found (element is on the ground), clear parent
              if (!foundValidParent) {
                dragStateRef.current.parentElementId = null;
                console.log('[Parent-Child] No placement found (on ground), clearing parent for:', placement.id);
              }
           } else {
-            // If not stackable and we're on the ground, clear parent
             if (nextY < 0.1) {
               dragStateRef.current.parentElementId = null;
              }
@@ -510,26 +474,15 @@ const PlacedElement = ({
             const distance = Math.sqrt(dx * dx + dz * dz);
             const otherRadius = getFootprintRadius(other);
             
-            const clearance = 0.02; // Reduced further to allow very close placement
+            const clearance = 0.02;
             const threshold = Math.max(0.1, footprintRadius + otherRadius - clearance);
             const isIntersecting = distance < threshold;
 
             if (isIntersecting) {
-              // If we are stacked significantly above the other object, ignore collision
-              // We need the height of the other object.
-              // Since we don't have exact height in metadata efficiently, we assume:
-              // If nextY > 0.1 (meaning we successfully stacked on SOMETHING),
-              // and we are colliding with 'other', we assume 'other' is what we are stacked on or similar.
-              // Ideally we'd check if 'other' is the object we raycasted, but simpler heuristic:
-              // If I am floating (nextY > 0), I ignore collisions with things below me.
-              // But I should still collide with things at my same height (e.g. another stacked flower).
-              // For now, allow stacking to override XZ collision.
               if (nextY > 0.1) {
                 // We are stacked, ignore floor-level collisions
-                // TODO: Ideally check if other.y is near nextY
               } else {
                 // We are on floor, so collide with floor items
-                // Check if 'other' is also on floor (y near 0)
                 const otherY = other.position?.y || 0;
                 if (otherY < 0.1) {
                   collisionFound = true;
@@ -539,13 +492,10 @@ const PlacedElement = ({
             }
           }
 
-          // Check venue bounds constraint - account for element footprint radius
           if (venueBounds) {
             const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-            // Clamp position considering the element's footprint radius
             nextX = clamp(nextX, venueBounds.minX + footprintRadius, venueBounds.maxX - footprintRadius);
             nextZ = clamp(nextZ, venueBounds.minZ + footprintRadius, venueBounds.maxZ - footprintRadius);
-            // Y can go up but not below venue floor
             if (nextY < venueBounds.minY) {
               nextY = venueBounds.minY;
             }
@@ -558,8 +508,6 @@ const PlacedElement = ({
             
             groupRef.current.position.set(nextX, nextY, nextZ);
             
-            // Update other selected elements in real-time for multi-selection
-            // Calculate offset from initial position, not from previous position
             if (selectedIds.length > 1 && selectedIds.includes(placement.id) && state.initialPosition) {
               const offset = {
                 x: nextX - state.initialPosition.x,
@@ -567,16 +515,11 @@ const PlacedElement = ({
                 z: nextZ - state.initialPosition.z,
               };
               
-              // Notify parent to update other selected elements
-              // Always call, even on first move - the session should already be initialized
               if (onUpdateOtherSelected) {
                 onUpdateOtherSelected(placement.id, offset, selectedIds, null, state.initialPosition);
               }
             }
             
-            // Update children in real-time (parent-child relationship)
-            // An element is a parent if it has no parent itself (parentElementId is null)
-            // and it has children (other elements that have this element as their parent)
             const isParent = placement.parentElementId === null;
             if (isParent) {
               // This element is a parent, update its children
@@ -611,7 +554,6 @@ const PlacedElement = ({
         // Update other selected elements in real-time for multi-selection rotation
         if (selectedIds.length > 1 && selectedIds.includes(placement.id) && state.initialPosition) {
           const rotationDelta = newRotation - oldRotation;
-          // Always call, even on first rotation - the session should already be initialized
           if (onUpdateOtherSelected && Math.abs(rotationDelta) > 0.001) {
             onUpdateOtherSelected(placement.id, null, selectedIds, rotationDelta, state.initialPosition);
           }

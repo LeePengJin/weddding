@@ -4,6 +4,7 @@ import { ContactShadows, Environment, OrbitControls, useGLTF } from '@react-thre
 import * as THREE from 'three';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import PlacedElement from '../../pages/VenueDesigner/PlacedElement';
+import { VenueDesignerProvider } from '../../pages/VenueDesigner/VenueDesignerContext';
 
 const normalizeUrl = (url) => {
   if (!url) return null;
@@ -110,6 +111,34 @@ const PackagePreview3D = ({ packageId, height = '500px' }) => {
 
   const placements = useMemo(() => designData?.design?.placedElements || [], [designData?.design?.placedElements]);
 
+  // Minimal context for preview mode (PlacedElement needs this but won't use most values)
+  // Must be called before any early returns (React hooks rule)
+  const previewContextValue = useMemo(() => ({
+    projectId: null,
+    packageId: packageId || null,
+    mode: 'package',
+    resourceId: packageId || null,
+    placements: placements,
+    projectServices: [],
+    isLoading: false,
+    availabilityMap: {},
+    venueInfo: designData?.venue || null,
+    venueDesignId: null, // Not needed for preview
+    refreshAvailability: () => {},
+    onToggleLock: () => {},
+    onRemovePlacement: () => {},
+    onRemoveProjectService: () => {},
+    setToastNotification: () => {},
+    onUpdatePlacement: () => {},
+    onDuplicatePlacement: undefined,
+    onDuplicateMultiple: undefined,
+    onDeleteMultiple: undefined,
+    onLockMultiple: () => {},
+    onReloadDesign: () => {},
+    savingState: { loading: false, lastSaved: null },
+    designLayout: {},
+  }), [packageId, placements, designData?.venue]);
+
   if (loading) {
     return (
       <Box
@@ -151,18 +180,19 @@ const PackagePreview3D = ({ packageId, height = '500px' }) => {
   }
 
   return (
-    <Box
-      sx={{
-        width: '100%',
-        height,
-        borderRadius: 2,
-        overflow: 'hidden',
-        backgroundColor: '#cbd2de',
-        position: 'relative',
-        border: '1px solid #e0e0e0',
-      }}
-    >
-      <Canvas shadows camera={{ position: [14, 16, 18], fov: 42, near: 0.1, far: 500 }} dpr={[1, 2]}>
+    <VenueDesignerProvider value={previewContextValue}>
+      <Box
+        sx={{
+          width: '100%',
+          height,
+          borderRadius: 2,
+          overflow: 'hidden',
+          backgroundColor: '#cbd2de',
+          position: 'relative',
+          border: '1px solid #e0e0e0',
+        }}
+      >
+        <Canvas shadows camera={{ position: [14, 16, 18], fov: 42, near: 0.1, far: 500 }} dpr={[1, 2]}>
         <color attach="background" args={['#cbd2de']} />
         <fog attach="fog" args={['#efe9e4', 60, 220]} />
         <ambientLight intensity={0.65} />
@@ -241,7 +271,8 @@ const PackagePreview3D = ({ packageId, height = '500px' }) => {
       >
         Drag to rotate • Scroll to zoom
       </Box>
-    </Box>
+      </Box>
+    </VenueDesignerProvider>
   );
 };
 

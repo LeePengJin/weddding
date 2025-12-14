@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 const { PrismaClient } = require('@prisma/client');
-const { sendEmail } = require('../utils/mailer');
+const { sendEmail, generatePaymentReminderEmail } = require('../utils/mailer');
 
 const prisma = new PrismaClient();
 
@@ -28,31 +28,23 @@ async function sendDepositDueDateReminder(booking) {
       return sum + Number(service.totalPrice);
     }, 0);
 
-    const depositAmount = totalAmount * 0.1; // 10% deposit
-
     const subject = 'Reminder: Deposit Payment Due Soon - Weddding Platform';
-    const text = `Dear ${couple.user.name || 'Valued Customer'},
+    const amountDue = Math.round(totalAmount * 0.3 * 100) / 100; // 30% deposit (informational)
+    const actionUrl = `${process.env.FRONTEND_BASE_URL || 'https://localhost:3000'}/my-bookings`;
 
-This is a reminder that your deposit payment is due in 3 days.
+    const { text, html } = generatePaymentReminderEmail({
+      paymentType: 'deposit',
+      name: couple.user.name || 'there',
+      bookingId: booking.id,
+      vendorName: booking.vendor?.user?.name || 'Vendor',
+      weddingDateLabel: new Date(booking.reservedDate).toLocaleDateString(),
+      dueDateLabel: dueDate.toLocaleDateString(),
+      amountDue,
+      totalAmount,
+      actionUrl,
+    });
 
-Booking Details:
-- Booking ID: ${booking.id}
-- Vendor: ${booking.vendor?.user?.name || 'Vendor'}
-- Wedding Date: ${new Date(booking.reservedDate).toLocaleDateString()}
-- Deposit Due Date: ${dueDate.toLocaleDateString()}
-- Deposit Amount: RM ${depositAmount.toLocaleString()}
-- Total Booking Amount: RM ${totalAmount.toLocaleString()}
-
-Please make your deposit payment before the due date to confirm your booking. If payment is not received by the due date, your booking will be automatically cancelled.
-
-You can make your payment by logging into your account and navigating to the Payment Center.
-
-Thank you for choosing Weddding Platform.
-
-Best regards,
-Weddding Platform Team`;
-
-    await sendEmail(couple.user.email, subject, text);
+    await sendEmail(couple.user.email, subject, { text, html });
     console.log(`✅ Deposit reminder sent to ${couple.user.email} for booking ${booking.id}`);
   } catch (error) {
     console.error(`❌ Error sending deposit reminder for booking ${booking.id}:`, error);
@@ -90,28 +82,20 @@ async function sendFinalPaymentDueDateReminder(booking) {
     const finalAmount = totalAmount - depositPaid;
 
     const subject = 'Reminder: Final Payment Due Soon - Weddding Platform';
-    const text = `Dear ${couple.user.name || 'Valued Customer'},
+    const actionUrl = `${process.env.FRONTEND_BASE_URL || 'https://localhost:3000'}/my-bookings`;
+    const { text, html } = generatePaymentReminderEmail({
+      paymentType: 'final',
+      name: couple.user.name || 'there',
+      bookingId: booking.id,
+      vendorName: booking.vendor?.user?.name || 'Vendor',
+      weddingDateLabel: new Date(booking.reservedDate).toLocaleDateString(),
+      dueDateLabel: dueDate.toLocaleDateString(),
+      amountDue: Math.max(0, Math.round(finalAmount * 100) / 100),
+      totalAmount,
+      actionUrl,
+    });
 
-This is a reminder that your final payment is due in 3 days.
-
-Booking Details:
-- Booking ID: ${booking.id}
-- Vendor: ${booking.vendor?.user?.name || 'Vendor'}
-- Wedding Date: ${new Date(booking.reservedDate).toLocaleDateString()}
-- Final Payment Due Date: ${dueDate.toLocaleDateString()}
-- Final Payment Amount: RM ${finalAmount.toLocaleString()}
-- Total Booking Amount: RM ${totalAmount.toLocaleString()}
-
-Please make your final payment before the due date. If payment is not received by the due date, your booking will be automatically cancelled.
-
-You can make your payment by logging into your account and navigating to the Payment Center.
-
-Thank you for choosing Weddding Platform.
-
-Best regards,
-Weddding Platform Team`;
-
-    await sendEmail(couple.user.email, subject, text);
+    await sendEmail(couple.user.email, subject, { text, html });
     console.log(`✅ Final payment reminder sent to ${couple.user.email} for booking ${booking.id}`);
   } catch (error) {
     console.error(`❌ Error sending final payment reminder for booking ${booking.id}:`, error);

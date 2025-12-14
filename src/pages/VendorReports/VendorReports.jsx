@@ -159,10 +159,6 @@ export default function VendorReports() {
     }
   };
 
-  useEffect(() => {
-    document.title = 'Weddding Vendor — Reports';
-  }, []);
-
   // Calculate summary stats
   const totalBookings = bookingsOverTime.reduce((sum, item) => sum + item.count, 0);
   const totalRevenue = revenueOverTime.reduce((sum, item) => sum + item.revenue, 0);

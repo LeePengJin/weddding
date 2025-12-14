@@ -140,12 +140,12 @@ _Last updated: November 18, 2025_
 - [x] The rectangle on the floor in the 3D venue is likely due to the lighting, fix it.
 - [x] (adding service in 3D venue) For exclusive service, ensure the quantity only can be one, bcs exclusive service is one day can have only one booking.
 - [x] Redesign the message page, especially for vendor.
-- [ ] Change all IDs in database to be meaningful (have prefix) 
 - [x] For the listing image, if there is no image put a default image.
 
 - [/] Do one more list that store the 3D element that can be added into the 3D space. My idea is like there will be two option, if they click on the add button, the 3D item is added to something like a list that keep all the selected items choose by the user because there might be bundle service that contains many elements. Another option is they directly drag from the catalog to the 3D venue, this will directly put all the elements in the 3D venue instead of the list.
 - [/] Couple profile view (from vendor)
 - [/] Remove service availability in database
+- [/] Change all IDs in database to be meaningful (have prefix) 
 
 ## Payment & Cancellation System
 

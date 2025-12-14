@@ -324,9 +324,11 @@ router.post('/', requireAuth, async (req, res, next) => {
         description: listingData.description || null,
         category: listingData.category,
         customCategory: listingData.category === 'Other' ? listingData.customCategory : null,
-        price: listingData.price !== undefined && listingData.price !== null 
-          ? parseFloat(listingData.price) 
-          : (listingData.pricingPolicy === 'time_based' ? 0 : 0),
+        price: listingData.pricingPolicy === 'time_based' 
+          ? 0 
+          : (listingData.price !== undefined && listingData.price !== null 
+              ? parseFloat(listingData.price) 
+              : 0),
         isActive: listingData.isActive !== undefined ? listingData.isActive : true,
         images: [],
         availabilityType: listingData.availabilityType || 'exclusive',
@@ -596,7 +598,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       }
     }
 
-    // Handle hourlyRate based on pricingPolicy
+    // Handle hourlyRate and price based on pricingPolicy
     if (updateData.pricingPolicy !== undefined) {
       if (updateData.pricingPolicy === 'time_based') {
         // Ensure hourlyRate is set
@@ -604,6 +606,8 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
           return res.status(400).json({ error: 'Hourly rate is required when pricing policy is time_based' });
         }
         updateData.hourlyRate = parseFloat(updateData.hourlyRate);
+        // Set price to 0 for time-based pricing (price is not used)
+        updateData.price = 0;
       } else {
         // Clear hourly rate for other pricing policies
         updateData.hourlyRate = null;
@@ -612,6 +616,18 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       // If pricingPolicy is not being updated, handle hourlyRate if it's being updated
       if (updateData.hourlyRate !== undefined) {
         updateData.hourlyRate = updateData.hourlyRate !== null ? parseFloat(updateData.hourlyRate) : null;
+      }
+    }
+
+    // Handle maxQuantity based on availabilityType
+    if (updateData.availabilityType !== undefined) {
+      if (updateData.availabilityType === 'quantity_based') {
+        if (!updateData.maxQuantity || updateData.maxQuantity <= 0) {
+          return res.status(400).json({ error: 'Max quantity is required when availability type is quantity_based' });
+        }
+      } else {
+        // Clear maxQuantity when not quantity_based
+        updateData.maxQuantity = null;
       }
     }
 

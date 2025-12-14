@@ -273,6 +273,12 @@ model PackagePlacedElement {
   isLocked          Boolean       @default(false)
   metadata          Json?
 
+  // Parent-child relationship for stacked elements
+  // TEMPORARILY COMMENTED OUT FOR MIGRATION RESET - WILL RE-ENABLE AFTER PRESENTATION
+  // parentElementId   String?       // ID of parent element if this is stacked on another element
+  // parentElement     PackagePlacedElement? @relation("PackageElementHierarchy", fields: [parentElementId], references: [id], onDelete: SetNull)
+  // childElements     PackagePlacedElement[] @relation("PackageElementHierarchy")
+
   packageDesign PackageDesign @relation(fields: [packageDesignId], references: [id], onDelete: Cascade)
   designElement DesignElement @relation(fields: [designElementId], references: [id], onDelete: Cascade)
   serviceListing ServiceListing? @relation(fields: [serviceListingId], references: [id], onDelete: SetNull)
@@ -281,6 +287,7 @@ model PackagePlacedElement {
   @@index([packageDesignId])
   @@index([designElementId])
   @@index([serviceListingId])
+  // @@index([parentElementId])  // TEMPORARILY COMMENTED OUT
 }
 
 // Wedding project owned by a Couple

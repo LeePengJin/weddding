@@ -99,7 +99,10 @@ export default function Otp() {
     if (resendCooldown > 0) return;
     const purpose = sessionStorage.getItem('otpPurpose');
     const email = sessionStorage.getItem('otpEmail');
-    apiFetch('/auth/otp/resend', { method: 'POST', body: JSON.stringify({ email, purpose }) })
+    // Backend resend currently supports 'reset' (not 'change_password').
+    // 'change_password' uses the same reset OTP flow on the server.
+    const resendPurpose = purpose === 'change_password' ? 'reset' : purpose;
+    apiFetch('/auth/otp/resend', { method: 'POST', body: JSON.stringify({ email, purpose: resendPurpose }) })
       .then(() => {
         setInfo('A new OTP has been sent to your email');
         setResendCooldown(30);
@@ -114,7 +117,7 @@ export default function Otp() {
       <div className="otp-hero" />
       <div className="otp-panel">
         <div className="otp-card">
-          <typography variant="h2" className="otp-title">Enter OTP</typography>
+          <h2 className="otp-title">Enter OTP</h2>
           <p className="otp-subtitle">{info}</p>
           <form onSubmit={onVerify}>
             <div className="otp-inputs" onPaste={handlePaste}>

@@ -19,7 +19,7 @@ export default function AdminLogin() {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       });
-      navigate('/admin/vendors');
+      navigate('/admin/dashboard');
     } catch (err) {
       setError(err.message || 'Login failed');
     } finally {

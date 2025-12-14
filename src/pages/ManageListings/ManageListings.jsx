@@ -57,6 +57,7 @@ import ConfirmationDialog from '../../components/ConfirmationDialog/Confirmation
 import Model3DViewer from '../../components/Model3DViewer/Model3DViewer';
 import BlueprintEditor from '../../components/BlueprintEditor/BlueprintEditor';
 import ListingWizard from '../../components/ListingWizard/ListingWizard';
+import Viewer3D from '../../components/ModelDimensionEditor/Viewer3D';
 import './ManageListings.css';
 
 const VENDOR_CATEGORIES = [
@@ -157,6 +158,7 @@ const ManageListings = () => {
   const [model3DFileMeta, setModel3DFileMeta] = useState([]); // Multi-upload metadata
   const [previewComponentIndex, setPreviewComponentIndex] = useState(null); // Which component's 3D model to preview
   const [previewBlobUrl, setPreviewBlobUrl] = useState(null); // Track blob URL for cleanup
+  const [componentBlobUrls, setComponentBlobUrls] = useState({}); // Component ID -> Blob URL for Viewer3D
   const [fieldErrors, setFieldErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -213,14 +215,6 @@ const ManageListings = () => {
       setLoadingDesignElements(false);
     }
   };
-
-  // Update document title
-  useEffect(() => {
-    document.title = 'Manage Listings - Weddding';
-    return () => {
-      document.title = 'Weddding';
-    };
-  }, []);
 
   // Smart defaults for stackable and availability type based on category
   useEffect(() => {
@@ -301,11 +295,13 @@ const ManageListings = () => {
       setComponents(mappedComponents);
       const nextComponentProps = {};
       (listing.components || []).forEach((comp, index) => {
-        nextComponentProps[index] = {
+        const componentKey = mappedComponents[index]?.id || `existing-${comp.designElementId}`;
+        nextComponentProps[componentKey] = {
           width: comp.designElement?.dimensions?.width ?? '',
           height: comp.designElement?.dimensions?.height ?? '',
           depth: comp.designElement?.dimensions?.depth ?? '',
           isStackable: Boolean(comp.designElement?.isStackable),
+          has3DModel: Boolean(comp.designElementId || comp.designElement?.id),
         };
       });
       setComponentPhysicalProps(nextComponentProps);
@@ -495,6 +491,17 @@ const ManageListings = () => {
           if (updated.pricingPolicy !== 'time_based') {
             updated.hourlyRate = '';
           }
+        }
+      }
+      
+      // Handle pricing policy changes
+      if (field === 'pricingPolicy') {
+        if (value === 'time_based') {
+          // Set price to 0 for time-based pricing (price is not used)
+          updated.price = '0';
+        } else if (prev.pricingPolicy === 'time_based') {
+          // If switching away from time_based, clear hourlyRate
+          updated.hourlyRate = '';
         }
       }
       
@@ -1296,6 +1303,7 @@ const ManageListings = () => {
     height: '',
     depth: '',
     isStackable: false,
+    has3DModel: false,
   });
 
   const buildDimensionsPayloadFromState = (stateObj = {}) => {
@@ -1319,6 +1327,39 @@ const ManageListings = () => {
         ...patch,
       },
     }));
+  };
+
+  // Handle dimension changes from Viewer3D
+  const handleComponentDimensionsChange = (componentKey, dimensions) => {
+    if (dimensions) {
+      updateComponentPhysicalProps(componentKey, {
+        width: dimensions.width?.toString() || '',
+        height: dimensions.height?.toString() || '',
+        depth: dimensions.depth?.toString() || '',
+      });
+    }
+  };
+
+  // Get model URL for a component (from uploaded file or design element)
+  const getComponentModelUrl = (component, componentKey) => {
+    // Priority 1: Uploaded file (blob URL)
+    if (componentBlobUrls[componentKey]) {
+      return componentBlobUrls[componentKey];
+    }
+    // Priority 2: Selected design element
+    if (component.designElementId) {
+      const element = designElements.find(el => el.id === component.designElementId);
+      if (element?.modelFile) {
+        if (element.modelFile.startsWith('http://') || element.modelFile.startsWith('https://')) {
+          return element.modelFile;
+        }
+        if (element.modelFile.startsWith('/uploads')) {
+          return `http://localhost:4000${element.modelFile}`;
+        }
+        return element.modelFile;
+      }
+    }
+    return null;
   };
 
   const updateModel3DFileMeta = (index, patch) => {
@@ -1346,6 +1387,7 @@ const ManageListings = () => {
   };
 
   const handleRemoveComponent = (index) => {
+    const componentToRemove = components[index];
     const nextComponents = components.filter((_, i) => i !== index);
     setComponents(nextComponents);
     setComponentPhysicalProps((prev) => {
@@ -1373,6 +1415,15 @@ const ManageListings = () => {
       });
       return next;
     });
+    // Clean up blob URL for removed component
+    if (componentToRemove?.id && componentBlobUrls[componentToRemove.id]) {
+      URL.revokeObjectURL(componentBlobUrls[componentToRemove.id]);
+      setComponentBlobUrls((prev) => {
+        const updated = { ...prev };
+        delete updated[componentToRemove.id];
+        return updated;
+      });
+    }
   };
 
   const handleComponentChange = (index, field, value) => {
@@ -1408,6 +1459,15 @@ const ManageListings = () => {
         ...prev,
         [componentKey]: { name: file.name, size: file.size },
       }));
+      // Create blob URL for Viewer3D
+      const blobUrl = URL.createObjectURL(file);
+      setComponentBlobUrls((prev) => {
+        // Clean up old blob URL if exists
+        if (prev[componentKey]) {
+          URL.revokeObjectURL(prev[componentKey]);
+        }
+        return { ...prev, [componentKey]: blobUrl };
+      });
       updateComponentPhysicalProps(componentKey, {});
       setError('');
     }
@@ -1420,6 +1480,15 @@ const ManageListings = () => {
       return updated;
     });
     setComponent3DPreviews((prev) => {
+      const updated = { ...prev };
+      delete updated[componentKey];
+      return updated;
+    });
+    // Clean up blob URL
+    setComponentBlobUrls((prev) => {
+      if (prev[componentKey]) {
+        URL.revokeObjectURL(prev[componentKey]);
+      }
       const updated = { ...prev };
       delete updated[componentKey];
       return updated;
@@ -2105,10 +2174,11 @@ const ManageListings = () => {
               onChange={(e) => handleInputChange('price', e.target.value)}
               helperText={
                 formData.pricingPolicy === 'time_based' 
-                  ? 'Not required for this pricing policy' 
+                  ? 'Not used for time-based pricing (automatically set to 0)' 
                   : 'Base price for this service'
               }
               required={formData.pricingPolicy !== 'time_based'}
+              disabled={formData.pricingPolicy === 'time_based'}
               inputProps={{ min: 0, step: 0.01 }}
               sx={{ '& .MuiFormHelperText-root': { fontSize: '12px' } }}
             />
@@ -2265,7 +2335,7 @@ const ManageListings = () => {
                     const physicalProps = componentPhysicalProps[componentKey] || createDefaultPhysicalProps();
                     const componentPreview = component3DPreviews[componentKey];
                     const hasPendingUpload = Boolean(component3DFiles[componentKey]);
-                    const shouldShowPhysicalConfig = hasPendingUpload || !component.designElementId;
+                    const has3DModel = Boolean(physicalProps.has3DModel);
 
                     return (
                       <Box
@@ -2290,148 +2360,184 @@ const ManageListings = () => {
                         </IconButton>
                       </Box>
                       <Stack spacing={2}>
-                        <Box display="flex" gap={1} alignItems="flex-start">
-                          <TextField
-                            fullWidth
-                            select
-                            label="Design Element"
-                            value={component.designElementId || ''}
-                            onChange={(e) => handleComponentChange(index, 'designElementId', e.target.value)}
-                            size="small"
-                            helperText="Select existing or upload new 3D model below"
-                            disabled={loadingDesignElements}
-                          >
-                            <MenuItem value="">
-                              <em>None selected</em>
-                            </MenuItem>
-                            {designElements.map((element) => (
-                              <MenuItem key={element.id} value={element.id}>
-                                {element.name || element.elementType || `Element ${element.id.slice(0, 8)}`}
-                              </MenuItem>
-                            ))}
-                          </TextField>
-                        </Box>
-                        
-                        {/* Per-component 3D model upload */}
-                        <Box>
-                          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontWeight: 500 }}>
-                            Or upload new 3D model for this component:
-                          </Typography>
-                          <input
-                            type="file"
-                            accept=".glb"
-                            onChange={(e) => handleComponent3DModelChange(componentKey, e)}
-                            style={{ display: 'none' }}
-                            id={`component-3d-upload-${componentKey}`}
-                          />
-                          <label htmlFor={`component-3d-upload-${componentKey}`}>
-                            <Button
-                              variant="outlined"
-                              component="span"
+                        {/* Has 3D Model Toggle */}
+                        <FormControlLabel
+                          control={
+                            <Switch
                               size="small"
-                              startIcon={<ThreeDIcon />}
-                              sx={{
-                                textTransform: 'none',
-                                borderColor: '#e0e0e0',
-                                color: '#666',
-                                fontSize: '0.75rem',
-                                '&:hover': { borderColor: '#e16789', color: '#e16789' },
+                              checked={has3DModel}
+                              onChange={(e) => {
+                                const newHas3DModel = e.target.checked;
+                                updateComponentPhysicalProps(componentKey, { has3DModel: newHas3DModel });
+                                // Clear 3D model data if toggling off
+                                if (!newHas3DModel) {
+                                  handleComponentChange(index, 'designElementId', '');
+                                  handleRemoveComponent3DModel(componentKey);
+                                }
                               }}
-                            >
-                              Upload 3D Model
-                            </Button>
-                          </label>
-                          
-                          {componentPreview && (
-                            <Box
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 1,
-                                mt: 1,
-                                p: 1,
-                                backgroundColor: '#f5f5f5',
-                                borderRadius: 1,
-                              }}
-                            >
-                              <ThreeDIcon sx={{ color: '#666', fontSize: '1rem' }} />
-                              <Typography variant="caption" sx={{ flex: 1, color: '#666' }}>
-                                {componentPreview.name} ({(componentPreview.size / 1024 / 1024).toFixed(2)} MB)
-                              </Typography>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleRemoveComponent3DModel(componentKey)}
-                                sx={{ color: '#d32f2f', padding: '4px' }}
-                              >
-                                <CloseIcon fontSize="small" />
-                              </IconButton>
-                            </Box>
-                          )}
-                          
-                          {hasPendingUpload && (
-                            <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
-                              ✓ 3D model will be uploaded and linked to this component
+                            />
+                          }
+                          label={
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                              Has 3D Model
                             </Typography>
-                          )}
+                          }
+                        />
 
-                          {shouldShowPhysicalConfig && (
-                            <Box
-                              sx={{
-                                mt: 1.5,
-                                p: 1.5,
-                                borderRadius: 1,
-                                border: '1px dashed #d3d3d3',
-                                backgroundColor: '#fff',
-                              }}
-                            >
-                              <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
-                                Physical Properties (required for scaling)
-                              </Typography>
-                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 1.5 }}>
-                                <TextField
-                                  label="Width (X)"
-                                  type="number"
-                                  size="small"
-                                  value={physicalProps.width}
-                                  onChange={(e) => updateComponentPhysicalProps(componentKey, { width: e.target.value })}
-                                  InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                                  inputProps={{ step: '0.01', min: '0' }}
-                                />
-                                <TextField
-                                  label="Height (Y)"
-                                  type="number"
-                                  size="small"
-                                  value={physicalProps.height}
-                                  onChange={(e) => updateComponentPhysicalProps(componentKey, { height: e.target.value })}
-                                  InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                                  inputProps={{ step: '0.01', min: '0' }}
-                                />
-                                <TextField
-                                  label="Depth (Z)"
-                                  type="number"
-                                  size="small"
-                                  value={physicalProps.depth}
-                                  onChange={(e) => updateComponentPhysicalProps(componentKey, { depth: e.target.value })}
-                                  InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                                  inputProps={{ step: '0.01', min: '0' }}
-                                />
-                              </Stack>
-                              <FormControlLabel
-                                control={
-                                  <Switch
-                                    size="small"
-                                    checked={Boolean(physicalProps.isStackable)}
-                                    onChange={(e) => updateComponentPhysicalProps(componentKey, { isStackable: e.target.checked })}
-                                  />
-                                }
-                                label={
-                                  <Typography variant="caption" color="text.secondary">
-                                    Stackable (can be placed on tables/surfaces)
-                                  </Typography>
-                                }
-                              />
+                        {/* 3D Model Section - Only show if has3DModel is true */}
+                        {has3DModel && (
+                          <>
+                            <Box display="flex" gap={1} alignItems="flex-start">
+                              <TextField
+                                fullWidth
+                                select
+                                label="Design Element"
+                                value={component.designElementId || ''}
+                                onChange={(e) => handleComponentChange(index, 'designElementId', e.target.value)}
+                                size="small"
+                                helperText="Select existing or upload new 3D model below"
+                                disabled={loadingDesignElements}
+                              >
+                                <MenuItem value="">
+                                  <em>None selected</em>
+                                </MenuItem>
+                                {designElements.map((element) => (
+                                  <MenuItem key={element.id} value={element.id}>
+                                    {element.name || element.elementType || `Element ${element.id.slice(0, 8)}`}
+                                  </MenuItem>
+                                ))}
+                              </TextField>
                             </Box>
-                          )}
+                            
+                            {/* Per-component 3D model upload */}
+                            <Box>
+                              <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontWeight: 500 }}>
+                                Or upload new 3D model for this component:
+                              </Typography>
+                              <input
+                                type="file"
+                                accept=".glb"
+                                onChange={(e) => handleComponent3DModelChange(componentKey, e)}
+                                style={{ display: 'none' }}
+                                id={`component-3d-upload-${componentKey}`}
+                              />
+                              <label htmlFor={`component-3d-upload-${componentKey}`}>
+                                <Button
+                                  variant="outlined"
+                                  component="span"
+                                  size="small"
+                                  startIcon={<ThreeDIcon />}
+                                  sx={{
+                                    textTransform: 'none',
+                                    borderColor: '#e0e0e0',
+                                    color: '#666',
+                                    fontSize: '0.75rem',
+                                    '&:hover': { borderColor: '#e16789', color: '#e16789' },
+                                  }}
+                                >
+                                  Upload 3D Model
+                                </Button>
+                              </label>
+                              
+                              {componentPreview && (
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 1,
+                                    mt: 1,
+                                    p: 1,
+                                    backgroundColor: '#f5f5f5',
+                                    borderRadius: 1,
+                                  }}
+                                >
+                                  <ThreeDIcon sx={{ color: '#666', fontSize: '1rem' }} />
+                                  <Typography variant="caption" sx={{ flex: 1, color: '#666' }}>
+                                    {componentPreview.name} ({(componentPreview.size / 1024 / 1024).toFixed(2)} MB)
+                                  </Typography>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleRemoveComponent3DModel(componentKey)}
+                                    sx={{ color: '#d32f2f', padding: '4px' }}
+                                  >
+                                    <CloseIcon fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              )}
+                              
+                              {hasPendingUpload && (
+                                <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
+                                  ✓ 3D model will be uploaded and linked to this component
+                                </Typography>
+                              )}
+                            </Box>
+                          </>
+                        )}
+
+                        {/* Dimension Editor - Always shown */}
+                        <Box
+                          sx={{
+                            mt: 1.5,
+                            p: 1.5,
+                            borderRadius: 1,
+                            border: '1px dashed #d3d3d3',
+                            backgroundColor: '#fff',
+                          }}
+                        >
+                          <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
+                            Dimension Editor
+                          </Typography>
+                          {(() => {
+                            const modelUrl = getComponentModelUrl(component, componentKey);
+                            const targetDimensions = (physicalProps.width || physicalProps.height || physicalProps.depth) ? {
+                              width: Number(physicalProps.width) || undefined,
+                              height: Number(physicalProps.height) || undefined,
+                              depth: Number(physicalProps.depth) || undefined,
+                            } : null;
+                            
+                            if (modelUrl) {
+                              return (
+                                <Box
+                                  sx={{
+                                    mb: 1.5,
+                                    p: 0,
+                                    backgroundColor: '#f5f6fa',
+                                    borderRadius: 1,
+                                    position: 'relative',
+                                    height: 420,
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  <Viewer3D
+                                    key={`${componentKey}-${modelUrl}`}
+                                    fileUrl={modelUrl}
+                                    onDimensionsChange={(dims) => handleComponentDimensionsChange(componentKey, dims)}
+                                    targetDimensions={targetDimensions}
+                                  />
+                                </Box>
+                              );
+                            } else {
+                              return (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, fontStyle: 'italic' }}>
+                                  Upload a 3D model or select a design element to use the dimension editor
+                                </Typography>
+                              );
+                            }
+                          })()}
+                          <FormControlLabel
+                            control={
+                              <Switch
+                                size="small"
+                                checked={Boolean(physicalProps.isStackable)}
+                                onChange={(e) => updateComponentPhysicalProps(componentKey, { isStackable: e.target.checked })}
+                              />
+                            }
+                            label={
+                              <Typography variant="caption" color="text.secondary">
+                                Stackable (can be placed on tables/surfaces)
+                              </Typography>
+                            }
+                          />
                         </Box>
                         <Box display="flex" gap={2}>
                           <TextField

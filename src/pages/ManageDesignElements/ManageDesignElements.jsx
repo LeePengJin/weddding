@@ -74,13 +74,6 @@ const ManageDesignElements = () => {
     }
   }, [user]);
 
-  useEffect(() => {
-    document.title = 'Design Elements Library - Weddding';
-    return () => {
-      document.title = 'Weddding';
-    };
-  }, []);
-
   const fetchDesignElements = async () => {
     try {
       setLoading(true);

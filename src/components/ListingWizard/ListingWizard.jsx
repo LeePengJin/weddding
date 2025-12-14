@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Button,
@@ -229,6 +229,38 @@ const ListingWizard = ({
     }
   }, [initialData]);
 
+  // Create blob URLs for component 3D files (memoized to avoid memory leaks)
+  const componentBlobUrlsRef = useRef({});
+  const componentBlobUrls = useMemo(() => {
+    // Clean up old URLs that are no longer needed
+    const currentKeys = new Set(Object.keys(component3DFiles));
+    Object.entries(componentBlobUrlsRef.current).forEach(([key, url]) => {
+      if (!currentKeys.has(key) && url) {
+        URL.revokeObjectURL(url);
+        delete componentBlobUrlsRef.current[key];
+      }
+    });
+    
+    // Create new URLs for new files
+    const urls = { ...componentBlobUrlsRef.current };
+    Object.entries(component3DFiles).forEach(([key, file]) => {
+      if (file && !urls[key]) {
+        urls[key] = URL.createObjectURL(file);
+        componentBlobUrlsRef.current[key] = urls[key];
+      }
+    });
+    return urls;
+  }, [component3DFiles]);
+
+  // Cleanup all blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(componentBlobUrlsRef.current).forEach(url => {
+        if (url) URL.revokeObjectURL(url);
+      });
+    };
+  }, []);
+
   // Build a blob URL for the uploaded 3D model so we can feed it into the dimension editor
   useEffect(() => {
     if (model3DSource === 'upload' && model3DFile) {
@@ -302,6 +334,18 @@ const ListingWizard = ({
           if (updated.pricingPolicy !== 'time_based') {
             updated.hourlyRate = '';
           }
+        }
+      }
+      
+      // Handle pricing policy changes
+      if (field === 'pricingPolicy') {
+        if (value === 'time_based') {
+          // Set price to 0 for time-based pricing (price is not used)
+          updated.price = '0';
+          // Clear hourlyRate if switching away from time_based
+        } else if (prev.pricingPolicy === 'time_based') {
+          // If switching away from time_based, clear hourlyRate
+          updated.hourlyRate = '';
         }
       }
       
@@ -702,10 +746,11 @@ const ListingWizard = ({
               onChange={(e) => handleInputChange('price', e.target.value)}
               helperText={
                 formData.pricingPolicy === 'time_based' 
-                  ? 'Not required for this pricing policy' 
+                  ? 'Not used for time-based pricing (automatically set to 0)' 
                   : 'The base price for this service'
               }
               required={formData.pricingPolicy !== 'time_based'}
+              disabled={formData.pricingPolicy === 'time_based'}
               inputProps={{ min: 0, step: 0.01 }}
               sx={{ mb: 3 }}
             />
@@ -1288,10 +1333,10 @@ const ListingWizard = ({
                   <Stack spacing={2}>
                     {components.map((component, index) => {
                       const componentKey = component.id || `component-${index}`;
-                      const physicalProps = componentPhysicalProps[componentKey] || { width: '', height: '', depth: '', isStackable: false };
+                      const physicalProps = componentPhysicalProps[componentKey] || { width: '', height: '', depth: '', isStackable: false, has3DModel: false };
                       const componentPreview = component3DPreviews[componentKey];
                       const hasPendingUpload = Boolean(component3DFiles[componentKey]);
-                      const shouldShowPhysicalConfig = hasPendingUpload || !component.designElementId;
+                      const has3DModel = Boolean(physicalProps.has3DModel);
 
                       return (
                         <Box
@@ -1316,139 +1361,202 @@ const ListingWizard = ({
                             </IconButton>
                           </Box>
                           <Stack spacing={2}>
-                            <TextField
-                              fullWidth
-                              select
-                              label="Design Element"
-                              value={component.designElementId || ''}
-                              onChange={(e) => onComponentChange && onComponentChange(index, 'designElementId', e.target.value)}
-                              size="small"
-                              helperText="Select existing or upload new 3D model below"
-                            >
-                              <MenuItem value="">
-                                <em>None selected</em>
-                              </MenuItem>
-                              {designElements.map((element) => (
-                                <MenuItem key={element.id} value={element.id}>
-                                  {element.name || element.elementType || `Element ${element.id.slice(0, 8)}`}
-                                </MenuItem>
-                              ))}
-                            </TextField>
-                            
-                            {/* Per-component 3D model upload */}
-                            <Box>
-                              <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontWeight: 500 }}>
-                                Or upload new 3D model for this component:
-                              </Typography>
-                              <input
-                                type="file"
-                                accept=".glb"
-                                onChange={(e) => onComponent3DChange && onComponent3DChange(componentKey, e)}
-                                style={{ display: 'none' }}
-                                id={`wizard-component-3d-upload-${componentKey}`}
-                              />
-                              <label htmlFor={`wizard-component-3d-upload-${componentKey}`}>
-                                <Button
-                                  variant="outlined"
-                                  component="span"
+                            {/* Has 3D Model Toggle */}
+                            <FormControlLabel
+                              control={
+                                <Switch
                                   size="small"
-                                  startIcon={<ThreeDIcon />}
-                                  sx={{
-                                    textTransform: 'none',
-                                    borderColor: '#e0e0e0',
-                                    color: '#666',
-                                    fontSize: '0.75rem',
-                                    '&:hover': { borderColor: '#e16789', color: '#e16789' },
-                                  }}
-                                >
-                                  Upload 3D Model
-                                </Button>
-                              </label>
-                              
-                              {componentPreview && (
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 1,
-                                    mt: 1,
-                                    p: 1,
-                                    backgroundColor: '#f5f5f5',
-                                    borderRadius: 1,
-                                  }}
-                                >
-                                  <ThreeDIcon sx={{ color: '#666', fontSize: '1rem' }} />
-                                  <Typography variant="caption" sx={{ flex: 1, color: '#666' }}>
-                                    {componentPreview.name} ({(componentPreview.size / 1024 / 1024).toFixed(2)} MB)
-                                  </Typography>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => onRemoveComponent3DModel && onRemoveComponent3DModel(componentKey)}
-                                    sx={{ color: '#d32f2f', padding: '4px' }}
-                                  >
-                                    <CloseIcon fontSize="small" />
-                                  </IconButton>
-                                </Box>
-                              )}
-                              
-                              {shouldShowPhysicalConfig && (
-                                <Box
-                                  sx={{
-                                    mt: 1.5,
-                                    p: 1.5,
-                                    borderRadius: 1,
-                                    border: '1px dashed #d3d3d3',
-                                    backgroundColor: '#fff',
-                                  }}
-                                >
-                                  <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
-                                    Physical Properties (required for scaling)
-                                  </Typography>
-                                  <Stack direction="row" spacing={1.5} sx={{ mb: 1.5 }}>
-                                    <TextField
-                                      label="Width (X)"
-                                      type="number"
-                                      size="small"
-                                      value={physicalProps.width}
-                                      onChange={(e) => onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { width: e.target.value })}
-                                      InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                                      inputProps={{ step: '0.01', min: '0' }}
-                                    />
-                                    <TextField
-                                      label="Height (Y)"
-                                      type="number"
-                                      size="small"
-                                      value={physicalProps.height}
-                                      onChange={(e) => onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { height: e.target.value })}
-                                      InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                                      inputProps={{ step: '0.01', min: '0' }}
-                                    />
-                                    <TextField
-                                      label="Depth (Z)"
-                                      type="number"
-                                      size="small"
-                                      value={physicalProps.depth}
-                                      onChange={(e) => onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { depth: e.target.value })}
-                                      InputProps={{ endAdornment: <Typography variant="caption">m</Typography> }}
-                                      inputProps={{ step: '0.01', min: '0' }}
-                                    />
-                                  </Stack>
-                                  <FormControlLabel
-                                    control={
-                                      <Switch
-                                        size="small"
-                                        checked={Boolean(physicalProps.isStackable)}
-                                        onChange={(e) => onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { isStackable: e.target.checked })}
-                                      />
+                                  checked={has3DModel}
+                                  onChange={(e) => {
+                                    const newHas3DModel = e.target.checked;
+                                    onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { has3DModel: newHas3DModel });
+                                    // Clear 3D model data if toggling off
+                                    if (!newHas3DModel) {
+                                      onComponentChange && onComponentChange(index, 'designElementId', '');
+                                      onRemoveComponent3DModel && onRemoveComponent3DModel(componentKey);
                                     }
-                                    label={
-                                      <Typography variant="caption" color="text.secondary">
-                                        Stackable (can be placed on tables/surfaces)
-                                      </Typography>
-                                    }
+                                  }}
+                                />
+                              }
+                              label={
+                                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                  Has 3D Model
+                                </Typography>
+                              }
+                            />
+
+                            {/* 3D Model Section - Only show if has3DModel is true */}
+                            {has3DModel && (
+                              <>
+                                <TextField
+                                  fullWidth
+                                  select
+                                  label="Design Element"
+                                  value={component.designElementId || ''}
+                                  onChange={(e) => onComponentChange && onComponentChange(index, 'designElementId', e.target.value)}
+                                  size="small"
+                                  helperText="Select existing or upload new 3D model below"
+                                >
+                                  <MenuItem value="">
+                                    <em>None selected</em>
+                                  </MenuItem>
+                                  {designElements.map((element) => (
+                                    <MenuItem key={element.id} value={element.id}>
+                                      {element.name || element.elementType || `Element ${element.id.slice(0, 8)}`}
+                                    </MenuItem>
+                                  ))}
+                                </TextField>
+                                
+                                {/* Per-component 3D model upload */}
+                                <Box>
+                                  <Typography variant="caption" sx={{ display: 'block', mb: 0.5, fontWeight: 500 }}>
+                                    Or upload new 3D model for this component:
+                                  </Typography>
+                                  <input
+                                    type="file"
+                                    accept=".glb"
+                                    onChange={(e) => onComponent3DChange && onComponent3DChange(componentKey, e)}
+                                    style={{ display: 'none' }}
+                                    id={`wizard-component-3d-upload-${componentKey}`}
                                   />
+                                  <label htmlFor={`wizard-component-3d-upload-${componentKey}`}>
+                                    <Button
+                                      variant="outlined"
+                                      component="span"
+                                      size="small"
+                                      startIcon={<ThreeDIcon />}
+                                      sx={{
+                                        textTransform: 'none',
+                                        borderColor: '#e0e0e0',
+                                        color: '#666',
+                                        fontSize: '0.75rem',
+                                        '&:hover': { borderColor: '#e16789', color: '#e16789' },
+                                      }}
+                                    >
+                                      Upload 3D Model
+                                    </Button>
+                                  </label>
+                                  
+                                  {componentPreview && (
+                                    <Box
+                                      sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 1,
+                                        mt: 1,
+                                        p: 1,
+                                        backgroundColor: '#f5f5f5',
+                                        borderRadius: 1,
+                                      }}
+                                    >
+                                      <ThreeDIcon sx={{ color: '#666', fontSize: '1rem' }} />
+                                      <Typography variant="caption" sx={{ flex: 1, color: '#666' }}>
+                                        {componentPreview.name} ({(componentPreview.size / 1024 / 1024).toFixed(2)} MB)
+                                      </Typography>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => onRemoveComponent3DModel && onRemoveComponent3DModel(componentKey)}
+                                        sx={{ color: '#d32f2f', padding: '4px' }}
+                                      >
+                                        <CloseIcon fontSize="small" />
+                                      </IconButton>
+                                    </Box>
+                                  )}
                                 </Box>
-                              )}
+                              </>
+                            )}
+                            
+                            {/* Dimension Editor - Always shown */}
+                            <Box
+                              sx={{
+                                mt: 1.5,
+                                p: 1.5,
+                                borderRadius: 1,
+                                border: '1px dashed #d3d3d3',
+                                backgroundColor: '#fff',
+                              }}
+                            >
+                              <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
+                                Dimension Editor
+                              </Typography>
+                              {(() => {
+                                // Get model URL for this component
+                                let modelUrl = null;
+                                // Priority 1: Uploaded file (use memoized blob URL)
+                                if (componentBlobUrls[componentKey]) {
+                                  modelUrl = componentBlobUrls[componentKey];
+                                }
+                                // Priority 2: Selected design element
+                                else if (component.designElementId) {
+                                  const element = designElements.find(el => el.id === component.designElementId);
+                                  if (element?.modelFile) {
+                                    if (element.modelFile.startsWith('http://') || element.modelFile.startsWith('https://')) {
+                                      modelUrl = element.modelFile;
+                                    } else if (element.modelFile.startsWith('/uploads')) {
+                                      modelUrl = `http://localhost:4000${element.modelFile}`;
+                                    } else {
+                                      modelUrl = element.modelFile;
+                                    }
+                                  }
+                                }
+                                
+                                const targetDimensions = (physicalProps.width || physicalProps.height || physicalProps.depth) ? {
+                                  width: Number(physicalProps.width) || undefined,
+                                  height: Number(physicalProps.height) || undefined,
+                                  depth: Number(physicalProps.depth) || undefined,
+                                } : null;
+                                
+                                if (modelUrl) {
+                                  return (
+                                    <Box
+                                      sx={{
+                                        mb: 1.5,
+                                        p: 0,
+                                        backgroundColor: '#f5f6fa',
+                                        borderRadius: 1,
+                                        position: 'relative',
+                                        height: 420,
+                                        overflow: 'hidden',
+                                      }}
+                                    >
+                                      <Viewer3D
+                                        key={`${componentKey}-${modelUrl}`}
+                                        fileUrl={modelUrl}
+                                        onDimensionsChange={(dims) => {
+                                          if (dims && onComponentPhysicalPropsChange) {
+                                            onComponentPhysicalPropsChange(componentKey, {
+                                              width: dims.width?.toString() || '',
+                                              height: dims.height?.toString() || '',
+                                              depth: dims.depth?.toString() || '',
+                                            });
+                                          }
+                                        }}
+                                        targetDimensions={targetDimensions}
+                                      />
+                                    </Box>
+                                  );
+                                } else {
+                                  return (
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5, fontStyle: 'italic' }}>
+                                      Upload a 3D model or select a design element to use the dimension editor
+                                    </Typography>
+                                  );
+                                }
+                              })()}
+                              <FormControlLabel
+                                control={
+                                  <Switch
+                                    size="small"
+                                    checked={Boolean(physicalProps.isStackable)}
+                                    onChange={(e) => onComponentPhysicalPropsChange && onComponentPhysicalPropsChange(componentKey, { isStackable: e.target.checked })}
+                                  />
+                                }
+                                label={
+                                  <Typography variant="caption" color="text.secondary">
+                                    Stackable (can be placed on tables/surfaces)
+                                  </Typography>
+                                }
+                              />
                             </Box>
                             <Box display="flex" gap={2}>
                               <TextField

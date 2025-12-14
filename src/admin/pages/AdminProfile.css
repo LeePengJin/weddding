@@ -1,0 +1,58 @@
+.admin-profile-page {
+  min-height: calc(100vh - 54px);
+  background-color: #f5f6fa;
+  padding: 32px 24px;
+  box-sizing: border-box;
+}
+
+.admin-profile-container {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.admin-profile-header {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.admin-profile-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.admin-profile-avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.admin-profile-card {
+  background-color: #ffffff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+@media (max-width: 960px) {
+  .admin-profile-page {
+    padding: 24px 16px;
+  }
+
+  .admin-profile-container {
+    gap: 24px;
+  }
+}
+
+@media (max-width: 600px) {
+  .admin-profile-page {
+    padding: 16px 12px;
+  }
+
+  .admin-profile-container {
+    gap: 20px;
+  }
+}
+
+

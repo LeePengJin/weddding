@@ -56,7 +56,6 @@ export default function AccountManagement() {
   const [blockReasonError, setBlockReasonError] = useState('');
 
   useEffect(() => {
-    document.title = 'Weddding Admin — Account Management';
     // Ensure admin session
     apiFetch('/admin/auth/me')
       .then(() => {
@@ -245,7 +244,16 @@ export default function AccountManagement() {
 
   return (
     <Box>
-      <Typography variant="h4" sx={{ mb: 3, fontWeight: 600 }}>
+      <Typography
+        variant="h4"
+        sx={{
+          fontWeight: 700,
+          color: '#111827',
+          fontSize: '28px',
+          letterSpacing: '-0.02em',
+          mb: 3,
+        }}
+      >
         Account Management
       </Typography>
 

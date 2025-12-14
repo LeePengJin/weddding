@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../../lib/api';
 import { validateMalaysianContactNumber } from '../../utils/validation';
 import './VendorRegister.css';
-import { Box, Button, Grid, MenuItem, TextField, Typography } from '@mui/material';
+import { Box, Button, Grid, MenuItem, TextField, Tooltip, Typography } from '@mui/material';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:4000';
 
@@ -271,7 +272,36 @@ export default function VendorRegister() {
             </Box>
 
             <div className="form-group">
-              <label className="field-label">Verification Documents</label>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <label className="field-label" style={{ margin: 0 }}>Verification Documents</label>
+                <Tooltip
+                  arrow
+                  placement="right"
+                  title={
+                    <Box sx={{ p: 0.5 }}>
+                      <Typography sx={{ fontSize: 12, fontWeight: 700, mb: 0.5 }}>
+                        What to upload (1–5 files)
+                      </Typography>
+                      <Typography sx={{ fontSize: 12, mb: 0.5 }}>
+                        Please upload documents that prove you are a legitimate business/vendor. Examples:
+                      </Typography>
+                      <Box component="ul" sx={{ m: 0, pl: 2, fontSize: 12 }}>
+                        <li>Business registration (e.g., SSM / license / certificate)</li>
+                        <li>Owner/representative ID (IC/Passport)</li>
+                        <li>Portfolio / previous work / brochure (optional but recommended)</li>
+                        <li>Proof of address or company letterhead (optional)</li>
+                      </Box>
+                      <Typography sx={{ fontSize: 12, mt: 0.75, opacity: 0.9 }}>
+                        Accepted: PDF, DOC/DOCX, JPG/JPEG, PNG.
+                      </Typography>
+                    </Box>
+                  }
+                >
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', color: '#6b7280', cursor: 'help' }}>
+                    <InfoOutlinedIcon sx={{ fontSize: 18 }} />
+                  </Box>
+                </Tooltip>
+              </Box>
               <div className="file-upload-wrapper">
                 <input
                   type="file"

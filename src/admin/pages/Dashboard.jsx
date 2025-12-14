@@ -15,6 +15,10 @@ import {
   CircularProgress,
   Alert,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   LineChart,
@@ -67,10 +71,10 @@ export default function Dashboard() {
   const [pendingVendors, setPendingVendors] = useState([]);
   const [activeVendorsList, setActiveVendorsList] = useState([]);
   const [topVendors, setTopVendors] = useState([]);
-
-  useEffect(() => {
-    document.title = 'Weddding Admin — Dashboard';
-  }, []);
+  
+  // Approval confirmation dialog
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [approvingUserId, setApprovingUserId] = useState(null);
 
   useEffect(() => {
     apiFetch('/admin/auth/me').catch(() => navigate('/admin/login'));
@@ -158,14 +162,28 @@ export default function Dashboard() {
     fetchDashboardData();
   }, [navigate]);
 
-  const handleApproveVendor = async (userId) => {
+  const handleApproveClick = (userId) => {
+    setApprovingUserId(userId);
+    setApproveDialogOpen(true);
+  };
+
+  const handleApproveCancel = () => {
+    setApproveDialogOpen(false);
+    setApprovingUserId(null);
+  };
+
+  const handleApproveVendor = async () => {
+    if (!approvingUserId) return;
+    
     try {
-      await apiFetch(`/admin/vendors/${userId}/approve`, { method: 'POST' });
+      await apiFetch(`/admin/vendors/${approvingUserId}/approve`, { method: 'POST' });
+      handleApproveCancel();
       // Refresh data
       window.location.reload();
     } catch (err) {
       console.error('Failed to approve vendor', err);
       setError(err.message || 'Failed to approve vendor');
+      handleApproveCancel();
     }
   };
 
@@ -762,7 +780,7 @@ export default function Dashboard() {
                           <Stack direction="row" spacing={0.5}>
                             <IconButton
                               size="small"
-                              onClick={() => handleApproveVendor(vendor.id)}
+                              onClick={() => handleApproveClick(vendor.id)}
                               sx={{ 
                                 color: '#10b981',
                                 '&:hover': { backgroundColor: '#d1fae5' }
@@ -1056,6 +1074,45 @@ export default function Dashboard() {
           </Stack>
         </CardContent>
       </Card>
+
+      {/* Approval Confirmation Dialog */}
+      <Dialog open={approveDialogOpen} onClose={handleApproveCancel} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700, color: '#059669' }}>
+          Confirm Vendor Approval
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2, color: '#4b5563' }}>
+            Are you sure you want to approve this vendor account? Once approved, the vendor will be able to:
+          </Typography>
+          <List dense sx={{ mb: 2 }}>
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText primary="• Log in to their vendor account" />
+            </ListItem>
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText primary="• Create and manage service listings" />
+            </ListItem>
+            <ListItem sx={{ px: 0 }}>
+              <ListItemText primary="• Receive booking requests from couples" />
+            </ListItem>
+          </List>
+          {approvingUserId && (() => {
+            const vendor = pendingVendors.find((v) => v.id === approvingUserId);
+            return vendor ? (
+              <Typography variant="body2" sx={{ color: '#6b7280', fontStyle: 'italic' }}>
+                Vendor: {vendor.name || vendor.email}
+              </Typography>
+            ) : null;
+          })()}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={handleApproveCancel} variant="outlined">
+            Cancel
+          </Button>
+          <Button onClick={handleApproveVendor} variant="contained" color="success" sx={{ ml: 1 }}>
+            Confirm Approval
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -6,6 +6,7 @@ const { PrismaClient, VendorCategory, WeddingPackageStatus } = require('@prisma/
 const { requireAdmin } = require('../middleware/auth');
 const { approveVendor, rejectVendor } = require('../services/vendor.service');
 const { sendEmail } = require('../utils/mailer');
+const { passwordPolicy } = require('../utils/security');
 const {
   PACKAGE_INCLUDE,
   buildPackageResponse,
@@ -52,7 +53,8 @@ const packagePayloadSchema = z.object({
   description: z.string().max(2000).optional().nullable(),
   previewImage: z.string().url('Preview image must be a valid URL').optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
-  items: z.array(packageItemSchema).min(1, 'At least one service or slot is required'),
+  venueServiceListingId: z.string().uuid('Invalid venue ID').optional().nullable(),
+  items: z.array(packageItemSchema), // Allow empty array - items come from 3D design automatically
 });
 
 const packageStatusSchema = z.object({
@@ -116,6 +118,34 @@ router.get('/auth/me', requireAdmin, async (req, res) => {
 router.post('/auth/logout', (_req, res) => {
   res.clearCookie('adminToken');
   res.json({ ok: true });
+});
+
+// Admin change password (authenticated)
+router.post('/auth/change-password', requireAdmin, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      currentPassword: z.string().min(1, 'Current password is required'),
+      newPassword: passwordPolicy,
+    });
+    const { currentPassword, newPassword } = schema.parse(req.body || {});
+
+    const same = await bcrypt.compare(currentPassword, req.admin.passwordHash);
+    if (!same) return res.status(400).json({ error: 'Current password is incorrect' });
+
+    const isReuse = await bcrypt.compare(newPassword, req.admin.passwordHash);
+    if (isReuse) return res.status(400).json({ error: 'New password must be different from current password' });
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await prisma.systemAdmin.update({
+      where: { id: req.admin.id },
+      data: { passwordHash },
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    if (err instanceof z.ZodError) return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input' });
+    next(err);
+  }
 });
 
 // Get vendors list (filter by status)
@@ -616,6 +646,56 @@ router.post('/packages', requireAdmin, async (req, res, next) => {
       include: PACKAGE_INCLUDE,
     });
 
+    // Create PackageDesign with venue if provided
+    if (payload.venueServiceListingId) {
+      // Verify venue exists and has 3D model
+      const venue = await prisma.serviceListing.findUnique({
+        where: { id: payload.venueServiceListingId },
+        include: { designElement: true },
+      });
+
+      if (!venue) {
+        return res.status(404).json({ error: 'Venue not found' });
+      }
+
+      if (venue.category !== 'Venue') {
+        return res.status(400).json({ error: 'Selected service is not a venue' });
+      }
+
+      if (!venue.designElement || !venue.designElement.modelFile) {
+        return res.status(400).json({ error: 'Selected venue does not have a 3D model' });
+      }
+
+      // Create camera position
+      const { prefixedUlid } = require('../utils/id');
+      const cameraPosition = await prisma.coordinates.create({
+        data: {
+          id: prefixedUlid('cam'),
+          x: 0,
+          y: 3,
+          z: 8,
+        },
+      });
+
+      // Create or update PackageDesign
+      await prisma.packageDesign.upsert({
+        where: { packageId: pkg.id },
+        create: {
+          id: prefixedUlid('pkgd'),
+          packageId: pkg.id,
+          venueServiceListingId: payload.venueServiceListingId,
+          venueName: venue.name,
+          cameraPositionId: cameraPosition.id,
+          layoutData: {},
+          zoomLevel: 1.2,
+        },
+        update: {
+          venueServiceListingId: payload.venueServiceListingId,
+          venueName: venue.name,
+        },
+      });
+    }
+
     await validatePackageHealth(prisma, pkg.id);
     const refreshed = await prisma.weddingPackage.findUnique({
       where: { id: pkg.id },
@@ -664,6 +744,76 @@ router.put('/packages/:packageId', requireAdmin, async (req, res, next) => {
       },
     });
 
+    // Update PackageDesign venue if provided
+    if (payload.venueServiceListingId !== undefined) {
+      // Verify venue exists and has 3D model if provided
+      if (payload.venueServiceListingId) {
+        const venue = await prisma.serviceListing.findUnique({
+          where: { id: payload.venueServiceListingId },
+          include: { designElement: true },
+        });
+
+        if (!venue) {
+          return res.status(404).json({ error: 'Venue not found' });
+        }
+
+        if (venue.category !== 'Venue') {
+          return res.status(400).json({ error: 'Selected service is not a venue' });
+        }
+
+        if (!venue.designElement || !venue.designElement.modelFile) {
+          return res.status(400).json({ error: 'Selected venue does not have a 3D model' });
+        }
+
+        // Get or create PackageDesign
+        const existingDesign = await prisma.packageDesign.findUnique({
+          where: { packageId },
+        });
+
+        if (existingDesign) {
+          // Update existing design
+          await prisma.packageDesign.update({
+            where: { packageId },
+            data: {
+              venueServiceListingId: payload.venueServiceListingId,
+              venueName: venue.name,
+            },
+          });
+        } else {
+          // Create new design with venue
+          const { prefixedUlid } = require('../utils/id');
+          const cameraPosition = await prisma.coordinates.create({
+            data: {
+              id: prefixedUlid('cam'),
+              x: 0,
+              y: 3,
+              z: 8,
+            },
+          });
+
+          await prisma.packageDesign.create({
+            data: {
+              id: prefixedUlid('pkgd'),
+              packageId,
+              venueServiceListingId: payload.venueServiceListingId,
+              venueName: venue.name,
+              cameraPositionId: cameraPosition.id,
+              layoutData: {},
+              zoomLevel: 1.2,
+            },
+          });
+        }
+      } else {
+        // Remove venue (set to null)
+        await prisma.packageDesign.updateMany({
+          where: { packageId },
+          data: {
+            venueServiceListingId: null,
+          },
+        });
+      }
+    }
+
     const existingItems = await prisma.weddingPackageItem.findMany({
       where: { packageId },
       select: { id: true },
@@ -696,7 +846,15 @@ router.put('/packages/:packageId', requireAdmin, async (req, res, next) => {
       }
     }
 
-    await validatePackageHealth(prisma, packageId);
+    // Only validate if package is not archived (archived packages shouldn't be re-validated)
+    const currentPackage = await prisma.weddingPackage.findUnique({
+      where: { id: packageId },
+      select: { status: true },
+    });
+
+    if (currentPackage && currentPackage.status !== WeddingPackageStatus.archived) {
+      await validatePackageHealth(prisma, packageId);
+    }
 
     const refreshed = await prisma.weddingPackage.findUnique({
       where: { id: packageId },

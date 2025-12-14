@@ -43,9 +43,9 @@ const createModel3DUpload = () => {
 // Validation schema
 const dimensionsSchema = z
   .object({
-    width: z.number().positive('Width must be greater than 0').optional(),
-    height: z.number().positive('Height must be greater than 0').optional(),
-    depth: z.number().positive('Depth must be greater than 0').optional(),
+    width: z.number().min(0, 'Width must be 0 or greater').optional(),
+    height: z.number().min(0, 'Height must be 0 or greater').optional(),
+    depth: z.number().min(0, 'Depth must be 0 or greater').optional(),
   })
   .partial();
 
@@ -214,7 +214,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     res.json(designElement);
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return res.status(400).json({ error: err.errors[0].message });
+      return res.status(400).json({ error: err.issues[0]?.message || 'Validation error', issues: err.issues });
     }
     next(err);
   }

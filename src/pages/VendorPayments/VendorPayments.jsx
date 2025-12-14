@@ -49,7 +49,6 @@ export default function VendorPayments() {
   const [dateFilter, setDateFilter] = useState({ start: '', end: '' });
 
   useEffect(() => {
-    document.title = 'Weddding Vendor — Payments';
     fetchPayments();
   }, []);
 
