@@ -456,6 +456,124 @@ const applyPackageDesignToProject = async (prisma, packageId, projectId) => {
     const templateMeta = templateLayout.placementsMeta || {};
     const newMeta = {};
 
+    // Fallback: some legacy templates may have placements but missing placementsMeta entries.
+    // Rebuild per-placement metadata (serviceListingId + bundleId) from PackagePlacedElement.serviceListingId and ServiceComponent composition.
+    const fallbackMetaByPackagePlacementId = {};
+    try {
+      const byListing = new Map();
+      (packageDesign.placedElements || []).forEach((p) => {
+        if (!p?.serviceListingId) return;
+        if (!byListing.has(p.serviceListingId)) byListing.set(p.serviceListingId, []);
+        byListing.get(p.serviceListingId).push(p);
+      });
+
+      const listingIds = Array.from(byListing.keys());
+      if (listingIds.length) {
+        const listings = await tx.serviceListing.findMany({
+          where: { id: { in: listingIds } },
+          select: {
+            id: true,
+            price: true,
+            designElementId: true,
+            components: {
+              select: {
+                designElementId: true,
+                quantityPerUnit: true,
+                role: true,
+              },
+            },
+          },
+        });
+        const listingMap = new Map(listings.map((l) => [l.id, l]));
+
+        for (const [serviceListingId, placements] of byListing.entries()) {
+          const listing = listingMap.get(serviceListingId);
+          if (!listing) continue;
+
+          const requirements = [];
+          if (listing.designElementId) {
+            requirements.push({ designElementId: listing.designElementId, quantityPerUnit: 1, role: 'primary' });
+          }
+          (listing.components || []).forEach((c) => {
+            if (!c.designElementId) return;
+            requirements.push({
+              designElementId: c.designElementId,
+              quantityPerUnit: c.quantityPerUnit || 1,
+              role: c.role || 'component',
+            });
+          });
+
+          if (!requirements.length) continue;
+
+          // Sort placements for deterministic grouping (PackagePlacedElement IDs are ULID-like in most flows).
+          const placementsSorted = [...placements].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+          const placementsByElement = new Map();
+          requirements.forEach((req) => {
+            placementsByElement.set(
+              req.designElementId,
+              placementsSorted.filter((p) => p.designElementId === req.designElementId)
+            );
+          });
+
+          let bundleCount = Infinity;
+          for (const req of requirements) {
+            const list = placementsByElement.get(req.designElementId) || [];
+            const per = Math.max(1, Number(req.quantityPerUnit) || 1);
+            bundleCount = Math.min(bundleCount, Math.floor(list.length / per));
+          }
+          if (!Number.isFinite(bundleCount) || bundleCount <= 0) {
+            bundleCount = 1;
+          }
+
+          const bundleIds = Array.from({ length: bundleCount }, () => prefixedUlid('bnd'));
+
+          // Assign bundle IDs per component in order, chunked by quantityPerUnit.
+          for (const req of requirements) {
+            const list = placementsByElement.get(req.designElementId) || [];
+            const per = Math.max(1, Number(req.quantityPerUnit) || 1);
+            let index = 0;
+            for (let bi = 0; bi < bundleCount; bi += 1) {
+              const bid = bundleIds[bi];
+              for (let k = 0; k < per && index < list.length; k += 1) {
+                const placement = list[index++];
+                const existing = templateMeta[placement.id] || null;
+                if (existing && existing.bundleId && existing.serviceListingId) {
+                  continue;
+                }
+                fallbackMetaByPackagePlacementId[placement.id] = {
+                  ...(existing || {}),
+                  serviceListingId,
+                  bundleId: bid,
+                  role: req.role,
+                  unitPrice: listing.price ? listing.price.toString() : null,
+                };
+              }
+            }
+
+            // Any leftovers get attached to the last bundle.
+            const lastBid = bundleIds[bundleIds.length - 1];
+            while (index < list.length) {
+              const placement = list[index++];
+              const existing = templateMeta[placement.id] || null;
+              if (existing && existing.bundleId && existing.serviceListingId) {
+                continue;
+              }
+              fallbackMetaByPackagePlacementId[placement.id] = {
+                ...(existing || {}),
+                serviceListingId,
+                bundleId: lastBid,
+                role: req.role,
+                unitPrice: listing.price ? listing.price.toString() : null,
+              };
+            }
+          }
+        }
+      }
+    } catch {
+      // Best-effort fallback only; ignore failures.
+    }
+
     let venueDesign = existingDesign;
     if (venueDesign) {
       const placementIds = venueDesign.placedElements.map((placement) => placement.id);
@@ -516,8 +634,9 @@ const applyPackageDesignToProject = async (prisma, packageId, projectId) => {
         },
       });
 
-      if (templateMeta[placement.id]) {
-        newMeta[createdPlacement.id] = templateMeta[placement.id];
+      const meta = templateMeta[placement.id] || fallbackMetaByPackagePlacementId[placement.id] || null;
+      if (meta) {
+        newMeta[createdPlacement.id] = meta;
       }
     }
 
@@ -532,6 +651,17 @@ const applyPackageDesignToProject = async (prisma, packageId, projectId) => {
       },
     });
   });
+
+  // Ensure budget "planned (3D)" reflects the newly applied template placements.
+  // updatePlannedSpend is exported from venueDesign.routes and is used elsewhere (e.g., project routes).
+  try {
+    const venueDesignRoutes = require('../routes/venueDesign.routes');
+    if (venueDesignRoutes.updatePlannedSpend) {
+      await venueDesignRoutes.updatePlannedSpend(projectId);
+    }
+  } catch {
+    // Best-effort only; template can still load even if planned spend refresh fails.
+  }
 };
 
 module.exports = {

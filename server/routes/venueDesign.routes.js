@@ -2810,11 +2810,18 @@ router.post('/:projectId/save', requireAuth, async (req, res, next) => {
 
     const venueDesign = await getOrCreateVenueDesign(project);
     const layoutData = venueDesign.layoutData || {};
+    const incomingMeta = payload.layoutData?.placementsMeta;
+    const nextPlacementsMeta =
+      incomingMeta && typeof incomingMeta === 'object' && Object.keys(incomingMeta).length > 0
+        ? { ...(layoutData.placementsMeta || {}), ...incomingMeta }
+        : layoutData.placementsMeta || {};
 
     const updatedLayout = {
       ...layoutData,
       ...(payload.layoutData || {}),
-      placementsMeta: payload.layoutData?.placementsMeta || layoutData.placementsMeta || {},
+      // placementsMeta is server-owned metadata used for bundle grouping & summaries.
+      // Never wipe it just because the client doesn't send it (or sends an empty object).
+      placementsMeta: nextPlacementsMeta,
       lastSavedAt: new Date().toISOString(),
     };
 

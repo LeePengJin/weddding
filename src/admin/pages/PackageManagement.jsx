@@ -1149,11 +1149,11 @@ const PackageManagement = () => {
                             color="primary"
                             variant="filled"
                           />
-                          <Button color="error" size="small" onClick={() => handleRemoveItem(index)}>
-                            Remove
-                          </Button>
                         </Stack>
                       </Stack>
+                      <Typography variant="caption" color="text.secondary">
+                        To remove items, delete them in the 3D designer and click &quot;Refresh from 3D&quot;.
+                      </Typography>
 
                       <TextField
                         label="Label"

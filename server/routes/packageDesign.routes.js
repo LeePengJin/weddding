@@ -1137,6 +1137,11 @@ router.post('/:packageId/save', requireAdmin, async (req, res, next) => {
 
     const design = await ensurePackageDesign(prisma, pkg.id);
     const layoutData = design.layoutData || buildDefaultLayoutData();
+    const incomingMeta = payload.layoutData?.placementsMeta;
+    const nextPlacementsMeta =
+      incomingMeta && typeof incomingMeta === 'object' && Object.keys(incomingMeta).length > 0
+        ? { ...(layoutData.placementsMeta || {}), ...incomingMeta }
+        : layoutData.placementsMeta || {};
 
     await prisma.packageDesign.update({
       where: { id: design.id },
@@ -1144,7 +1149,9 @@ router.post('/:packageId/save', requireAdmin, async (req, res, next) => {
         layoutData: {
           ...layoutData,
           ...(payload.layoutData || {}),
-          placementsMeta: payload.layoutData?.placementsMeta || layoutData.placementsMeta || {},
+          // placementsMeta is server-owned metadata used for bundle grouping & summaries.
+          // Never wipe it just because the client doesn't send it (or sends an empty object).
+          placementsMeta: nextPlacementsMeta,
           lastSavedAt: new Date().toISOString(),
         },
       },
@@ -1323,6 +1330,11 @@ router.get('/:packageId/catalog', requireAdmin, async (req, res, next) => {
 
     const where = {
       isActive: true,
+      vendor: {
+        user: {
+          status: 'active',
+        },
+      },
       category: {
         not: 'Venue',
       },
@@ -1344,8 +1356,14 @@ router.get('/:packageId/catalog', requireAdmin, async (req, res, next) => {
       ];
     }
 
-    // Package designer only shows services with 3D models (pure visual templates)
-    where.has3DModel = true;
+    // Package designer only shows services with 3D models (pure visual templates).
+    // Don't rely only on has3DModel flag (it can be stale for older records); also check actual model files.
+    where.OR = [
+      ...(where.OR || []),
+      { has3DModel: true },
+      { designElement: { is: { modelFile: { not: '' } } } },
+      { components: { some: { designElement: { is: { modelFile: { not: '' } } } } } },
+    ];
 
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;

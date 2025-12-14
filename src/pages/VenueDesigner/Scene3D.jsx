@@ -135,6 +135,22 @@ const WASDControls = ({ mode, venueBounds }) => {
   return null;
 };
 
+const SceneRefsBridge = ({ cameraRef, sizeRef, glRef }) => {
+  const { camera, size, gl } = useThree();
+  useEffect(() => {
+    cameraRef.current = camera;
+    sizeRef.current = size;
+    glRef.current = gl;
+  }, [camera, size, gl, cameraRef, sizeRef, glRef]);
+  return null;
+};
+
+SceneRefsBridge.propTypes = {
+  cameraRef: PropTypes.shape({ current: PropTypes.object }).isRequired,
+  sizeRef: PropTypes.shape({ current: PropTypes.object }).isRequired,
+  glRef: PropTypes.shape({ current: PropTypes.object }).isRequired,
+};
+
 const CaptureBridge = ({ onRegisterCapture, controlsRef }) => {
   const { gl, scene, camera } = useThree();
 
@@ -234,12 +250,16 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   const [boxSelectionStart, setBoxSelectionStart] = useState(null); // For box selection
   const [boxSelectionEnd, setBoxSelectionEnd] = useState(null);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [isShiftDown, setIsShiftDown] = useState(false);
   const selectedElementRefs = useRef(new Map()); // Store refs to selected elements for real-time updates
   const selectedInitialPositionsRef = useRef(new Map()); // Store initial positions for multi-selection
   const currentDragSessionRef = useRef(null); // Track current drag session: { draggedId, selectedIds: Set, initialPositions: Map }
   const venueModelUrl = useMemo(() => normalizeUrl(venueInfo?.modelFile), [venueInfo?.modelFile]);
   const orbitControlsRef = useRef(null);
   const wrapperRef = useRef(null);
+  const cameraRef = useRef(null);
+  const sizeRef = useRef(null);
+  const glRef = useRef(null);
 
   const handleVenueBoundsCalculated = useCallback((bounds) => {
     // Add a small margin to allow some flexibility, but keep elements within venue
@@ -352,6 +372,25 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     }
   }, [handleCloseSelection]);
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Shift') setIsShiftDown(true);
+    };
+    const handleKeyUp = (e) => {
+      if (e.key === 'Shift') setIsShiftDown(false);
+    };
+    const handleBlur = () => setIsShiftDown(false);
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
+
   // Box selection handlers
   const handleCanvasPointerDown = useCallback((event) => {
     // Start box selection if Shift is held and clicking on empty space
@@ -378,11 +417,36 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
       const startY = Math.min(boxSelectionStart.y, boxSelectionEnd.y);
       const endY = Math.max(boxSelectionStart.y, boxSelectionEnd.y);
 
-      // Use raycaster to find elements within selection rectangle
-      // We'll need to check each placement's screen position
-      const newSelections = [];
-      // This will be handled by checking element positions in 2D screen space
-      // For now, we'll implement a simpler version that selects based on bounding box overlap
+      const camera = cameraRef.current;
+      if (camera) {
+        const foundIds = [];
+        const v = new THREE.Vector3();
+
+        placements.forEach((placement) => {
+          if (!placement?.id || !placement?.position) return;
+          v.set(placement.position.x || 0, placement.position.y || 0, placement.position.z || 0);
+          v.project(camera);
+          const sx = ((v.x + 1) / 2) * rect.width;
+          const sy = ((-v.y + 1) / 2) * rect.height;
+          if (sx >= startX && sx <= endX && sy >= startY && sy <= endY) {
+            foundIds.push(placement.id);
+          }
+        });
+
+        if (foundIds.length > 0) {
+          setSelectedIds((prev) => {
+            const merged = new Set([...(prev || []), ...foundIds]);
+            const next = Array.from(merged);
+            selectedIdsRef.current = next;
+            selectedInitialPositionsRef.current.clear();
+            currentDragSessionRef.current = null;
+            if (next.length > 1) {
+              setGroupInteractionMode('translate');
+            }
+            return next;
+          });
+        }
+      }
       
       setBoxSelectionStart(null);
       setBoxSelectionEnd(null);
@@ -391,7 +455,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
       setBoxSelectionStart(null);
       setBoxSelectionEnd(null);
     }
-  }, [boxSelectionStart, boxSelectionEnd]);
+  }, [boxSelectionStart, boxSelectionEnd, placements]);
 
   const handleDeletePlacement = useCallback(
     (placementId) => {
@@ -984,6 +1048,8 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   }, [handleCloseSelection]);
 
   const isProjectMode = designerMode === 'project';
+  const isBoxSelecting = Boolean(boxSelectionStart);
+  const orbitControlsEnabled = orbitEnabled && !isShiftDown && !isBoxSelecting;
   const handleSaveClick = useCallback(() => {
     onSaveDesign?.();
   }, [onSaveDesign]);
@@ -998,6 +1064,17 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
 
   return (
     <div className="scene3d-wrapper" ref={wrapperRef}>
+      {boxSelectionStart && boxSelectionEnd && (
+        <div
+          className="scene3d-selection-rect"
+          style={{
+            left: Math.min(boxSelectionStart.x, boxSelectionEnd.x),
+            top: Math.min(boxSelectionStart.y, boxSelectionEnd.y),
+            width: Math.abs(boxSelectionEnd.x - boxSelectionStart.x),
+            height: Math.abs(boxSelectionEnd.y - boxSelectionStart.y),
+          }}
+        />
+      )}
       <div className="scene3d-floating-actions">
         <button
           type="button"
@@ -1196,6 +1273,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
         onPointerMove={handleCanvasPointerMove}
         onPointerUp={handleCanvasPointerUp}
       >
+        <SceneRefsBridge cameraRef={cameraRef} sizeRef={sizeRef} glRef={glRef} />
         <CaptureBridge onRegisterCapture={onRegisterCapture} controlsRef={orbitControlsRef} />
         <color attach="background" args={['#cbd2de']} />
         <fog attach="fog" args={['#efe9e4', 60, 220]} />
@@ -1279,7 +1357,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
             key="orbit-controls"
             ref={orbitControlsRef}
             makeDefault
-            enabled={orbitEnabled}
+            enabled={orbitControlsEnabled}
             enableDamping
             dampingFactor={0.08}
             minDistance={6}
