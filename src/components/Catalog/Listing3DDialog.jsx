@@ -12,6 +12,19 @@ import CloseIcon from '@mui/icons-material/Close';
 import Model3DViewer from '../Model3DViewer/Model3DViewer';
 
 const Listing3DDialog = ({ open, item, modelSrc, onClose, onRefreshCatalog, catalogItems }) => {
+  const formatDimensions = (dimensions) => {
+    if (!dimensions) return null;
+    const width = Number(dimensions.width);
+    const depth = Number(dimensions.depth);
+    const height = Number(dimensions.height);
+    const fmt = (n) => (Number.isFinite(n) && n > 0 ? n.toFixed(2) : null);
+    const w = fmt(width);
+    const d = fmt(depth);
+    const h = fmt(height);
+    if (!w || !d || !h) return null;
+    return `${w} × ${d} × ${h} m`;
+  };
+
   // Use the same approach as CatalogDetailPanel: look up item from catalogItems
   // This ensures we always have the latest data with designElement and dimensions
   const currentItem = React.useMemo(() => {
@@ -79,6 +92,8 @@ const Listing3DDialog = ({ open, item, modelSrc, onClose, onRefreshCatalog, cata
 
   if (!item) return null;
 
+  const activeDimensionsText = formatDimensions(activeModel?.dimensions);
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -99,6 +114,11 @@ const Listing3DDialog = ({ open, item, modelSrc, onClose, onRefreshCatalog, cata
           <Typography variant="h6" color="primary">
             RM {Number(currentItem.price).toLocaleString()}
           </Typography>
+          {activeDimensionsText && (
+            <Typography variant="body2" color="text.secondary">
+              <strong>Dimensions:</strong> {activeDimensionsText}
+            </Typography>
+          )}
           <Typography variant="body2" color="text.secondary">
             {currentItem.description}
           </Typography>

@@ -5,7 +5,7 @@ const { z } = require('zod');
 const { PrismaClient, VendorCategory, WeddingPackageStatus } = require('@prisma/client');
 const { requireAdmin } = require('../middleware/auth');
 const { approveVendor, rejectVendor } = require('../services/vendor.service');
-const { sendEmail } = require('../utils/mailer');
+const { sendEmail, generateRefundProcessedEmail } = require('../utils/mailer');
 const { passwordPolicy } = require('../utils/security');
 const {
   PACKAGE_INCLUDE,
@@ -1213,10 +1213,38 @@ router.patch('/cancellations/:id', requireAdmin, async (req, res, next) => {
 
     const cancellation = await prisma.cancellation.findUnique({
       where: { id: cancellationId },
+      include: {
+        booking: {
+          include: {
+            couple: {
+              include: {
+                user: { select: { id: true, name: true, email: true } },
+              },
+            },
+            vendor: {
+              include: {
+                user: { select: { id: true, name: true, email: true } },
+              },
+            },
+          },
+        },
+      },
     });
 
     if (!cancellation) {
       return res.status(404).json({ error: 'Cancellation not found' });
+    }
+
+    if (cancellation.refundStatus === 'processed') {
+      return res.status(409).json({ error: 'Refund has already been processed. No further changes are allowed.' });
+    }
+
+    if (!cancellation.refundRequired) {
+      return res.status(400).json({ error: 'Refund is not required for this cancellation.' });
+    }
+
+    if (data.refundStatus === 'not_applicable') {
+      return res.status(400).json({ error: 'Refund status cannot be set to Not Applicable when a refund is required.' });
     }
 
     const updateData = {};
@@ -1262,6 +1290,25 @@ router.patch('/cancellations/:id', requireAdmin, async (req, res, next) => {
         },
       },
     });
+
+    // Send email to couple when refund is marked as processed.
+    if (cancellation.refundStatus !== 'processed' && updated.refundStatus === 'processed') {
+      const coupleEmail = updated.booking?.couple?.user?.email;
+      const coupleName = updated.booking?.couple?.user?.name || 'there';
+      const vendorName = updated.booking?.vendor?.user?.name || 'Vendor';
+      if (coupleEmail) {
+        const subject = 'Your Weddding refund has been processed';
+        const body = generateRefundProcessedEmail({
+          name: coupleName,
+          bookingId: updated.bookingId,
+          vendorName,
+          refundAmount: updated.refundAmount ? updated.refundAmount.toString() : 0,
+          refundMethod: updated.refundMethod || '',
+          refundNotes: updated.refundNotes || '',
+        });
+        await sendEmail(coupleEmail, subject, body);
+      }
+    }
 
     res.json({
       ...updated,

@@ -14,7 +14,8 @@ import {
   DirectionsWalk as WalkIcon,
   Map as MapIcon,
   Layers as StackIcon,
-  FamilyRestroom as ParentChildIcon
+  FamilyRestroom as ParentChildIcon,
+  Highlight as HighlighterIcon
 } from '@mui/icons-material';
 import './HelpModal.css';
 
@@ -153,6 +154,56 @@ const HelpModal = ({ open, onClose }) => {
               <ListItemText 
                 primary="Rotating Parent Elements"
                 secondary="When you rotate a parent element, child elements rotate around the parent's center, maintaining their relative positions (e.g., a bouquet at 12 o'clock moves to 3 o'clock when table rotates 90°)."
+              />
+            </ListItem>
+          </List>
+        </Box>
+
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Booking Status Highlight
+          </Typography>
+          <List>
+            <ListItem>
+              <ListItemIcon><HighlighterIcon /></ListItemIcon>
+              <ListItemText
+                primary="Highlight booked elements"
+                secondary="Use the 'Booking status' highlight button (highlighter icon) to color the outline of elements based on the booking status for that service."
+              />
+            </ListItem>
+            <ListItem sx={{ pl: 7 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {[
+                  { label: 'Pending confirmation', color: '#fbbf24' },
+                  { label: 'Pending deposit', color: '#fb923c' },
+                  { label: 'Confirmed', color: '#34d399' },
+                  { label: 'Pending final payment', color: '#60a5fa' },
+                  { label: 'Completed', color: '#a3a3a3' },
+                  { label: 'Not booked', color: '#94a3b8' },
+                ].map((row) => (
+                  <Box key={row.label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box
+                      sx={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: '999px',
+                        backgroundColor: row.color,
+                        boxShadow: '0 0 0 2px rgba(0,0,0,0.08)',
+                        flex: '0 0 auto',
+                      }}
+                    />
+                    <Typography variant="body2" color="text.secondary">
+                      {row.label}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </ListItem>
+            <ListItem>
+              <ListItemIcon><MouseIcon /></ListItemIcon>
+              <ListItemText
+                primary="See which service an element belongs to"
+                secondary="When booking highlight is ON, hover an element to see its service name and current booking status."
               />
             </ListItem>
           </List>

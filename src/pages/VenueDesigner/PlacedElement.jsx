@@ -8,6 +8,16 @@ import { useVenueDesigner } from './VenueDesignerContext';
 const PLACEHOLDER_COLOR = '#e5dcd2';
 const HIGHLIGHT_COLOR = '#e76f93';
 const UNAVAILABLE_COLOR = '#f87171';
+const BOOKING_STATUS_COLORS = {
+  pending_vendor_confirmation: '#fbbf24',
+  pending_deposit_payment: '#fb923c',
+  confirmed: '#34d399',
+  pending_final_payment: '#60a5fa',
+  completed: '#a3a3a3',
+  cancelled_by_couple: '#ef4444',
+  cancelled_by_vendor: '#ef4444',
+  rejected: '#ef4444',
+};
 
 const degToRad = (deg = 0) => (deg * Math.PI) / 180;
 const radToDeg = (rad = 0) => (rad * 180) / Math.PI;
@@ -30,88 +40,129 @@ const parseDimensions = (dimensions) => {
   return Object.keys(parsed).length ? parsed : null;
 };
 
-const GltfInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0, targetDimensions = null }) => {
+const GltfInstance = ({
+  url,
+  scaleMultiplier = 1,
+  verticalOffset = 0,
+  targetDimensions = null,
+  outlineColor = null,
+  outlineScale = 1.03,
+}) => {
   const { scene } = useGLTF(url);
   const parsedTargetDimensions = useMemo(() => parseDimensions(targetDimensions), [targetDimensions]);
 
-  const cloned = useMemo(() => {
-    if (!scene) return null;
-    const copy = scene.clone(true);
-    copy.traverse((child) => {
-      if (child.isMesh && child.material) {
-        child.castShadow = true;
-        child.receiveShadow = true;
-        child.material = child.material.clone();
-      }
-    });
+  const { base, outline } = useMemo(() => {
+    if (!scene) return { base: null, outline: null };
 
-    const bbox = new THREE.Box3().setFromObject(copy);
-    const center = bbox.getCenter(new THREE.Vector3());
-    copy.position.sub(center);
+    const computeScale = (size) => {
+      const maxDim = Math.max(size.x, size.y, size.z);
+      let scaleX = 1;
+      let scaleY = 1;
+      let scaleZ = 1;
 
-    const size = bbox.getSize(new THREE.Vector3());
-    const maxDim = Math.max(size.x, size.y, size.z);
+      if (parsedTargetDimensions) {
+        const ratioX =
+          parsedTargetDimensions.width && size.x > 0 ? parsedTargetDimensions.width / size.x : null;
+        const ratioY =
+          parsedTargetDimensions.height && size.y > 0 ? parsedTargetDimensions.height / size.y : null;
+        const ratioZ =
+          parsedTargetDimensions.depth && size.z > 0 ? parsedTargetDimensions.depth / size.z : null;
 
-    let scaleX = 1;
-    let scaleY = 1;
-    let scaleZ = 1;
+        const ratios = [ratioX, ratioY, ratioZ].filter((value) => Number.isFinite(value));
 
-    if (parsedTargetDimensions) {
-      const ratioX =
-        parsedTargetDimensions.width && size.x > 0 ? parsedTargetDimensions.width / size.x : null;
-      const ratioY =
-        parsedTargetDimensions.height && size.y > 0 ? parsedTargetDimensions.height / size.y : null;
-      const ratioZ =
-        parsedTargetDimensions.depth && size.z > 0 ? parsedTargetDimensions.depth / size.z : null;
-
-      const ratios = [ratioX, ratioY, ratioZ].filter((value) => Number.isFinite(value));
-
-      if (ratios.length === 1) {
-        const uniformScale = ratios[0] || 1;
-        scaleX = scaleY = scaleZ = uniformScale;
-      } else if (ratios.length > 1) {
-        scaleX = ratioX || ratios[0];
-        scaleY = ratioY || ratios[0];
-        scaleZ = ratioZ || ratios[0];
+        if (ratios.length === 1) {
+          const uniformScale = ratios[0] || 1;
+          scaleX = scaleY = scaleZ = uniformScale;
+        } else if (ratios.length > 1) {
+          scaleX = ratioX || ratios[0];
+          scaleY = ratioY || ratios[0];
+          scaleZ = ratioZ || ratios[0];
+        } else if (maxDim > 0) {
+          const fitScale = 2 / maxDim;
+          scaleX = scaleY = scaleZ = fitScale;
+        }
       } else if (maxDim > 0) {
-        const fitScale = 2 / maxDim;
-        scaleX = scaleY = scaleZ = fitScale;
+        let normalization = 1;
+        if (maxDim > 5) {
+          normalization = 5 / maxDim;
+        } else if (maxDim < 0.5) {
+          normalization = 0.5 / maxDim;
+        }
+        scaleX = scaleY = scaleZ = normalization;
       }
-    } else if (maxDim > 0) {
-      let normalization = 1;
-      if (maxDim > 5) {
-        normalization = 5 / maxDim;
-      } else if (maxDim < 0.5) {
-        normalization = 0.5 / maxDim;
+
+      if (Number.isFinite(scaleMultiplier) && scaleMultiplier > 0) {
+        scaleX *= scaleMultiplier;
+        scaleY *= scaleMultiplier;
+        scaleZ *= scaleMultiplier;
       }
-      scaleX = scaleY = scaleZ = normalization;
-    }
 
-    if (Number.isFinite(scaleMultiplier) && scaleMultiplier > 0) {
-      scaleX *= scaleMultiplier;
-      scaleY *= scaleMultiplier;
-      scaleZ *= scaleMultiplier;
-    }
+      return { scaleX, scaleY, scaleZ };
+    };
 
-    copy.scale.set(scaleX, scaleY, scaleZ);
+    const prepare = (copy, { forOutline = false } = {}) => {
+      copy.traverse((child) => {
+        if (child.isMesh && child.material) {
+          child.castShadow = !forOutline;
+          child.receiveShadow = !forOutline;
 
-    const alignedBox = new THREE.Box3().setFromObject(copy);
-    copy.position.y -= alignedBox.min.y;
-    if (verticalOffset) {
-      copy.position.y += verticalOffset;
-    }
+          if (forOutline) {
+            child.material = new THREE.MeshBasicMaterial({
+              color: outlineColor || '#ffffff',
+              side: THREE.BackSide,
+              transparent: true,
+              opacity: 0.85,
+              depthWrite: false,
+            });
+          } else {
+            child.material = child.material.clone();
+          }
+        }
+      });
 
-    return copy;
-  }, [scene, scaleMultiplier, verticalOffset, parsedTargetDimensions]);
+      const bbox = new THREE.Box3().setFromObject(copy);
+      const center = bbox.getCenter(new THREE.Vector3());
+      copy.position.sub(center);
 
-  if (!cloned) {
+      const size = bbox.getSize(new THREE.Vector3());
+      const { scaleX, scaleY, scaleZ } = computeScale(size);
+      const bump = forOutline ? (Number.isFinite(outlineScale) ? outlineScale : 1.03) : 1;
+      copy.scale.set(scaleX * bump, scaleY * bump, scaleZ * bump);
+
+      const alignedBox = new THREE.Box3().setFromObject(copy);
+      copy.position.y -= alignedBox.min.y;
+      if (verticalOffset) {
+        copy.position.y += verticalOffset;
+      }
+
+      return copy;
+    };
+
+    const baseCopy = prepare(scene.clone(true));
+    const outlineCopy = outlineColor ? prepare(scene.clone(true), { forOutline: true }) : null;
+    return { base: baseCopy, outline: outlineCopy };
+  }, [scene, scaleMultiplier, verticalOffset, parsedTargetDimensions, outlineColor, outlineScale]);
+
+  if (!base) {
     return null;
   }
 
-  return <primitive object={cloned} />;
+  return (
+    <group>
+      {outline ? <primitive object={outline} /> : null}
+      <primitive object={base} />
+    </group>
+  );
 };
 
-const ModelInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0, targetDimensions = null }) => {
+const ModelInstance = ({
+  url,
+  scaleMultiplier = 1,
+  verticalOffset = 0,
+  targetDimensions = null,
+  outlineColor = null,
+  outlineScale = 1.03,
+}) => {
   const fullUrl = useMemo(() => {
     if (!url) return null;
     if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -140,6 +191,8 @@ const ModelInstance = ({ url, scaleMultiplier = 1, verticalOffset = 0, targetDim
       scaleMultiplier={scaleMultiplier}
       verticalOffset={verticalOffset}
       targetDimensions={targetDimensions}
+      outlineColor={outlineColor}
+      outlineScale={outlineScale}
     />
   );
 };
@@ -198,6 +251,7 @@ const PlacedElement = ({
   onRegisterElementRef,
   onUpdateOtherSelected,
   onInitializeDragSession,
+  bookingHighlightEnabled = false,
 }) => {
   const { scene, camera, raycaster } = useThree();
   const groupRef = useRef();
@@ -238,6 +292,7 @@ const PlacedElement = ({
   });
   const [isLockedLocal, setIsLockedLocal] = useState(Boolean(placement.isLocked));
   const [interactionMode, setInteractionMode] = useState('translate'); // 'translate' | 'rotate'
+  const [isHovered, setIsHovered] = useState(false);
   setInteractionModeRef.current = setInteractionMode;
   const { venueDesignId, projectId } = useVenueDesigner();
 
@@ -252,6 +307,51 @@ const PlacedElement = ({
   const rotationY = useMemo(() => degToRad(placement.rotation || 0), [placement.rotation]);
 
   const availabilityState = availability?.available === false ? 'unavailable' : 'available';
+  const bookingStatus = placement?.bookingStatus || null;
+
+  const outlineColor = useMemo(() => {
+    // Outline highlight should ONLY appear when the toggle is enabled.
+    if (!bookingHighlightEnabled) return null;
+    if (availabilityState === 'unavailable') return UNAVAILABLE_COLOR;
+    if (isSelected) return '#f5b7b1';
+    if (bookingStatus) return BOOKING_STATUS_COLORS[bookingStatus] || '#a78bfa';
+    // faint outline for unbooked/unmapped
+    return '#94a3b8';
+  }, [availabilityState, bookingHighlightEnabled, bookingStatus, isSelected]);
+
+  const bookingStatusLabel = useMemo(() => {
+    if (!bookingStatus) return 'Not booked';
+    const labels = {
+      pending_vendor_confirmation: 'Pending confirmation',
+      pending_deposit_payment: 'Pending deposit',
+      confirmed: 'Confirmed',
+      pending_final_payment: 'Pending final payment',
+      completed: 'Completed',
+      cancelled_by_couple: 'Cancelled',
+      cancelled_by_vendor: 'Cancelled',
+      rejected: 'Rejected',
+    };
+    return labels[bookingStatus] || bookingStatus;
+  }, [bookingStatus]);
+
+  const serviceName = placement?.serviceListing?.name || placement?.metadata?.serviceName || null;
+
+  const ringStyle = useMemo(() => {
+    if (availabilityState === 'unavailable') {
+      return { color: UNAVAILABLE_COLOR, opacity: isSelected ? 0.45 : 0.22 };
+    }
+    if (isSelected) {
+      return { color: '#f5b7b1', opacity: 0.45 };
+    }
+    if (bookingHighlightEnabled) {
+      if (bookingStatus) {
+        return { color: BOOKING_STATUS_COLORS[bookingStatus] || '#a78bfa', opacity: 0.32 };
+      }
+      // faint ring for unbooked/unmapped
+      return { color: '#94a3b8', opacity: 0.08 };
+    }
+    return { color: HIGHLIGHT_COLOR, opacity: 0.18 };
+  }, [availabilityState, bookingHighlightEnabled, bookingStatus, isSelected]);
 
   // Check if this is a table
   const isTable = useMemo(() => {
@@ -618,6 +718,14 @@ const PlacedElement = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerLeave}
+      onPointerOver={(e) => {
+        e.stopPropagation();
+        setIsHovered(true);
+      }}
+      onPointerOut={(e) => {
+        e.stopPropagation();
+        setIsHovered(false);
+      }}
       userData={{ isPlacement: true, placementId: placement.id }}
     >
       <group ref={modelGroupRef} scale={[1.2, 1.2, 1.2]}>
@@ -627,6 +735,8 @@ const PlacedElement = ({
             scaleMultiplier={scaleMultiplier}
             verticalOffset={verticalOffset}
             targetDimensions={placement.designElement?.dimensions || placement.metadata?.targetDimensions}
+            outlineColor={outlineColor}
+            outlineScale={1.035}
           />
         ) : (
           <mesh castShadow receiveShadow>
@@ -636,14 +746,37 @@ const PlacedElement = ({
         )}
       </group>
 
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-        <circleGeometry args={[0.9, 32]} />
-        <meshBasicMaterial
-          color={availabilityState === 'unavailable' ? UNAVAILABLE_COLOR : isSelected ? '#f5b7b1' : HIGHLIGHT_COLOR}
-          opacity={isSelected ? 0.45 : 0.18}
-          transparent
-        />
-      </mesh>
+      {/* When booking highlight is enabled, we use an outline around the model instead of the base circle. */}
+      {!bookingHighlightEnabled && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+          <circleGeometry args={[0.9, 32]} />
+          <meshBasicMaterial color={ringStyle.color} opacity={ringStyle.opacity} transparent />
+        </mesh>
+      )}
+
+      {/* Show which service this placement belongs to (only on hover, and only when highlight is enabled). */}
+      {bookingHighlightEnabled && isHovered && (serviceName || bookingStatus) && (
+        <Html
+          position={[0, (boundingBoxRef.current.max.y || 1.2) + 0.7, 0]}
+          center
+          distanceFactor={28}
+          className="scene3d-label"
+        >
+          <div className="scene3d-label-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 999,
+                background: outlineColor || '#94a3b8',
+                boxShadow: '0 0 0 2px rgba(255,255,255,0.65)',
+              }}
+            />
+            <span style={{ fontWeight: 700 }}>{serviceName || 'Service'}</span>
+            <small>{bookingStatusLabel}</small>
+          </div>
+        </Html>
+      )}
 
       {isSelected && selectedIds.length === 1 && (
         <Html
@@ -749,6 +882,8 @@ PlacedElement.propTypes = {
       modelFile: PropTypes.string,
     }),
     metadata: PropTypes.object,
+    bookingId: PropTypes.string,
+    bookingStatus: PropTypes.string,
   }).isRequired,
   isSelected: PropTypes.bool,
   selectedIds: PropTypes.arrayOf(PropTypes.string),
@@ -776,6 +911,7 @@ PlacedElement.propTypes = {
   onRegisterElementRef: PropTypes.func,
   onUpdateOtherSelected: PropTypes.func,
   onInitializeDragSession: PropTypes.func,
+  bookingHighlightEnabled: PropTypes.bool,
 };
 
 export default PlacedElement;

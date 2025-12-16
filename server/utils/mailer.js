@@ -248,6 +248,104 @@ Pay now: ${params?.actionUrl || ''}`;
   return { text, html };
 }
 
-module.exports = { sendEmail, generateOtpEmail, generatePaymentReminderEmail };
+/**
+ * Generate a styled refund processed email.
+ * @param {object} params
+ * @param {string} params.name
+ * @param {string} params.bookingId
+ * @param {string} params.vendorName
+ * @param {number|string} params.refundAmount
+ * @param {string} [params.refundMethod]
+ * @param {string} [params.refundNotes]
+ * @returns {{text:string, html:string}}
+ */
+function generateRefundProcessedEmail(params) {
+  const name = escapeHtml(params?.name || 'there');
+  const bookingId = escapeHtml(params?.bookingId || '');
+  const vendorName = escapeHtml(params?.vendorName || 'Vendor');
+  const refundMethod = escapeHtml(params?.refundMethod || '');
+  const refundNotes = escapeHtml(params?.refundNotes || '');
+  const refundAmountLabel = formatRM(params?.refundAmount);
+  const actionUrl = escapeHtml(process.env.FRONTEND_BASE_URL || 'https://localhost:3000');
+
+  const text = `Hi ${params?.name || 'there'},
+
+Your refund has been processed.
+
+Refund Summary:
+- Booking ID: ${params?.bookingId || ''}
+- Vendor: ${params?.vendorName || 'Vendor'}
+- Refund Amount: ${refundAmountLabel}
+${params?.refundMethod ? `- Refund Method: ${params.refundMethod}` : ''}
+
+You can log in to Weddding to view your booking details: ${actionUrl}
+
+Weddding Platform Team`;
+
+  const html = `
+    <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f5f5f7; padding:24px;">
+      <table align="center" width="100%" style="max-width:640px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 10px 30px rgba(15,23,42,0.08);">
+        <tr>
+          <td style="padding:24px 32px 16px; background:linear-gradient(135deg,#10b981,#22c55e); color:#ffffff;">
+            <h1 style="margin:0; font-size:24px; letter-spacing:0.03em; text-transform:uppercase;">Refund Processed</h1>
+            <p style="margin:8px 0 0; opacity:0.92;">Your refund has been completed successfully.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:24px 32px 8px;">
+            <p style="margin:0 0 16px; color:#111827;">Hi ${name},</p>
+            <p style="margin:0 0 16px; color:#4b5563; line-height:1.6;">
+              We&apos;ve processed your refund for the cancelled booking. Below is the summary for your reference.
+            </p>
+
+            <div style="margin:24px 0; padding:16px 18px; border-radius:12px; background:#f9fafb; border:1px solid #e5e7eb;">
+              <h2 style="margin:0 0 12px; font-size:16px; color:#111827;">Refund Summary</h2>
+              <table style="width:100%; font-size:14px; color:#374151;">
+                <tr>
+                  <td style="padding:4px 0; width:40%; opacity:0.7;">Booking ID</td>
+                  <td style="padding:4px 0; font-family:monospace;">${bookingId}</td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0; opacity:0.7;">Vendor</td>
+                  <td style="padding:4px 0;">${vendorName}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0; opacity:0.7;">Refund Amount</td>
+                  <td style="padding:8px 0; font-weight:800; color:#111827;">${refundAmountLabel}</td>
+                </tr>
+                ${refundMethod ? `
+                <tr>
+                  <td style="padding:4px 0; opacity:0.7;">Refund Method</td>
+                  <td style="padding:4px 0;">${refundMethod}</td>
+                </tr>` : ''}
+              </table>
+              ${refundNotes ? `
+                <div style="margin-top:12px; padding-top:12px; border-top:1px dashed #e5e7eb;">
+                  <div style="font-size:12px; color:#6b7280; text-transform:uppercase; letter-spacing:0.08em;">Notes</div>
+                  <div style="margin-top:6px; color:#374151; font-size:13px; line-height:1.5;">${refundNotes}</div>
+                </div>` : ''}
+            </div>
+
+            <div style="margin:24px 0;">
+              <a href="${actionUrl}"
+                 style="display:inline-block; padding:10px 18px; border-radius:999px;
+                        background:#111827; color:#ffffff; text-decoration:none; font-size:14px; font-weight:700;">
+                Open Weddding
+              </a>
+            </div>
+
+            <p style="margin:16px 0 0; font-size:12px; color:#9ca3af;">
+              If you have questions, reply to this email and we&apos;ll help you.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+
+  return { text, html };
+}
+
+module.exports = { sendEmail, generateOtpEmail, generatePaymentReminderEmail, generateRefundProcessedEmail };
 
 

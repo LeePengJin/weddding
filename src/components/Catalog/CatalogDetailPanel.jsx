@@ -77,6 +77,19 @@ ReviewsList.propTypes = {
 };
 
 const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) => {
+  const formatDimensions = (dimensions) => {
+    if (!dimensions) return null;
+    const width = Number(dimensions.width);
+    const depth = Number(dimensions.depth);
+    const height = Number(dimensions.height);
+    const fmt = (n) => (Number.isFinite(n) && n > 0 ? n.toFixed(2) : null);
+    const w = fmt(width);
+    const d = fmt(depth);
+    const h = fmt(height);
+    if (!w || !d || !h) return null;
+    return `${w} × ${d} × ${h} m`;
+  };
+
   const imageSources = useMemo(() => {
     if (!item || !Array.isArray(item.images)) return [];
     return item.images.filter(Boolean).map((src) => formatImageUrl(src));
@@ -256,6 +269,14 @@ const CatalogDetailPanel = ({ item, onBack, onAdd, onMessageVendor, onShow3D }) 
               )}
               <Typography variant="caption" className="media-label">
                 {activeModel.label}
+                {formatDimensions(activeModel.dimensions) && (
+                  <>
+                    {' '}
+                    <span style={{ opacity: 0.85 }}>
+                      • Dimensions: {formatDimensions(activeModel.dimensions)}
+                    </span>
+                  </>
+                )}
               </Typography>
             </>
           ) : (

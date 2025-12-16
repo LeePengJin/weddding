@@ -131,7 +131,7 @@ const CatalogSidebar = ({
             </Select>
           </FormControl>
 
-          <Box className="catalog-grid">
+          <Box className={`catalog-grid ${loading || items.length === 0 ? 'empty-state' : ''}`}>
             {loading && (
               <div className="catalog-empty">
                 <i className="fas fa-spinner fa-spin"></i>

@@ -1343,6 +1343,31 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
       serializePlacement(placement, placementsMeta[placement.id], serviceMap)
     );
 
+    const bookingIds = [
+      ...new Set(
+        (placements || [])
+          .map((p) => p?.bookingId)
+          .filter(Boolean)
+      ),
+    ];
+
+    let bookingStatusMap = {};
+    if (bookingIds.length > 0) {
+      const bookingsForPlacements = await prisma.booking.findMany({
+        where: { id: { in: bookingIds } },
+        select: { id: true, status: true },
+      });
+      bookingStatusMap = bookingsForPlacements.reduce((acc, b) => {
+        acc[b.id] = b.status;
+        return acc;
+      }, {});
+    }
+
+    let placementsWithBookingStatus = (placements || []).map((p) => ({
+      ...p,
+      bookingStatus: p.bookingId ? bookingStatusMap[p.bookingId] || null : null,
+    }));
+
     const venueListing = project.venueServiceListing;
 
     // Check if venue has an active booking
@@ -1384,6 +1409,8 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
         };
       }
     }
+
+// (vendor-preview route is declared after the couple-only GET /:projectId handler)
 
     const projectServices = (project.projectServices || []).map((ps) => ({
       id: ps.id,
@@ -1436,7 +1463,9 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
             notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
           },
         },
-        include: {
+        select: {
+          id: true,
+          status: true,
           selectedServices: {
             select: {
               serviceListingId: true,
@@ -1472,9 +1501,65 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
           },
         },
         select: {
+          bookingId: true,
           serviceListingId: true,
           placedElementId: true,
         },
+      });
+
+      // Service-level booking map (covers services that have multiple 3D placements).
+      // selectedServices records are at the serviceListing level, so we color ALL placements belonging to that service.
+      const serviceBookingMap = {};
+      activeBookings.forEach((booking) => {
+        (booking.selectedServices || []).forEach((service) => {
+          if (!service?.serviceListingId) return;
+          // Prefer the "most advanced" booking we see (rough heuristic); in practice there should be only one active booking per listing.
+          const existing = serviceBookingMap[service.serviceListingId];
+          if (!existing) {
+            serviceBookingMap[service.serviceListingId] = { bookingId: booking.id, bookingStatus: booking.status };
+          } else {
+            serviceBookingMap[service.serviceListingId] = { bookingId: booking.id, bookingStatus: booking.status };
+          }
+        });
+      });
+
+      // Fill bookingStatus for per-table placements using BookedTable -> booking.status
+      const bookingStatusById = activeBookings.reduce((acc, booking) => {
+        acc[booking.id] = booking.status;
+        return acc;
+      }, {});
+
+      const tablePlacementBookingMap = bookedTableRecords.reduce((acc, bt) => {
+        acc[bt.placedElementId] = {
+          bookingId: bt.bookingId,
+          bookingStatus: bookingStatusById[bt.bookingId] || null,
+        };
+        return acc;
+      }, {});
+
+      placementsWithBookingStatus = placementsWithBookingStatus.map((p) => {
+        if (p.bookingStatus) return p;
+        const mapped = tablePlacementBookingMap[p.id];
+        if (!mapped) return p;
+        return {
+          ...p,
+          bookingId: p.bookingId || mapped.bookingId,
+          bookingStatus: mapped.bookingStatus,
+        };
+      });
+
+      // Fill bookingStatus for multi-placement services using serviceListingId membership.
+      placementsWithBookingStatus = placementsWithBookingStatus.map((p) => {
+        if (p.bookingStatus) return p;
+        const serviceListingId = p?.metadata?.serviceListingId || p?.serviceListing?.id || null;
+        if (!serviceListingId) return p;
+        const mapped = serviceBookingMap[serviceListingId];
+        if (!mapped) return p;
+        return {
+          ...p,
+          bookingId: p.bookingId || mapped.bookingId,
+          bookingStatus: mapped.bookingStatus,
+        };
       });
 
       // Build map: serviceListingId -> Set of placedElementIds
@@ -1586,10 +1671,122 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
             }
           : null,
         zoomLevel: venueDesign.zoomLevel,
-        placedElements: placements,
+        placedElements: placementsWithBookingStatus,
       },
       projectServices,
       serviceMap, // Include serviceMap so frontend can access service details for per-table services
+    });
+  } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return next(err);
+  }
+});
+
+// GET /venue-designs/:projectId/vendor-preview - Vendor preview of a project's venue design (read-only)
+router.get('/:projectId/vendor-preview', requireAuth, async (req, res, next) => {
+  try {
+    if (req.user.role !== 'vendor') {
+      return res.status(403).json({ error: 'Vendor access required' });
+    }
+
+    const projectId = req.params.projectId;
+
+    // Only allow vendors who have a NON-cancelled/NON-rejected booking on this project to preview the venue design
+    const vendorBooking = await prisma.booking.findFirst({
+      where: {
+        projectId,
+        vendorId: req.user.sub,
+        status: {
+          notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!vendorBooking) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const project = await prisma.weddingProject.findUnique({
+      where: { id: projectId },
+      include: {
+        venueServiceListing: {
+          include: {
+            designElement: true,
+            vendor: {
+              select: {
+                userId: true,
+                user: { select: { name: true, email: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const venueDesign = await getOrCreateVenueDesign(project);
+    const layoutData = venueDesign.layoutData || {};
+    const placementsMeta = layoutData.placementsMeta || {};
+
+    const serviceListingIdsFromMeta = [
+      ...new Set(Object.values(placementsMeta).map((meta) => meta?.serviceListingId).filter(Boolean)),
+    ];
+
+    const serviceListingIdsFromPlacements = [
+      ...new Set(
+        (venueDesign.placedElements || [])
+          .flatMap((placement) => placement.serviceListingIds || [])
+          .filter(Boolean)
+      ),
+    ];
+
+    const allServiceListingIds = [...new Set([...serviceListingIdsFromMeta, ...serviceListingIdsFromPlacements])];
+
+    let serviceListings = [];
+    if (allServiceListingIds.length > 0) {
+      serviceListings = await prisma.serviceListing.findMany({
+        where: { id: { in: allServiceListingIds } },
+        include: {
+          vendor: {
+            select: {
+              userId: true,
+              user: { select: { name: true, email: true } },
+            },
+          },
+        },
+      });
+    }
+
+    const serviceMap = serviceListings.reduce((acc, listing) => {
+      acc[listing.id] = serializeServiceListing(listing);
+      return acc;
+    }, {});
+
+    const placements = (venueDesign.placedElements || []).map((placement) =>
+      serializePlacement(placement, placementsMeta[placement.id], serviceMap)
+    );
+
+    const venueListing = project.venueServiceListing;
+
+    return res.json({
+      venue: venueListing?.designElement?.modelFile
+        ? {
+            id: venueListing.id,
+            name: venueListing.name,
+            modelFile: venueListing.designElement.modelFile,
+          }
+        : null,
+      design: {
+        id: venueDesign.id,
+        layoutData,
+        placedElements: placements,
+      },
     });
   } catch (err) {
     if (err.statusCode) {

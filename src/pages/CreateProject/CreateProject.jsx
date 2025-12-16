@@ -207,6 +207,15 @@ const CreateProject = () => {
   return (
     <div className="create-project-container">
       <div className="create-project-header">
+        <button
+          type="button"
+          className="create-project-back-button"
+          onClick={() => navigate('/projects')}
+          aria-label="Back to projects"
+        >
+          <i className="fas fa-arrow-left"></i>
+          <span>Back to Projects</span>
+        </button>
         <h1 className="create-project-title">Create Your Dream Wedding Project</h1>
         <p className="create-project-subtitle">
           Let's bring your dream wedding to life step by step.

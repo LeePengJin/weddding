@@ -11,6 +11,44 @@
   text-align: center;
   margin-bottom: 40px;
   animation: fadeInDown 0.6s ease-out;
+  position: relative;
+}
+
+.create-project-back-button {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(225, 103, 137, 0.25);
+  background: rgba(225, 103, 137, 0.06);
+  color: #e16789;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.create-project-back-button:hover {
+  background: rgba(225, 103, 137, 0.12);
+  border-color: rgba(225, 103, 137, 0.45);
+  transform: translateY(-1px);
+}
+
+.create-project-back-button:active {
+  transform: translateY(0);
+}
+
+.create-project-back-button i {
+  font-size: 14px;
+}
+
+.create-project-back-button span {
+  line-height: 1;
 }
 
 .create-project-title {

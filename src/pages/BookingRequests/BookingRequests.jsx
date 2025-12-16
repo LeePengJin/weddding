@@ -36,6 +36,7 @@ import {
 import { Close, Cancel } from '@mui/icons-material';
 import { apiFetch } from '../../lib/api';
 import ConfirmationDialog from '../../components/ConfirmationDialog/ConfirmationDialog';
+import VenueDesignPreview3D from '../../components/VenueDesignPreview3D/VenueDesignPreview3D';
 import './BookingRequests.styles.css';
 
 const BookingRequests = () => {
@@ -56,6 +57,7 @@ const BookingRequests = () => {
   const [sortOrder, setSortOrder] = useState('desc');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [showVenueDesign3D, setShowVenueDesign3D] = useState(false);
 
   useEffect(() => {
     fetchBookings();
@@ -326,7 +328,12 @@ const BookingRequests = () => {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortBy(column);
-      setSortOrder('asc');
+      // Default sort direction for some columns
+      if (column === 'bookingDate') {
+        setSortOrder('desc');
+      } else {
+        setSortOrder('asc');
+      }
     }
     setPage(0); // Reset to first page when sorting changes
   };
@@ -424,6 +431,15 @@ const BookingRequests = () => {
                     Reserved Date
                   </TableSortLabel>
                 </TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>
+                  <TableSortLabel
+                    active={sortBy === 'bookingDate'}
+                    direction={sortBy === 'bookingDate' ? sortOrder : 'desc'}
+                    onClick={() => handleSort('bookingDate')}
+                  >
+                    Request Date/Time
+                  </TableSortLabel>
+                </TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>Services</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 600 }}>
                   <TableSortLabel
@@ -486,8 +502,10 @@ const BookingRequests = () => {
                         Venue: {booking.project.venueServiceListing.name || 'Venue'}
                       </Typography>
                     )}
-                    <Typography variant="caption" color="text.secondary">
-                      Booked: {formatDate(booking.bookingDate)}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {formatDateTime(booking.bookingDate)}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -624,11 +642,25 @@ const BookingRequests = () => {
                       </Box>
                     )}
                     {selectedBooking.project?.venueServiceListing && (
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
                         <Typography variant="body2">Venue:</Typography>
-                        <Typography variant="body2" fontWeight="medium">
-                          {selectedBooking.project.venueServiceListing.name || 'Venue'}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          <Typography variant="body2" fontWeight="medium">
+                            {selectedBooking.project.venueServiceListing.name || 'Venue'}
+                          </Typography>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => setShowVenueDesign3D(true)}
+                          disabled={
+                            !selectedBooking.project?.id ||
+                            ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'].includes(selectedBooking.status)
+                          }
+                            sx={{ textTransform: 'none' }}
+                          >
+                            View Venue Design (3D)
+                          </Button>
+                        </Box>
                       </Box>
                     )}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -840,6 +872,61 @@ const BookingRequests = () => {
             </DialogActions>
           </>
         )}
+      </Dialog>
+
+      {/* Venue Design 3D Preview (Fullscreen) */}
+      <Dialog
+        open={showVenueDesign3D}
+        onClose={() => setShowVenueDesign3D(false)}
+        fullScreen
+        PaperProps={{ sx: { overflow: 'hidden', backgroundColor: '#000' } }}
+      >
+        <DialogContent sx={{ p: 0, position: 'relative', height: '100vh', overflow: 'hidden' }}>
+          {/* Overlay header */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 12,
+              left: 12,
+              right: 12,
+              zIndex: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              pointerEvents: 'none',
+            }}
+          >
+            <Typography
+              variant="subtitle1"
+              sx={{
+                pointerEvents: 'none',
+                fontWeight: 700,
+                color: '#fff',
+                textShadow: '0 2px 10px rgba(0,0,0,0.6)',
+              }}
+            >
+              Venue Design (3D Preview)
+            </Typography>
+            <IconButton
+              onClick={() => setShowVenueDesign3D(false)}
+              aria-label="Close venue design preview"
+              sx={{
+                pointerEvents: 'auto',
+                color: '#fff',
+                backgroundColor: 'rgba(0,0,0,0.45)',
+                '&:hover': { backgroundColor: 'rgba(0,0,0,0.65)' },
+              }}
+            >
+              <Close />
+            </IconButton>
+          </Box>
+
+          {selectedBooking?.project?.id ? (
+            <VenueDesignPreview3D projectId={selectedBooking.project.id} height="100vh" fullBleed />
+          ) : (
+            <Alert severity="info">No project found for this booking.</Alert>
+          )}
+        </DialogContent>
       </Dialog>
 
       {/* Confirmation Dialog */}

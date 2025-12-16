@@ -233,27 +233,58 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     sceneOptions = {},
   } = useVenueDesigner();
 
-  const [selectedIds, setSelectedIds] = useState([]); // Changed from selectedId to selectedIds array
-  const selectedIdsRef = useRef([]); // Always keep current selectedIds in a ref to avoid stale closures
+  const [selectedIds, setSelectedIds] = useState([]); 
+  const selectedIdsRef = useRef([]); 
   
-  // Keep ref in sync with state
   useEffect(() => {
     selectedIdsRef.current = selectedIds;
   }, [selectedIds]);
   
-  const [groupInteractionMode, setGroupInteractionMode] = useState('translate'); // Track active mode for group toolbar
+  const [groupInteractionMode, setGroupInteractionMode] = useState('translate'); 
   const [orbitEnabled, setOrbitEnabled] = useState(true);
   const [viewMode, setViewMode] = useState('orbit'); // 'orbit' | 'walk'
   const [pointerLocked, setPointerLocked] = useState(false);
   const [venueBounds, setVenueBounds] = useState(null);
   const [taggingModalPlacement, setTaggingModalPlacement] = useState(null);
-  const [boxSelectionStart, setBoxSelectionStart] = useState(null); // For box selection
+  const [boxSelectionStart, setBoxSelectionStart] = useState(null); 
   const [boxSelectionEnd, setBoxSelectionEnd] = useState(null);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [bookingHighlightEnabled, setBookingHighlightEnabled] = useState(false);
+
+  const bookingLegend = useMemo(() => {
+    const rows = [
+      { status: 'pending_vendor_confirmation', label: 'Pending confirmation', color: '#fbbf24' },
+      { status: 'pending_deposit_payment', label: 'Pending deposit', color: '#fb923c' },
+      { status: 'confirmed', label: 'Confirmed', color: '#34d399' },
+      { status: 'pending_final_payment', label: 'Pending final payment', color: '#60a5fa' },
+      { status: 'completed', label: 'Completed', color: '#a3a3a3' },
+    ];
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>Booking status highlights</div>
+        {rows.map((row) => (
+          <div key={row.status} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 999,
+                background: row.color,
+                boxShadow: '0 0 0 2px rgba(255,255,255,0.65)',
+              }}
+            />
+            <span>{row.label}</span>
+          </div>
+        ))}
+        <div style={{ opacity: 0.85, marginTop: 4 }}>Unbooked items are shown with a faint grey ring.</div>
+      </div>
+    );
+  }, []);
   const [isShiftDown, setIsShiftDown] = useState(false);
-  const selectedElementRefs = useRef(new Map()); // Store refs to selected elements for real-time updates
-  const selectedInitialPositionsRef = useRef(new Map()); // Store initial positions for multi-selection
-  const currentDragSessionRef = useRef(null); // Track current drag session: { draggedId, selectedIds: Set, initialPositions: Map }
+  const selectedElementRefs = useRef(new Map());
+  const selectedInitialPositionsRef = useRef(new Map()); 
+  const currentDragSessionRef = useRef(null);
   const venueModelUrl = useMemo(() => normalizeUrl(venueInfo?.modelFile), [venueInfo?.modelFile]);
   const orbitControlsRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -262,8 +293,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   const glRef = useRef(null);
 
   const handleVenueBoundsCalculated = useCallback((bounds) => {
-    // Add a small margin to allow some flexibility, but keep elements within venue
-    const margin = 0.5; // Small margin in units
+    const margin = 0.5; 
     setVenueBounds({
       minX: bounds.minX + margin,
       maxX: bounds.maxX - margin,
@@ -285,7 +315,6 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
 
   const effectiveGrid = useMemo(() => {
     let result = gridSettings;
-    // Force grid to be hidden and snap to be off
     result = { ...result, visible: false, snapToGrid: false };
     if (sceneOptions.forceGridVisible === false) {
       result = { ...result, visible: false };
@@ -304,7 +333,6 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   const handleCloseSelection = useCallback(() => {
     selectedIdsRef.current = [];
     setSelectedIds([]);
-    // Clear all drag state when selection is cleared
     selectedInitialPositionsRef.current.clear();
     currentDragSessionRef.current = null;
     setGroupInteractionMode('translate');
@@ -324,8 +352,6 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     }
   }, [onReloadDesign]);
 
-  // Update the placement object when placements change (after reload)
-  // This ensures the modal shows the correct checked state when reopened
   useEffect(() => {
     if (taggingModalPlacement?.id) {
       const updatedPlacement = placements.find(p => p.id === taggingModalPlacement.id);
@@ -337,28 +363,22 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
 
   const handleSelect = useCallback((placementId, isShiftKey = false) => {
     if (isShiftKey) {
-      // Toggle selection: add if not selected, remove if already selected
       setSelectedIds((prev) => {
         const newSelection = prev.includes(placementId)
           ? prev.filter((id) => id !== placementId)
           : [...prev, placementId];
-        // Update ref immediately
         selectedIdsRef.current = newSelection;
-        // Clear all drag state when selection changes
         selectedInitialPositionsRef.current.clear();
         currentDragSessionRef.current = null;
-        // Reset to default move mode when selection changes
         if (newSelection.length > 1) {
           setGroupInteractionMode('translate');
         }
         return newSelection;
       });
     } else {
-      // Single selection: replace current selection
       const newSelection = [placementId];
       selectedIdsRef.current = newSelection;
       setSelectedIds(newSelection);
-      // Clear all drag state when selection changes
       selectedInitialPositionsRef.current.clear();
       currentDragSessionRef.current = null;
       setGroupInteractionMode('translate');
@@ -366,7 +386,6 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   }, []);
 
   const handleCanvasPointerMiss = useCallback((event) => {
-    // Only clear selection if not starting box selection
     if (!event.shiftKey) {
     handleCloseSelection();
     }
@@ -487,10 +506,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     [onToggleLock]
   );
 
-  // Initialize drag session - store all initial positions synchronously
-  // This is called directly from PlacedElement on pointer down
   const initializeDragSession = useCallback((draggedId, draggedInitialPos) => {
-    // Always use the current selectedIds from ref (always up-to-date)
     const currentSelectedIds = selectedIdsRef.current.filter((id) => 
       placements.some((p) => p.id === id)
     );
@@ -502,7 +518,6 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     const sessionSelectedIds = new Set(currentSelectedIds);
     const initialPositions = new Map();
     
-    // Store the dragged element's initial position (passed from PlacedElement)
     if (draggedInitialPos) {
       initialPositions.set(draggedId, {
         x: draggedInitialPos.x,
@@ -511,9 +526,8 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
       });
     }
     
-    // Store initial positions for ALL other selected elements immediately from refs
     currentSelectedIds.forEach((id) => {
-      if (id === draggedId) return; // Already stored above
+      if (id === draggedId) return; 
       
       const elementRef = selectedElementRefs.current.get(id);
       if (elementRef && elementRef.groupRef && elementRef.groupRef.current) {
@@ -531,10 +545,9 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
       draggedId,
       selectedIds: sessionSelectedIds,
       initialPositions,
-      timestamp: Date.now(), // Add timestamp to track session freshness
+      timestamp: Date.now(), 
     };
     
-    // Also store in the old ref for backward compatibility
     initialPositions.forEach((pos, id) => {
       selectedInitialPositionsRef.current.set(id, pos);
     });
@@ -542,7 +555,6 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     return initialPositions.get(draggedId);
   }, [placements]);
   
-  // Expose initialization function directly to PlacedElement
   const handleInitializeDragSession = useCallback((draggedId, draggedInitialPos) => {
     return initializeDragSession(draggedId, draggedInitialPos);
   }, [initializeDragSession]);
@@ -556,7 +568,6 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
       const draggedGroupRef = draggedRef.groupRef.current;
       const draggedPlacement = placements.find((p) => p.id === draggedId);
       
-      // Get current selectedIds from ref (always use latest, no stale closure)
       const currentSelectedIds = selectedIdsRef.current.filter((id) => 
         placements.some((p) => p.id === id)
       );
@@ -1128,6 +1139,18 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
             <i className="fas fa-info-circle"></i>
           </button>
         </Tooltip>
+        {isProjectMode && (
+          <Tooltip title={bookingLegend} placement="left" arrow>
+            <button
+              type="button"
+              className={`scene3d-view-mode-btn ${bookingHighlightEnabled ? 'active' : ''}`}
+              onClick={() => setBookingHighlightEnabled((prev) => !prev)}
+              title="Highlight booking status"
+            >
+              <i className="fas fa-highlighter"></i>
+            </button>
+          </Tooltip>
+        )}
         <button
           type="button"
           className={`scene3d-view-mode-btn ${viewMode === 'orbit' ? 'active' : ''}`}
@@ -1339,6 +1362,7 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
                 onClose={handleCloseSelection}
                 venueBounds={venueBounds}
                 onOpenTaggingModal={handleOpenTaggingModal}
+                bookingHighlightEnabled={isProjectMode && bookingHighlightEnabled}
                 onRegisterElementRef={(id, ref) => {
                   selectedElementRefs.current.set(id, ref);
                 }}

@@ -6,7 +6,10 @@
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  height: 230px;
+  height: 250px;
+  min-height: 250px;
+  max-height: 250px;
+  box-sizing: border-box;
 }
 
 .catalog-card-unavailable {
@@ -16,7 +19,7 @@
 .catalog-card-thumb {
   position: relative;
   width: 100%;
-  height: 120px;
+  height: 140px;
   border-radius: 8px;
   overflow: hidden;
 }
@@ -84,6 +87,12 @@
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: calc(0.9rem * 1.25 * 2);
 }
 
 .catalog-card-name:hover {
@@ -94,6 +103,10 @@
   margin: 0;
   font-size: 0.75rem !important;
   color: #8d8894 !important;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .catalog-card-price {

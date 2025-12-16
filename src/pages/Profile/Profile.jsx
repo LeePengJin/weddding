@@ -344,7 +344,6 @@ const Profile = () => {
 
         {/* Divider */}
         <Box className="profile-divider">
-          <img src="https://www.figma.com/api/mcp/asset/2b72e787-8b76-4f71-b080-cafd3523f4d1" alt="" />
         </Box>
 
         {/* Right Side - Form */}

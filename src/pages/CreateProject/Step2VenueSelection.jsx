@@ -198,6 +198,20 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
     }
   }, [weddingDate]);
 
+  const visibleVenues = useMemo(() => {
+    if (!Array.isArray(venues)) return [];
+
+    return venues.filter((venue) => {
+      if (!weddingDate) return true;
+      const status = availabilityStatus[venue.id];
+      // If still checking or not yet checked, keep it visible
+      if (!status || status.checking) return true;
+      // If unavailable and are not showing unavailable, hide it
+      if (!status.available && !showUnavailableVenues) return false;
+      return true;
+    });
+  }, [venues, weddingDate, availabilityStatus, showUnavailableVenues]);
+
   useEffect(() => {
     if (!weddingDate || venues.length === 0) {
       return;
@@ -403,21 +417,23 @@ const Step2VenueSelection = ({ formData, updateFormData, error, setError }) => {
       ) : !Array.isArray(venues) || venues.length === 0 ? (
         <div className="no-venues">
           <i className="fas fa-inbox"></i>
-          <p>No venues found. Try a different search term.</p>
+          <p>
+            {weddingDate
+              ? `No venues are available on ${weddingDate}. Try selecting a different date.`
+              : 'No venues found. Try a different search term.'}
+          </p>
+        </div>
+      ) : weddingDate && visibleVenues.length === 0 ? (
+        <div className="no-venues">
+          <i className="fas fa-calendar-times"></i>
+          <p>No available venues on {weddingDate}.</p>
+          <p style={{ marginTop: 6, fontSize: '0.9em' }}>
+            Try selecting a different date, or enable <strong>Show unavailable venues</strong> to view all venues.
+          </p>
         </div>
       ) : (
         <div className="venues-grid">
-            {venues
-              .filter((venue) => {
-                if (!weddingDate) return true;
-                const status = availabilityStatus[venue.id];
-                // If still checking, show it
-                if (!status || status.checking) return true;
-                // If unavailable and we're not showing unavailable, hide it
-                if (!status.available && !showUnavailableVenues) return false;
-                return true;
-              })
-              .map((venue) => {
+            {visibleVenues.map((venue) => {
                 const isSelected = formData.venueServiceListingId === venue.id;
                 const status = availabilityStatus[venue.id];
                 const showUnavailable = status && !status.checking && !status.available;

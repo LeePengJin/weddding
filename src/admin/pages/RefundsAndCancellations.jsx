@@ -413,12 +413,25 @@ const RefundsAndCancellations = () => {
               </>
             )}
 
+            {selectedCancellation && !selectedCancellation.refundRequired && (
+              <Alert severity="info">
+                Refund is <strong>not required</strong> for this cancellation. Refund fields are locked.
+              </Alert>
+            )}
+
+            {selectedCancellation && selectedCancellation.refundStatus === RefundStatus.PROCESSED && (
+              <Alert severity="success">
+                Refund is already <strong>processed</strong>. Further changes are locked.
+              </Alert>
+            )}
+
             <FormControl fullWidth>
               <InputLabel>Refund Status</InputLabel>
               <Select
                 value={formData.refundStatus}
                 onChange={(e) => setFormData({ ...formData, refundStatus: e.target.value })}
                 label="Refund Status"
+                disabled={!selectedCancellation?.refundRequired || selectedCancellation?.refundStatus === RefundStatus.PROCESSED}
               >
                 <MenuItem value={RefundStatus.NOT_APPLICABLE}>Not Applicable</MenuItem>
                 <MenuItem value={RefundStatus.PENDING}>Pending</MenuItem>
@@ -433,6 +446,7 @@ const RefundsAndCancellations = () => {
               onChange={(e) => setFormData({ ...formData, refundMethod: e.target.value })}
               placeholder="e.g., Bank transfer - Maybank xxxx"
               helperText="How the refund will be processed"
+              disabled={!selectedCancellation?.refundRequired || selectedCancellation?.refundStatus === RefundStatus.PROCESSED}
             />
 
             <TextField
@@ -443,6 +457,7 @@ const RefundsAndCancellations = () => {
               value={formData.refundNotes}
               onChange={(e) => setFormData({ ...formData, refundNotes: e.target.value })}
               placeholder="Internal notes about refund processing..."
+              disabled={!selectedCancellation?.refundRequired || selectedCancellation?.refundStatus === RefundStatus.PROCESSED}
             />
           </Box>
         </DialogContent>
@@ -450,7 +465,15 @@ const RefundsAndCancellations = () => {
           <Button onClick={() => setEditDialogOpen(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} variant="contained" disabled={saving}>
+          <Button
+            onClick={handleSave}
+            variant="contained"
+            disabled={
+              saving ||
+              !selectedCancellation?.refundRequired ||
+              selectedCancellation?.refundStatus === RefundStatus.PROCESSED
+            }
+          >
             {saving ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>
