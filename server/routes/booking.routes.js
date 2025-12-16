@@ -305,7 +305,11 @@ router.get('/', requireAuth, async (req, res, next) => {
     }
 
     if (status) {
-      where.status = status;
+      if (status === 'cancelled') {
+        where.status = { in: ['cancelled_by_vendor', 'cancelled_by_couple'] };
+      } else {
+        where.status = status;
+      }
     }
 
     if (startDate || endDate) {
@@ -1004,6 +1008,7 @@ router.post('/', requireAuth, async (req, res, next) => {
     }
 
     const data = createBookingSchema.parse(req.body);
+    const reservedDate = new Date(data.reservedDate);
 
     // Get couple ID
     const couple = await prisma.couple.findUnique({
@@ -1038,6 +1043,47 @@ router.post('/', requireAuth, async (req, res, next) => {
       }
     }
 
+    // If the couple already has an "active" booking for a different project whose wedding date has not passed yet, they are not allowed to make new bookings for another project.
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const currentProjectId = data.projectId || null;
+    const conflictingBooking = await prisma.booking.findFirst({
+      where: {
+        coupleId: req.user.sub,
+        AND: [
+          { projectId: { not: null } },
+          ...(currentProjectId ? [{ projectId: { not: currentProjectId } }] : []),
+        ],
+        status: {
+          in: ['pending_vendor_confirmation', 'pending_deposit_payment', 'confirmed', 'pending_final_payment'],
+        },
+        reservedDate: {
+          gte: startOfToday,
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        reservedDate: true,
+        project: {
+          select: {
+            id: true,
+            projectName: true,
+            weddingDate: true,
+          },
+        },
+      },
+    });
+
+    if (conflictingBooking) {
+      return res.status(409).json({
+        error:
+          `You already have an active booking for another wedding project` +
+          `${conflictingBooking.project?.projectName ? ` ("${conflictingBooking.project.projectName}")` : ''}` +
+          `. Please complete or cancel that booking before booking a different project.`,
+      });
+    }
+
     // Verify all service listings exist and belong to the vendor
     const serviceListingIds = data.selectedServices.map((s) => s.serviceListingId);
     const serviceListings = await prisma.serviceListing.findMany({
@@ -1054,7 +1100,6 @@ router.post('/', requireAuth, async (req, res, next) => {
 
     // Check for duplicate bookings - only prevent duplicates for exclusive services
     // Reusable services (e.g., bouquets) and quantity_based services can be booked multiple times
-    const reservedDate = new Date(data.reservedDate);
     const exclusiveServiceIds = serviceListings
       .filter((s) => s.availabilityType === 'exclusive')
       .map((s) => s.id);

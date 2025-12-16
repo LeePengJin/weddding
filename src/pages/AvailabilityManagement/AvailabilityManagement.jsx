@@ -7,6 +7,12 @@ import {
   Alert,
   CircularProgress,
   Snackbar,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Stack,
 } from '@mui/material';
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar';
 import { PickersDay } from '@mui/x-date-pickers/PickersDay';
@@ -16,13 +22,23 @@ import dayjs from 'dayjs';
 import { apiFetch } from '../../lib/api';
 import './AvailabilityManagement.css';
 
+const pad2 = (n) => String(n).padStart(2, '0');
+
+const toDateKey = (value) => {
+  if (!value) return '';
+  if (typeof value.format === 'function') {
+    return value.format('YYYY-MM-DD');
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+};
+
 // Custom Day component to show unavailable dates (vendor time off only)
 const CustomDay = (props) => {
   const { day, unavailableDates, onDateClick, minSelectableDate, ...other } = props;
   // Handle dayjs date object
   const dayjsDate = dayjs(day);
-  const dateObj = day.toDate ? day.toDate() : day;
-  const dateStr = dateObj.toISOString().split('T')[0];
+  const dateStr = toDateKey(day);
 
   // Check date status
   const isUnavailable = unavailableDates.has(dateStr);
@@ -72,17 +88,20 @@ const AvailabilityManagement = () => {
   const [pendingChanges, setPendingChanges] = useState(new Set());
   const [saving, setSaving] = useState(false);
 
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictInfo, setConflictInfo] = useState(null); // { date, count, bookings: [...] }
+  const [bulkCancelReason, setBulkCancelReason] = useState('');
+  const [bulkCancelling, setBulkCancelling] = useState(false);
+
   useEffect(() => {
     fetchTimeSlots();
   }, []);
 
   useEffect(() => {
-    // Update unavailable dates set when timeSlots change
-    // Only show dates marked as personal_time_off (vendor time off)
     const dates = new Set();
     timeSlots.forEach((slot) => {
       if (slot.status === 'personal_time_off') {
-        const dateStr = new Date(slot.date).toISOString().split('T')[0];
+        const dateStr = toDateKey(slot.date);
         dates.add(dateStr);
       }
     });
@@ -94,7 +113,6 @@ const AvailabilityManagement = () => {
       setLoading(true);
       setError(null);
 
-      // Get a wide range to show all unavailable dates
       const startDate = new Date();
       startDate.setFullYear(startDate.getFullYear() - 1);
       const endDate = new Date();
@@ -114,10 +132,8 @@ const AvailabilityManagement = () => {
   const handleDateClick = (date) => {
     if (!date) return;
 
-    // Handle dayjs date object
-    const dateObj = date.toDate ? date.toDate() : date;
-    const dateStr = dateObj.toISOString().split('T')[0];
-    const dateDayjs = dayjs(dateObj).startOf('day');
+    const dateStr = toDateKey(date);
+    const dateDayjs = dayjs(date).startOf('day');
 
     // Don't allow toggling past/today dates
     if (dateDayjs.isBefore(minSelectableDate)) {
@@ -127,26 +143,20 @@ const AvailabilityManagement = () => {
     const newPendingChanges = new Set(pendingChanges);
     const newUnavailable = new Set(unavailableDates);
 
-    // Toggle availability: if unavailable, make available; if available, make unavailable
     if (unavailableDates.has(dateStr)) {
-      // Make available (remove from unavailable)
       const existingSlot = timeSlots.find(
-        (slot) => new Date(slot.date).toISOString().split('T')[0] === dateStr
+        (slot) => toDateKey(slot.date) === dateStr
       );
       if (existingSlot) {
-        // Mark for removal
         newPendingChanges.add(`remove-${existingSlot.id}`);
-        // Remove any pending add for this date
         newPendingChanges.delete(dateStr);
       } else {
-        // It was a pending add, just remove it from pending
         newPendingChanges.delete(dateStr);
-        // Also remove any remove- entries for this date (in case it was toggled multiple times)
         Array.from(newPendingChanges).forEach((change) => {
           if (change.startsWith('remove-')) {
             const slotId = change.replace('remove-', '');
             const slot = timeSlots.find((s) => s.id === slotId);
-            if (slot && new Date(slot.date).toISOString().split('T')[0] === dateStr) {
+            if (slot && toDateKey(slot.date) === dateStr) {
               newPendingChanges.delete(change);
             }
           }
@@ -154,13 +164,11 @@ const AvailabilityManagement = () => {
       }
       newUnavailable.delete(dateStr);
     } else {
-      // Make unavailable (add to unavailable)
-      // First, remove any pending removal for this date
       Array.from(newPendingChanges).forEach((change) => {
         if (change.startsWith('remove-')) {
           const slotId = change.replace('remove-', '');
           const slot = timeSlots.find((s) => s.id === slotId);
-          if (slot && new Date(slot.date).toISOString().split('T')[0] === dateStr) {
+          if (slot && toDateKey(slot.date) === dateStr) {
             newPendingChanges.delete(change);
           }
         }
@@ -201,7 +209,7 @@ const AvailabilityManagement = () => {
       // Also check for dates that were removed from unavailableDates
       const currentDateSet = new Set();
       timeSlots.forEach((slot) => {
-        const dateStr = new Date(slot.date).toISOString().split('T')[0];
+        const dateStr = toDateKey(slot.date);
         currentDateSet.add(dateStr);
       });
 
@@ -209,7 +217,7 @@ const AvailabilityManagement = () => {
       currentDateSet.forEach((dateStr) => {
         if (!unavailableDates.has(dateStr)) {
           const slot = timeSlots.find(
-            (s) => new Date(s.date).toISOString().split('T')[0] === dateStr
+            (s) => toDateKey(s.date) === dateStr
           );
           if (slot && !datesToRemove.includes(slot.id)) {
             datesToRemove.push(slot.id);
@@ -237,13 +245,25 @@ const AvailabilityManagement = () => {
 
       // Add dates
       for (const dateData of datesToAdd) {
-        await apiFetch('/time-slots', {
-          method: 'POST',
-          body: JSON.stringify({
-            date: dateData.date,
-            status: dateData.status,
-          }),
-        });
+        try {
+          await apiFetch('/time-slots', {
+            method: 'POST',
+            body: JSON.stringify({
+              date: dateData.date,
+              status: dateData.status,
+            }),
+          });
+        } catch (err) {
+          const conflicts = err?.data?.conflicts;
+          if (conflicts?.bookings?.length) {
+            setConflictInfo(conflicts);
+            setBulkCancelReason('');
+            setConflictDialogOpen(true);
+            setError('Existing bookings found for that date. Please review and cancel them before marking unavailable.');
+            return;
+          }
+          throw err;
+        }
       }
 
       setSuccess('Availability updated successfully');
@@ -253,6 +273,47 @@ const AvailabilityManagement = () => {
       setError(err.message || 'Failed to save availability changes');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleBulkCancelAndRetry = async () => {
+    if (!conflictInfo?.bookings?.length) {
+      setConflictDialogOpen(false);
+      return;
+    }
+    if (!bulkCancelReason || bulkCancelReason.trim().length < 3) {
+      setError('Please provide a cancellation reason (at least 3 characters).');
+      return;
+    }
+    try {
+      setBulkCancelling(true);
+      setError(null);
+
+      for (const booking of conflictInfo.bookings) {
+        await apiFetch(`/bookings/${booking.id}/cancel`, {
+          method: 'POST',
+          body: JSON.stringify({ reason: bulkCancelReason.trim() }),
+        });
+      }
+
+      await apiFetch('/time-slots', {
+        method: 'POST',
+        body: JSON.stringify({
+          date: conflictInfo.date,
+          status: 'personal_time_off',
+        }),
+      });
+
+      setConflictDialogOpen(false);
+      setConflictInfo(null);
+      setBulkCancelReason('');
+      setSuccess('Bookings cancelled and availability updated successfully');
+      setPendingChanges(new Set());
+      await fetchTimeSlots();
+    } catch (err) {
+      setError(err.message || 'Failed to cancel bookings / update availability');
+    } finally {
+      setBulkCancelling(false);
     }
   };
 
@@ -281,11 +342,6 @@ const AvailabilityManagement = () => {
           </Box>
         </Box>
 
-        {error && (
-          <Alert severity="error" onClose={() => setError(null)} sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
 
         <Paper elevation={2} sx={{ p: 3, mt: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
@@ -429,6 +485,88 @@ const AvailabilityManagement = () => {
             </Typography>
           </Alert>
         </Snackbar>
+
+        {/* Error Snackbar */}
+        <Snackbar
+          open={!!error}
+          autoHideDuration={6000}
+          onClose={() => setError(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        >
+          <Alert onClose={() => setError(null)} severity="error" sx={{ width: '100%' }}>
+            <Typography variant="subtitle2" fontWeight="bold">
+              Action required
+            </Typography>
+            <Typography variant="body2">{error}</Typography>
+          </Alert>
+        </Snackbar>
+
+        <Dialog
+          open={conflictDialogOpen}
+          onClose={() => !bulkCancelling && setConflictDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Existing bookings on this date</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.5} sx={{ mt: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                You cannot mark <strong>{conflictInfo?.date}</strong> as unavailable because you have{' '}
+                <strong>{conflictInfo?.count || 0}</strong> booking(s) on that date.
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                You can cancel them now with one reason (refunds will be recorded automatically if payments were made).
+              </Typography>
+
+              <TextField
+                label="Cancellation reason (applies to all)"
+                value={bulkCancelReason}
+                onChange={(e) => setBulkCancelReason(e.target.value)}
+                fullWidth
+                minRows={2}
+                multiline
+                disabled={bulkCancelling}
+              />
+
+              <Box
+                sx={{
+                  maxHeight: 220,
+                  overflowY: 'auto',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  p: 1,
+                }}
+              >
+                {(conflictInfo?.bookings || []).map((b) => (
+                  <Box key={b.id} sx={{ py: 0.75, borderBottom: '1px solid', borderColor: 'divider' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      Booking #{b.id}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Status: {b.status}
+                      {b.projectName ? ` • Project: ${b.projectName}` : ''}
+                      {b.coupleName ? ` • Couple: ${b.coupleName}` : ''}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConflictDialogOpen(false)} disabled={bulkCancelling} sx={{ textTransform: 'none' }}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleBulkCancelAndRetry}
+              disabled={bulkCancelling}
+              sx={{ textTransform: 'none' }}
+            >
+              {bulkCancelling ? 'Cancelling...' : 'Cancel bookings & mark unavailable'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </LocalizationProvider>
   );

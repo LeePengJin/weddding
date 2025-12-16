@@ -529,6 +529,59 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       }
     }
 
+    // Restrict venue changes:
+    // - Initial venue set (existingProject.venueServiceListingId is null) is allowed.
+    // - Changing an already-selected venue is ONLY allowed when the venue vendor cancelled the booking.
+    if (
+      data.venueServiceListingId !== undefined &&
+      data.venueServiceListingId &&
+      existingProject.venueServiceListingId &&
+      data.venueServiceListingId !== existingProject.venueServiceListingId
+    ) {
+      // If there's still any active venue booking/request, do not allow changing.
+      const activeVenueBooking = await prisma.booking.findFirst({
+        where: {
+          projectId: existingProject.id,
+          status: {
+            notIn: ['cancelled_by_vendor', 'cancelled_by_couple', 'rejected'],
+          },
+          selectedServices: {
+            some: {
+              serviceListing: {
+                category: 'Venue',
+              },
+            },
+          },
+        },
+        select: { id: true, status: true },
+      });
+      if (activeVenueBooking) {
+        return res.status(403).json({
+          error: 'Venue cannot be changed after booking. Please contact support if you need help.',
+        });
+      }
+
+      // Require vendor-cancelled venue booking for current venue
+      const vendorCancelledVenueBooking = await prisma.booking.findFirst({
+        where: {
+          projectId: existingProject.id,
+          status: 'cancelled_by_vendor',
+          selectedServices: {
+            some: {
+              serviceListingId: existingProject.venueServiceListingId,
+            },
+          },
+        },
+        select: { id: true },
+      });
+
+      if (!vendorCancelledVenueBooking) {
+        return res.status(403).json({
+          error: 'You can only change venue if the venue vendor cancels the booking.',
+        });
+      }
+    }
+
     // If base package is provided, ensure it is available
     if (data.basePackageId !== undefined && data.basePackageId) {
       const basePackage = await prisma.weddingPackage.findFirst({

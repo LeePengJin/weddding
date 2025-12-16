@@ -269,13 +269,31 @@ const ProjectDashboard = () => {
       }
 
       if (project) {
-        // Check for cancelled venue booking
-        const cancelledVenueBooking = project.bookings?.find(
-          booking => 
-            booking.vendor?.category === 'Venue' && 
-            (booking.status === 'cancelled_by_vendor' || booking.status === 'cancelled_by_couple') &&
-            booking.selectedServices?.some(ss => ss.serviceListingId === project.venueServiceListingId)
+        const CONFIRMED_VENDOR_BOOKING_STATUSES = new Set([
+          'pending_deposit_payment',
+          'confirmed',
+          'pending_final_payment',
+          'completed',
+        ]);
+
+        // Only allow venue replacement when the VENUE VENDOR cancels the venue booking
+        const cancelledVenueBookingByVendor = project.bookings?.find(
+          booking =>
+            booking.vendor?.category === 'Venue' &&
+            booking.status === 'cancelled_by_vendor' &&
+            booking.selectedServices?.some((ss) => ss.serviceListingId === project.venueServiceListingId)
         );
+
+        // Only show the cancellation/grace-period alert if there are dependent bookings that would be affected.
+        const hasDependentBookingsOnCancelledVenue = cancelledVenueBookingByVendor
+          ? Boolean(
+              project.bookings?.some((booking) => {
+                if (booking.id === cancelledVenueBookingByVendor.id) return false;
+                if (booking.dependsOnVenueBookingId !== cancelledVenueBookingByVendor.id) return false;
+                return !['cancelled_by_vendor', 'cancelled_by_couple', 'rejected'].includes(booking.status);
+              })
+            )
+          : false;
         
         // Check if there's an active venue booking
         const activeVenueBooking = project.bookings?.find(
@@ -286,6 +304,37 @@ const ProjectDashboard = () => {
         );
 
         // Transform API data to match expected structure
+        const bookingCount = Array.isArray(project.bookings) ? project.bookings.length : 0;
+        const vendorsById = new Map();
+        (project.bookings || []).forEach((booking) => {
+          const vendorId = booking.vendor?.userId;
+          if (!vendorId) return;
+          const name = booking.vendor?.user?.name || 'Vendor';
+          const wasConfirmed = CONFIRMED_VENDOR_BOOKING_STATUSES.has(booking.status);
+
+          if (!vendorsById.has(vendorId)) {
+            vendorsById.set(vendorId, {
+              id: vendorId,
+              name,
+              type: 'Service',
+              contact: booking.vendor?.phone || '',
+              email: booking.vendor?.user?.email || '',
+              address: booking.vendor?.address || '',
+              website: booking.vendor?.website || '',
+              status: wasConfirmed ? 'confirmed' : 'pending',
+              notes: booking.notes || '',
+            });
+            return;
+          }
+
+          const existing = vendorsById.get(vendorId);
+          // Upgrade status to confirmed if any booking for this vendor is confirmed/accepted
+          if (wasConfirmed && existing.status !== 'confirmed') {
+            existing.status = 'confirmed';
+          }
+        });
+        const uniqueVendors = Array.from(vendorsById.values());
+
         const transformedData = {
           id: project.id,
           projectName: project.projectName || "Our Dream Wedding",
@@ -295,12 +344,13 @@ const ProjectDashboard = () => {
           eventEndTime: project.eventEndTime,
           venue: project.venueServiceListing?.name || 'Venue TBD',
           venueServiceListingId: project.venueServiceListingId,
-          hasCancelledVenue: !!cancelledVenueBooking,
+          hasCancelledVenue: !!cancelledVenueBookingByVendor,
           hasActiveVenue: !!activeVenueBooking,
-          cancelledVenueBooking: cancelledVenueBooking ? {
-            id: cancelledVenueBooking.id,
-            reason: cancelledVenueBooking.cancellation?.cancellationReason || 'Venue booking cancelled',
-            cancelledDate: cancelledVenueBooking.updatedAt,
+          hasDependentBookingsOnCancelledVenue,
+          cancelledVenueBooking: cancelledVenueBookingByVendor ? {
+            id: cancelledVenueBookingByVendor.id,
+            reason: cancelledVenueBookingByVendor.cancellation?.cancellationReason || 'Venue booking cancelled by vendor',
+            cancelledDate: cancelledVenueBookingByVendor.updatedAt,
           } : null,
           preparationType: project.weddingType === 'prepackaged' ? 'Pre-Packaged' : 'Self-Organized',
           budget: project.budget ? {
@@ -320,16 +370,8 @@ const ProjectDashboard = () => {
             recentPayments: [],
             upcomingPayments: [],
           },
-          vendors: project.bookings?.map(booking => ({
-            name: booking.vendor?.user?.name || 'Vendor',
-            type: booking.serviceListing?.category || 'Service',
-            contact: booking.vendor?.phone || '',
-            email: booking.vendor?.user?.email || '',
-            address: booking.vendor?.address || '',
-            website: booking.vendor?.website || '',
-            status: booking.status === 'confirmed' ? 'confirmed' : 'pending',
-            notes: booking.notes || '',
-          })) || [],
+          bookingCount,
+          vendors: uniqueVendors,
         };
         setProjectData(transformedData);
       }
@@ -373,6 +415,19 @@ const ProjectDashboard = () => {
   
   const weddingDate = new Date(projectData.date);
   const daysUntilWedding = Math.ceil((weddingDate - new Date()) / (1000 * 60 * 60 * 24));
+
+  const gracePeriodEndDate = (() => {
+    if (!projectData?.hasCancelledVenue || !projectData?.cancelledVenueBooking?.cancelledDate) return null;
+    const cancelledAt = new Date(projectData.cancelledVenueBooking.cancelledDate);
+    if (Number.isNaN(cancelledAt.getTime())) return null;
+    const end = new Date(cancelledAt);
+    end.setDate(end.getDate() + 14); // 2 weeks
+    // cap at wedding date
+    if (weddingDate && !Number.isNaN(weddingDate.getTime()) && end > weddingDate) {
+      return weddingDate;
+    }
+    return end;
+  })();
 
   const planningTools = [
     {
@@ -425,7 +480,7 @@ const ProjectDashboard = () => {
       icon: AssignmentIcon,
       title: 'My Bookings',
       description: 'Track all your booking requests and their status',
-      progress: `${projectData.vendors.length} bookings`,
+      progress: `${projectData.bookingCount || 0} bookings`,
       color: '#e16789',
       link: `/my-bookings?projectId=${projectData.id}`,
       stats: 'View all bookings',
@@ -462,7 +517,8 @@ const ProjectDashboard = () => {
             </Button>
 
           {/* Venue Cancellation Alert */}
-          {projectData?.hasCancelledVenue && !projectData?.hasActiveVenue && (
+          {projectData?.hasCancelledVenue &&
+            !projectData?.hasActiveVenue && (
             <Alert 
               severity="warning" 
               sx={{ 
@@ -478,11 +534,15 @@ const ProjectDashboard = () => {
                     Your venue booking has been cancelled
                   </Typography>
                   <Typography variant="body2" sx={{ fontSize: '0.875rem', mb: 1 }}>
-                    {projectData.cancelledVenueBooking?.reason || 'Your venue booking was cancelled. Please select a new venue before your wedding date to avoid automatic cancellation of dependent services.'}
+                    {projectData.cancelledVenueBooking?.reason
+                      ? `Reason: ${projectData.cancelledVenueBooking.reason}`
+                      : 'Reason: Your venue booking was cancelled by the venue vendor.'}
                   </Typography>
-                  <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
-                    You have a grace period until your wedding date to select a replacement venue. If no replacement is selected, dependent service bookings will be automatically cancelled.
-                  </Typography>
+                  {projectData?.hasDependentBookingsOnCancelledVenue && (
+                    <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
+                      You have a 2-week grace period{gracePeriodEndDate ? ` (until ${gracePeriodEndDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })})` : ''} to select a replacement venue. If no replacement is selected, dependent service bookings will be automatically cancelled.
+                    </Typography>
+                  )}
                 </Box>
                 <Button
                   variant="contained"
@@ -1002,83 +1062,6 @@ const ProjectDashboard = () => {
           </Box>
         </Box>
 
-        {/* Quick Actions Section */}
-        <Box
-          sx={{
-            backgroundColor: 'white',
-            borderRadius: 3,
-            padding: 3,
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
-          }}
-        >
-          <Typography
-            variant="h6"
-            sx={{
-              fontFamily: "'Playfair Display', serif",
-              fontWeight: 600,
-              color: '#0f060d',
-              mb: 2,
-            }}
-          >
-            Quick Actions
-          </Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-            <Button
-              variant="outlined"
-              startIcon={<AddIcon />}
-              sx={{
-                borderRadius: 1,
-                textTransform: 'none',
-                fontFamily: "'Literata', serif",
-                borderColor: '#e0e0e0',
-                color: '#666',
-                '&:hover': {
-                  borderColor: '#e16789',
-                  color: '#e16789',
-                  backgroundColor: 'rgba(225, 103, 137, 0.05)',
-                },
-              }}
-            >
-              Add Task
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<TrendingUpIcon />}
-              sx={{
-                borderRadius: 1,
-                textTransform: 'none',
-                fontFamily: "'Literata', serif",
-                borderColor: '#e0e0e0',
-                color: '#666',
-                '&:hover': {
-                  borderColor: '#e16789',
-                  color: '#e16789',
-                  backgroundColor: 'rgba(225, 103, 137, 0.05)',
-                },
-              }}
-            >
-              Add Expense
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<ShareIcon />}
-              sx={{
-                borderRadius: 1,
-                textTransform: 'none',
-                fontFamily: "'Literata', serif",
-                borderColor: '#e0e0e0',
-                color: '#666',
-                '&:hover': {
-                  borderColor: '#e16789',
-                  color: '#e16789',
-                  backgroundColor: 'rgba(225, 103, 137, 0.05)',
-                },
-              }}
-            >
-              Share Project
-            </Button>
-          </Box>
-        </Box>
       </Container>
 
       {/* Vendor Details Popup */}
@@ -1093,11 +1076,12 @@ const ProjectDashboard = () => {
       <Dialog
         open={showVenueModal}
         onClose={() => !changingVenue && setShowVenueModal(false)}
-        maxWidth="md"
+        maxWidth="xl"
         fullWidth
         PaperProps={{
           sx: {
             borderRadius: 2,
+            maxWidth: '1320px', 
           },
         }}
       >
@@ -1134,19 +1118,40 @@ const ProjectDashboard = () => {
               No venues found. Try adjusting your search.
             </Typography>
           ) : (
-            <Box sx={{ maxHeight: '400px', overflowY: 'auto' }}>
-              <Grid container spacing={2}>
+            <Box sx={{ maxHeight: '520px', overflowY: 'auto' }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
                 {venues.map((venue) => {
                   const cardImage = getImageUrl(venue.images?.[0] || venue.imageUrl);
+                  const isSelected = selectedVenue?.id === venue.id;
                   return (
-                    <Grid item xs={12} sm={6} key={venue.id}>
+                    <Box
+                      key={venue.id}
+                      sx={{
+                        flexGrow: 0,
+                        flexShrink: 0,
+                        flexBasis: {
+                          xs: '100%',
+                          sm: 'calc(50% - 8px)',
+                          md: 'calc(25% - 12px)', 
+                        },
+                        maxWidth: {
+                          xs: '100%',
+                          sm: 'calc(50% - 8px)',
+                          md: 'calc(25% - 12px)',
+                        },
+                        display: 'flex',
+                      }}
+                    >
                       <Card
                         onClick={() => setSelectedVenue(venue)}
                         sx={{
+                          width: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
                           cursor: 'pointer',
-                          border: selectedVenue?.id === venue.id ? 2 : 1,
-                          borderColor: selectedVenue?.id === venue.id ? '#e16789' : 'divider',
-                          backgroundColor: selectedVenue?.id === venue.id ? 'rgba(225, 103, 137, 0.05)' : 'background.paper',
+                          border: isSelected ? 2 : 1,
+                          borderColor: isSelected ? '#e16789' : 'divider',
+                          backgroundColor: isSelected ? 'rgba(225, 103, 137, 0.05)' : 'background.paper',
                           '&:hover': {
                             borderColor: '#e16789',
                             backgroundColor: 'rgba(225, 103, 137, 0.05)',
@@ -1154,7 +1159,7 @@ const ProjectDashboard = () => {
                           overflow: 'hidden',
                         }}
                       >
-                        <Box sx={{ position: 'relative', height: 180, backgroundColor: '#f6f6f6' }}>
+                        <Box sx={{ position: 'relative', height: 150, backgroundColor: '#f6f6f6' }}>
                           <img
                             src={cardImage}
                             alt={venue.name}
@@ -1183,7 +1188,7 @@ const ProjectDashboard = () => {
                           >
                             i
                           </Button>
-                          {selectedVenue?.id === venue.id && (
+                          {isSelected && (
                             <Chip
                               label="Selected"
                               size="small"
@@ -1197,7 +1202,7 @@ const ProjectDashboard = () => {
                             />
                           )}
                         </Box>
-                        <Box sx={{ p: 2 }}>
+                        <Box sx={{ p: 2, flex: 1, display: 'flex', flexDirection: 'column' }}>
                           <Typography variant="h6" sx={{ fontWeight: 600, mb: 0.5 }}>
                             {venue.name}
                           </Typography>
@@ -1206,14 +1211,7 @@ const ProjectDashboard = () => {
                               by {venue.vendor.user.name}
                             </Typography>
                           )}
-                          {venue.location && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                              <LocationIcon fontSize="small" sx={{ color: '#888' }} />
-                              <Typography variant="body2" color="text.secondary">
-                                {venue.location}
-                              </Typography>
-                            </Box>
-                          )}
+                          <Box sx={{ flex: 1 }} />
                           {venue.price && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                               <LocalOfferIcon fontSize="small" sx={{ color: '#e16789' }} />
@@ -1224,10 +1222,10 @@ const ProjectDashboard = () => {
                           )}
                         </Box>
                       </Card>
-                    </Grid>
+                    </Box>
                   );
                 })}
-              </Grid>
+              </Box>
             </Box>
           )}
         </DialogContent>

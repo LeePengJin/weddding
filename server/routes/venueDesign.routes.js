@@ -989,8 +989,7 @@ async function updatePerTableServiceExpenses(projectId, serviceListingIds) {
 
 async function checkServiceAvailabilityForDate(serviceListingId, isoDate) {
   const [year, month, day] = isoDate.split('-').map(Number);
-  const targetDate = new Date(year, month - 1, day);
-  targetDate.setHours(0, 0, 0, 0);
+  const targetDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
 
   const serviceListing = await prisma.serviceListing.findUnique({
     where: { id: serviceListingId },
@@ -3431,7 +3430,7 @@ router.get('/:projectId/checkout-summary', requireAuth, async (req, res, next) =
       }
     });
 
-    // Check if venue has an active booking
+    // Check if venue has an active booking / request
     let venueBookingStatus = null;
     if (project.venueServiceListingId && project.weddingDate) {
       const venueBooking = await prisma.booking.findFirst({
@@ -3457,16 +3456,18 @@ router.get('/:projectId/checkout-summary', requireAuth, async (req, res, next) =
       });
 
       if (venueBooking) {
+        const acceptedVenueStatuses = ['pending_deposit_payment', 'confirmed', 'pending_final_payment', 'completed'];
         venueBookingStatus = {
-          isBooked: true,
+          isRequested: true,
+          isAccepted: acceptedVenueStatuses.includes(venueBooking.status),
           bookingId: venueBooking.id,
           status: venueBooking.status,
         };
       }
     }
 
-    // Include venue if not booked
-    if (project.venueServiceListingId && !venueBookingStatus?.isBooked) {
+    // Include venue in checkout only if there is no existing active venue request yet.
+    if (project.venueServiceListingId && !venueBookingStatus?.isRequested) {
       serviceListingIds.add(project.venueServiceListingId);
     }
 
@@ -3545,8 +3546,8 @@ router.get('/:projectId/checkout-summary', requireAuth, async (req, res, next) =
       }
     }
 
-    // Include venue if not booked
-    if (project.venueServiceListingId && !venueBookingStatus?.isBooked) {
+    // Include venue if not requested yet
+    if (project.venueServiceListingId && !venueBookingStatus?.isRequested) {
       designQuantities[project.venueServiceListingId] = 1;
     }
 
@@ -3663,6 +3664,11 @@ router.get('/:projectId/checkout-summary', requireAuth, async (req, res, next) =
       weddingDate: project.weddingDate instanceof Date ? project.weddingDate.toISOString() : project.weddingDate,
       eventStartTime: project.eventStartTime || null,
       eventEndTime: project.eventEndTime || null,
+      hasVenueSelected: Boolean(project.venueServiceListingId),
+      venue: {
+        serviceListingId: project.venueServiceListingId || null,
+        booking: venueBookingStatus,
+      },
     });
   } catch (err) {
     console.error('[checkout-summary] Error:', err);

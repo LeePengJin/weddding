@@ -62,7 +62,6 @@ router.get('/range', requireAuth, async (req, res, next) => {
   }
 });
 
-// POST /time-slots - Create a new time slot (mark date as unavailable)
 router.post('/', requireAuth, async (req, res, next) => {
   try {
     if (req.user.role !== 'vendor') {
@@ -71,15 +70,73 @@ router.post('/', requireAuth, async (req, res, next) => {
 
     const { date, status } = timeSlotSchema.parse(req.body);
 
-    // Ensure status is always personal_time_off for vendor-level time slots
     const finalStatus = 'personal_time_off';
+
+    const [year, month, day] = date.split('-').map(Number);
+    const slotDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+
+    const startOfDay = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    const endOfDayExclusive = new Date(Date.UTC(year, month - 1, day + 1, 0, 0, 0, 0));
+
+    const blockingBookings = await prisma.booking.findMany({
+      where: {
+        vendorId: req.user.sub,
+        reservedDate: { gte: startOfDay, lt: endOfDayExclusive },
+        status: {
+          notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected', 'completed'],
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        reservedDate: true,
+        project: {
+          select: {
+            id: true,
+            projectName: true,
+          },
+        },
+        couple: {
+          select: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { reservedDate: 'asc' },
+    });
+
+    if (blockingBookings.length > 0) {
+      return res.status(409).json({
+        error:
+          'You have existing booking(s) on this date. Cancel those bookings (with a reason) before marking the date unavailable.',
+        conflicts: {
+          date,
+          count: blockingBookings.length,
+          bookings: blockingBookings.map((b) => ({
+            id: b.id,
+            status: b.status,
+            reservedDate: b.reservedDate,
+            projectId: b.project?.id || null,
+            projectName: b.project?.projectName || null,
+            coupleName: b.couple?.user?.name || null,
+            coupleEmail: b.couple?.user?.email || null,
+          })),
+        },
+      });
+    }
 
     // Check if time slot already exists for this date
     const existingTimeSlot = await prisma.timeSlot.findUnique({
       where: {
         vendorId_date: {
           vendorId: req.user.sub,
-          date: new Date(date),
+          date: slotDate,
         },
       },
     });
@@ -97,7 +154,7 @@ router.post('/', requireAuth, async (req, res, next) => {
     const timeSlot = await prisma.timeSlot.create({
       data: {
         vendorId: req.user.sub,
-        date: new Date(date),
+        date: slotDate,
         status: finalStatus,
       },
     });

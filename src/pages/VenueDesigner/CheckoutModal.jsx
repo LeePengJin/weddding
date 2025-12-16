@@ -45,18 +45,50 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
       getCheckoutSummary(projectId)
         .then((data) => {
           setCheckoutData(data);
-          // Initialize: expand all vendors and select all listings
+          // Initialize selection/expansion based on venue-first rule
           if (data.groupedByVendor && data.groupedByVendor.length > 0 && !hasInitialized.current) {
             hasInitialized.current = true;
-            setExpandedVendors(new Set(data.groupedByVendor.map((v) => v.vendorId || v.vendorName)));
             const allListingKeys = new Set();
+            const venueListingKeys = new Set();
             data.groupedByVendor.forEach((vendor) => {
               vendor.items.forEach((item) => {
                 if (item.serviceListingId) {
                   allListingKeys.add(item.key);
+                  if (item?.serviceListing?.category === 'Venue') {
+                    venueListingKeys.add(item.key);
+                  }
                 }
               });
             });
+
+            const hasVenueSelected = Boolean(data?.hasVenueSelected);
+            const venueBooking = data?.venue?.booking || null;
+            const venueRequested = Boolean(venueBooking?.isRequested);
+            const venueAccepted = Boolean(venueBooking?.isAccepted);
+
+            // Expand vendors based on step
+            if (!hasVenueSelected) {
+              setExpandedVendors(new Set());
+              setSelectedListings(new Set());
+              return;
+            }
+
+            if (!venueRequested) {
+              // Step 1: venue booking request should be the only selectable thing initially
+              setExpandedVendors(new Set(data.groupedByVendor.map((v) => v.vendorId || v.vendorName)));
+              setSelectedListings(new Set(venueListingKeys));
+              return;
+            }
+
+            if (venueRequested && !venueAccepted) {
+              // Venue request exists but vendor hasn't accepted yet -> nothing else can be booked
+              setExpandedVendors(new Set());
+              setSelectedListings(new Set());
+              return;
+            }
+
+            // Venue accepted -> allow normal checkout
+            setExpandedVendors(new Set(data.groupedByVendor.map((v) => v.vendorId || v.vendorName)));
             setSelectedListings(allListingKeys);
           }
         })
@@ -74,6 +106,36 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
 
   // Use backend-provided groupedByVendor
   const groupedByVendor = checkoutData?.groupedByVendor || [];
+  const hasVenueSelected = Boolean(checkoutData?.hasVenueSelected);
+  const venueBooking = checkoutData?.venue?.booking || null;
+  const venueRequested = Boolean(venueBooking?.isRequested);
+  const venueAccepted = Boolean(venueBooking?.isAccepted);
+
+  const venueFirstBlockingReason = useMemo(() => {
+    if (!hasVenueSelected) {
+      return 'Please select a venue for this project first. You must book your venue before booking other services.';
+    }
+    if (venueRequested && !venueAccepted) {
+      return 'Your venue booking request has been sent. Please wait for the venue vendor to accept (deposit stage) before booking other services.';
+    }
+    if (!venueRequested) {
+      return 'Step 1: Book your venue first. After the venue vendor accepts, you can proceed to book other services.';
+    }
+    return null;
+  }, [hasVenueSelected, venueRequested, venueAccepted]);
+
+  const isVenueFirstBlocked = !hasVenueSelected || (venueRequested && !venueAccepted);
+
+  const orderedVendors = useMemo(() => {
+    const venueVendors = [];
+    const otherVendors = [];
+    groupedByVendor.forEach((vendor) => {
+      const hasVenueItem = vendor.items?.some((it) => it?.serviceListing?.category === 'Venue');
+      if (hasVenueItem) venueVendors.push(vendor);
+      else otherVendors.push(vendor);
+    });
+    return [...venueVendors, ...otherVendors];
+  }, [groupedByVendor]);
 
   const handleToggleVendor = (vendorId) => {
     const newExpanded = new Set(expandedVendors);
@@ -83,6 +145,19 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
       newExpanded.add(vendorId);
     }
     setExpandedVendors(newExpanded);
+  };
+
+  const isVenueItem = (item) => item?.serviceListing?.category === 'Venue';
+  const isItemSelectable = (item) => {
+    if (!item?.serviceListingId) return false;
+    // If no venue selected -> nothing can be booked from checkout yet
+    if (!hasVenueSelected) return false;
+    // If venue request exists but not accepted -> nothing can be booked from checkout yet
+    if (venueRequested && !venueAccepted) return false;
+    // If venue not requested yet -> only venue can be booked
+    if (!venueRequested) return isVenueItem(item);
+    // Venue accepted -> can book other services
+    return true;
   };
 
   const handleToggleListing = (itemKey, e) => {
@@ -98,7 +173,8 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
 
   const handleToggleVendorCheckbox = (vendor, e) => {
     e.stopPropagation(); // Prevent vendor expand/collapse
-    const vendorItems = vendor.items.filter((item) => item.serviceListingId);
+    const vendorItems = vendor.items.filter((item) => isItemSelectable(item));
+    if (vendorItems.length === 0) return;
     const allSelected = vendorItems.every((item) => selectedListings.has(item.key));
 
     const newSelected = new Set(selectedListings);
@@ -114,9 +190,9 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
 
   const handleSelectAll = () => {
     const allListingKeys = new Set();
-    groupedByVendor.forEach((vendor) => {
+    orderedVendors.forEach((vendor) => {
       vendor.items.forEach((item) => {
-        if (item.serviceListingId) {
+        if (isItemSelectable(item)) {
           allListingKeys.add(item.key);
         }
       });
@@ -131,7 +207,7 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
 
   // Get selected listings grouped by vendor (prices already calculated by backend)
   const selectedVendorData = useMemo(() => {
-    return groupedByVendor
+    return orderedVendors
       .map((vendor) => {
         const selectedItems = vendor.items.filter((item) => selectedListings.has(item.key) && item.serviceListingId);
         if (selectedItems.length === 0) return null;
@@ -143,28 +219,44 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
         };
       })
       .filter(Boolean);
-  }, [groupedByVendor, selectedListings]);
+  }, [orderedVendors, selectedListings]);
+
+  const vendorsToSubmitPreview = useMemo(() => {
+    if (!venueRequested) {
+      return selectedVendorData.filter((v) => v.items.some((it) => isVenueItem(it)));
+    }
+    return selectedVendorData;
+  }, [selectedVendorData, venueRequested]);
 
   const grandTotal = useMemo(() => {
-    return selectedVendorData.reduce((sum, vendor) => sum + vendor.total, 0);
-  }, [selectedVendorData]);
+    return vendorsToSubmitPreview.reduce((sum, vendor) => sum + vendor.total, 0);
+  }, [vendorsToSubmitPreview]);
 
   // Check if all items in a vendor are selected
   const isVendorFullySelected = (vendor) => {
-    const vendorItems = vendor.items.filter((item) => item.serviceListingId);
+    const vendorItems = vendor.items.filter((item) => isItemSelectable(item));
     if (vendorItems.length === 0) return false;
     return vendorItems.every((item) => selectedListings.has(item.key));
   };
 
   // Check if some (but not all) items in a vendor are selected
   const isVendorPartiallySelected = (vendor) => {
-    const vendorItems = vendor.items.filter((item) => item.serviceListingId);
+    const vendorItems = vendor.items.filter((item) => isItemSelectable(item));
     if (vendorItems.length === 0) return false;
     const selectedCount = vendorItems.filter((item) => selectedListings.has(item.key)).length;
     return selectedCount > 0 && selectedCount < vendorItems.length;
   };
 
   const handleSubmit = async () => {
+    if (!hasVenueSelected) {
+      onShowToast?.({ open: true, message: 'Please select and book your venue first before booking other services.', severity: 'error' });
+      return;
+    }
+    if (venueRequested && !venueAccepted) {
+      onShowToast?.({ open: true, message: 'Please wait for your venue booking to be accepted before booking other services.', severity: 'error' });
+      return;
+    }
+
     if (selectedListings.size === 0) {
       if (onShowToast) {
         onShowToast({ open: true, message: 'Please select at least one listing to proceed', severity: 'error' });
@@ -182,8 +274,14 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
     setIsSubmitting(true);
 
     try {
+      // If venue is not requested yet, only allow submitting venue booking request(s).
+      const vendorsToSubmit =
+        !venueRequested
+          ? selectedVendorData.filter((v) => v.items.some((it) => it?.serviceListing?.category === 'Venue'))
+          : selectedVendorData;
+
       // Create booking requests for each selected vendor
-      const bookingPromises = selectedVendorData.map((vendor) => {
+      const bookingPromises = vendorsToSubmit.map((vendor) => {
         const selectedServices = vendor.items
           .filter((item) => {
             if (!item.serviceListingId || item.quantity <= 0) {
@@ -230,13 +328,8 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
 
       await Promise.all(validPromises);
 
+      setIsSubmitting(false);
       setIsSubmitted(true);
-      setTimeout(() => {
-        if (onSuccess) {
-          onSuccess();
-        }
-        handleClose();
-      }, 2000);
     } catch (error) {
       console.error('Error creating booking requests:', error);
       if (onShowToast) {
@@ -247,26 +340,31 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
   };
 
   const handleClose = () => {
-    if (!isSubmitting && !isSubmitted) {
-      // Reset state when closing
-      setSelectedListings(new Set());
-      setExpandedVendors(new Set());
-      setIsSubmitted(false);
-      onClose();
+    if (isSubmitting) return;
+    if (isSubmitted && onSuccess) {
+      onSuccess();
     }
+    // Reset state when closing
+    setSelectedListings(new Set());
+    setExpandedVendors(new Set());
+    setIsSubmitted(false);
+    setContractAcknowledged(false);
+    setShowContractDialog(false);
+    setCheckoutData(null);
+    onClose();
   };
 
   // Reset state when modal closes
   React.useEffect(() => {
     if (!open) {
-      hasInitialized.current = false; // Reset initialization flag
+      hasInitialized.current = false; 
       setSelectedListings(new Set());
       setExpandedVendors(new Set());
       setIsSubmitted(false);
-      setIsSubmitting(false); // Reset submitting state
-      setContractAcknowledged(false); // Reset contract acknowledgment
+      setIsSubmitting(false); 
+      setContractAcknowledged(false); 
       setShowContractDialog(false);
-      setCheckoutData(null); // Clear checkout data
+      setCheckoutData(null); 
     }
   }, [open]);
 
@@ -365,19 +463,41 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
               </Typography>
               <Button size="small" onClick={handleSelectAll}>
                 {selectedListings.size ===
-                groupedByVendor.reduce((sum, v) => sum + v.items.filter((i) => i.serviceListingId).length, 0)
+                orderedVendors.reduce((sum, v) => sum + v.items.filter((i) => isItemSelectable(i)).length, 0)
                   ? 'Deselect All'
                   : 'Select All'}
               </Button>
             </Box>
 
+            {venueFirstBlockingReason && (
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2,
+                  mb: 2,
+                  borderRadius: 2,
+                  bgcolor: '#FEF3C7', 
+                  border: '1px solid #F59E0B',
+                }}
+              >
+                <Typography variant="body2" sx={{ color: '#7C2D12', fontWeight: 700, mb: 0.5 }}>
+                  Venue-first booking rule
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#7C2D12' }}>
+                  {venueFirstBlockingReason}
+                </Typography>
+              </Paper>
+            )}
+
             <Stack spacing={2}>
-              {groupedByVendor.map((vendor) => {
+              {orderedVendors.map((vendor) => {
                 const vendorKey = vendor.vendorId || vendor.vendorName;
                 const isExpanded = expandedVendors.has(vendorKey);
                 const isVendorSelected = isVendorFullySelected(vendor);
                 const isVendorIndeterminate = isVendorPartiallySelected(vendor);
                 const vendorItems = vendor.items.filter((item) => item.serviceListingId);
+                const vendorSelectableItems = vendorItems.filter((item) => isItemSelectable(item));
+                const vendorCheckboxDisabled = vendorSelectableItems.length === 0;
 
                 return (
                   <Paper
@@ -419,6 +539,7 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
                         indeterminate={isVendorIndeterminate}
                         onChange={(e) => handleToggleVendorCheckbox(vendor, e)}
                         onClick={(e) => e.stopPropagation()}
+                        disabled={vendorCheckboxDisabled}
                       />
                       <Box sx={{ flex: 1 }}>
                         <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
@@ -438,6 +559,7 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
                       <Box sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
                         {vendorItems.map((item, index) => {
                           const isItemSelected = selectedListings.has(item.key);
+                          const disabled = !isItemSelectable(item);
                           return (
                             <Box
                               key={item.key}
@@ -457,14 +579,20 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
                             >
                               <Checkbox
                                 checked={isItemSelected}
-                                onChange={(e) => handleToggleListing(item.key, e)}
+                                disabled={disabled}
+                                onChange={(e) => {
+                                  if (disabled) return;
+                                  handleToggleListing(item.key, e);
+                                }}
                               />
                               <Box sx={{ flex: 1 }}>
                                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
                                   {item.displayName}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                  {item.isBundle ? 'Bundle' : 'Individual Item'}
+                                  {item.serviceListing?.category === 'Venue'
+                                    ? 'Venue (must be booked first)'
+                                    : (item.isBundle ? 'Bundle' : 'Individual Item')}
                                 </Typography>
                               </Box>
                               <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.main' }}>
@@ -509,7 +637,7 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     {selectedListings.size} /{' '}
-                    {groupedByVendor.reduce((sum, v) => sum + v.items.filter((i) => i.serviceListingId).length, 0)}
+                    {orderedVendors.reduce((sum, v) => sum + v.items.filter((i) => isItemSelectable(i)).length, 0)}
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -517,7 +645,7 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
                     Selected Vendors
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {selectedVendorData.length} / {groupedByVendor.length}
+                    {vendorsToSubmitPreview.length} / {orderedVendors.length}
                   </Typography>
                 </Box>
                 <Divider />
@@ -532,8 +660,16 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
               </Stack>
             </Paper>
 
-            <Paper elevation={0} sx={{ p: 2, bgcolor: 'info.light', borderRadius: 1 }}>
-              <Typography variant="body2" color="info.dark">
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                bgcolor: '#DBEAFE', 
+                borderRadius: 2,
+                border: '1px solid #2563EB',
+              }}
+            >
+              <Typography variant="body2" sx={{ color: '#0B2A6F', fontWeight: 600 }}>
                 Submitting this request will notify all selected vendors. Prices and availability will be confirmed by
                 vendors.
               </Typography>
@@ -637,7 +773,7 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
               fullWidth
               size="large"
               onClick={handleSubmit}
-              disabled={isSubmitting || selectedListings.size === 0 || !contractAcknowledged}
+              disabled={isSubmitting || vendorsToSubmitPreview.length === 0 || !contractAcknowledged || isVenueFirstBlocked}
               sx={{
                 bgcolor: 'primary.main',
                 '&:hover': { bgcolor: 'primary.dark' },
@@ -672,7 +808,7 @@ const CheckoutModal = ({ open, onClose, projectId, weddingDate, venueDesignId, e
         <Divider />
         <DialogContent sx={{ p: 3 }}>
           <Stack spacing={3}>
-            {groupedByVendor.map((vendor) => {
+            {vendorsToSubmitPreview.map((vendor) => {
               const firstService = vendor.items[0];
               const cancellationPolicy = firstService?.serviceListing?.cancellationPolicy;
               const cancellationFeeTiers = firstService?.serviceListing?.cancellationFeeTiers;

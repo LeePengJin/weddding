@@ -21,12 +21,17 @@ export async function apiFetch(path, options = {}) {
         // Include the issues array in the error for better error handling
         const error = new Error(body.issues[0].message || body.error || message);
         error.issues = body.issues;
+        error.data = body;
         throw error;
       } else if (body.error) {
         message = body.error;
       }
     }
-    throw new Error(message);
+    const error = new Error(message);
+    if (body && typeof body === 'object') {
+      error.data = body;
+    }
+    throw error;
   }
   return body;
 }
