@@ -231,6 +231,10 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     projectId,
     onReloadDesign,
     sceneOptions = {},
+    packageInvalidListingIds = [],
+    startReplaceFromPlacement,
+    replaceTarget,
+    cancelReplace,
   } = useVenueDesigner();
 
   const [selectedIds, setSelectedIds] = useState([]); 
@@ -250,6 +254,10 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
   const [boxSelectionEnd, setBoxSelectionEnd] = useState(null);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [bookingHighlightEnabled, setBookingHighlightEnabled] = useState(false);
+  const [needsUpdateHighlightEnabled, setNeedsUpdateHighlightEnabled] = useState(false);
+
+  const isProjectMode = designerMode === 'project';
+  const isPackageMode = designerMode === 'package';
 
   const bookingLegend = useMemo(() => {
     const rows = [
@@ -1058,7 +1066,6 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
     return () => document.removeEventListener('pointerdown', handleGlobalPointerDown, true);
   }, [handleCloseSelection]);
 
-  const isProjectMode = designerMode === 'project';
   const isBoxSelecting = Boolean(boxSelectionStart);
   const orbitControlsEnabled = orbitEnabled && !isShiftDown && !isBoxSelecting;
   const handleSaveClick = useCallback(() => {
@@ -1148,6 +1155,34 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
               title="Highlight booking status"
             >
               <i className="fas fa-highlighter"></i>
+            </button>
+          </Tooltip>
+        )}
+        {isPackageMode && (
+          <Tooltip
+            title="Highlight elements that need admin update (vendor/listing inactive or missing)"
+            placement="left"
+            arrow
+          >
+            <button
+              type="button"
+              className={`scene3d-view-mode-btn ${needsUpdateHighlightEnabled ? 'active' : ''}`}
+              onClick={() => setNeedsUpdateHighlightEnabled((prev) => !prev)}
+              title="Highlight needs update"
+            >
+              <i className="fas fa-exclamation-triangle"></i>
+            </button>
+          </Tooltip>
+        )}
+        {isPackageMode && replaceTarget?.placement && (
+          <Tooltip title="Cancel replace mode" placement="left" arrow>
+            <button
+              type="button"
+              className="scene3d-view-mode-btn active"
+              onClick={() => cancelReplace?.()}
+              title="Cancel replace"
+            >
+              <i className="fas fa-times"></i>
             </button>
           </Tooltip>
         )}
@@ -1363,6 +1398,9 @@ const Scene3D = ({ designerMode, onSaveDesign, onOpenSummary, onProceedCheckout,
                 venueBounds={venueBounds}
                 onOpenTaggingModal={handleOpenTaggingModal}
                 bookingHighlightEnabled={isProjectMode && bookingHighlightEnabled}
+                needsUpdateHighlightEnabled={isPackageMode && needsUpdateHighlightEnabled}
+                needsUpdateServiceListingIds={packageInvalidListingIds}
+                onStartReplace={startReplaceFromPlacement}
                 onRegisterElementRef={(id, ref) => {
                   selectedElementRefs.current.set(id, ref);
                 }}

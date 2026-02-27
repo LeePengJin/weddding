@@ -7,8 +7,6 @@ const router = express.Router();
 const prisma = new PrismaClient();
 
 // Validation schema for time slot
-// Note: Only 'personal_time_off' is allowed for vendor-level time slots
-// Service-level availability is handled separately via ServiceAvailability model
 const timeSlotSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format'),
   status: z.enum(['personal_time_off']).default('personal_time_off'),

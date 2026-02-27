@@ -89,6 +89,11 @@ const VenueDesigner = () => {
   const [weddingDate, setWeddingDate] = useState(null);
   const [eventStartTime, setEventStartTime] = useState(null);
   const [eventEndTime, setEventEndTime] = useState(null);
+  const [packageInvalidListingIds, setPackageInvalidListingIds] = useState([]);
+  const [packageItemConstraintsByServiceListingId, setPackageItemConstraintsByServiceListingId] = useState({});
+  const [replaceTarget, setReplaceTarget] = useState(null); // { placement, scope }
+  const prevCatalogFiltersRef = useRef({ searchTerm: '', selectedCategory: 'All Categories' });
+  const [catalogOverrides, setCatalogOverrides] = useState(null); // { minPrice, maxPrice, tags, excludeListingId }
   const [venueInfo, setVenueInfo] = useState(null);
   const [venueDesignId, setVenueDesignId] = useState(null);
   const [projectServices, setProjectServices] = useState([]);
@@ -176,6 +181,8 @@ const VenueDesigner = () => {
         // Package mode: set venue info if available
         setVenueInfo(data.venue || null);
         setWeddingDate(null);
+        setPackageInvalidListingIds(data.package?.invalidListingIds || []);
+        setPackageItemConstraintsByServiceListingId(data.package?.itemConstraintsByServiceListingId || {});
       }
 
       setToastNotification({ open: false, message: '', severity: 'info' });
@@ -236,6 +243,20 @@ const VenueDesigner = () => {
         search: searchTerm || undefined,
         category: selectedCategory !== 'All Categories' ? selectedCategory : undefined,
       };
+      if (designerMode === 'package' && catalogOverrides) {
+        if (catalogOverrides.minPrice !== undefined && catalogOverrides.minPrice !== null) {
+          queryPayload.minPrice = catalogOverrides.minPrice;
+        }
+        if (catalogOverrides.maxPrice !== undefined && catalogOverrides.maxPrice !== null) {
+          queryPayload.maxPrice = catalogOverrides.maxPrice;
+        }
+        if (Array.isArray(catalogOverrides.tags) && catalogOverrides.tags.length) {
+          queryPayload.tags = catalogOverrides.tags.join(', ');
+        }
+        if (catalogOverrides.excludeListingId) {
+          queryPayload.excludeListingId = catalogOverrides.excludeListingId;
+        }
+      }
       if (designerMode === 'project') {
         queryPayload.includeUnavailable = true;
       }
@@ -249,7 +270,7 @@ const VenueDesigner = () => {
     } finally {
       setCatalogLoading(false);
     }
-  }, [resourceId, designerMode, packageId, projectId, searchTerm, selectedCategory]);
+  }, [resourceId, designerMode, packageId, projectId, searchTerm, selectedCategory, catalogOverrides]);
 
   const refreshAvailability = useCallback(async () => {
     if (designerMode !== 'project' || !projectId || placements.length === 0) return;
@@ -316,6 +337,31 @@ const VenueDesigner = () => {
     async (item) => {
       if (!resourceId) return;
       try {
+        // Package mode: if we're in "replace" flow, replace the selected placement/bundle instead of adding.
+        if (designerMode === 'package' && replaceTarget?.placement && packageId) {
+          const target = replaceTarget.placement;
+          const scope = replaceTarget.scope || (target.metadata?.bundleId ? 'bundle' : 'single');
+          // Delete old placement(s)
+          await deletePackageDesignElement(packageId, target.id, scope);
+          // Add replacement at the same position/rotation
+          await addPackageDesignElement(packageId, {
+            serviceListingId: item.id,
+            position: target.position || { x: 0, y: 0, z: 0 },
+            rotation: typeof target.rotation === 'number' ? target.rotation : 0,
+          });
+          setReplaceTarget(null);
+          setCatalogOverrides(null);
+          setSearchTerm(prevCatalogFiltersRef.current.searchTerm || '');
+          setSelectedCategory(prevCatalogFiltersRef.current.selectedCategory || 'All Categories');
+          setToastNotification({
+            open: true,
+            message: 'Service replaced successfully!',
+            severity: 'success',
+          });
+          await loadDesign();
+          return;
+        }
+
         const payload = { serviceListingId: item.id };
         
         const response =
@@ -362,7 +408,7 @@ const VenueDesigner = () => {
         setToastNotification({ open: true, message: err.message || 'Unable to add item to design', severity: 'error' });
       }
     },
-    [resourceId, designerMode, packageId, projectId, loadDesign]
+    [resourceId, designerMode, packageId, projectId, loadDesign, replaceTarget]
   );
 
   const handleRemovePlacement = useCallback(
@@ -684,6 +730,48 @@ const VenueDesigner = () => {
       designLayout,
       setDesignLayout,
       sceneOptions: {},
+      packageInvalidListingIds,
+      startReplaceFromPlacement: (placement, scope = null) => {
+        if (!placement) return;
+        // Save current catalog filters so we can restore after replacement/cancel.
+        prevCatalogFiltersRef.current = { searchTerm, selectedCategory };
+
+        const serviceId = placement?.metadata?.serviceListingId || placement?.serviceListing?.id || null;
+        const constraints = serviceId ? packageItemConstraintsByServiceListingId?.[serviceId] : null;
+        const nextCategory = constraints?.category || placement?.serviceListing?.category || null;
+        const nextTags = Array.isArray(constraints?.replacementTags) ? constraints.replacementTags : [];
+        const minPrice = constraints?.minPrice != null ? Number(constraints.minPrice) : null;
+        const maxPrice = constraints?.maxPrice != null ? Number(constraints.maxPrice) : null;
+
+        if (nextCategory) {
+          setSelectedCategory(nextCategory);
+        }
+        if (nextTags.length) {
+          setSearchTerm(nextTags.join(' '));
+        } else {
+          setSearchTerm('');
+        }
+        setCatalogOverrides({
+          minPrice: Number.isFinite(minPrice) ? minPrice : null,
+          maxPrice: Number.isFinite(maxPrice) ? maxPrice : null,
+          tags: nextTags,
+          excludeListingId: serviceId,
+        });
+
+        setReplaceTarget({ placement, scope: scope || (placement.metadata?.bundleId ? 'bundle' : 'single') });
+        setToastNotification({
+          open: true,
+          message: 'Select a replacement service from the catalog (it will replace the selected element).',
+          severity: 'info',
+        });
+      },
+      cancelReplace: () => {
+        setReplaceTarget(null);
+        setCatalogOverrides(null);
+        setSearchTerm(prevCatalogFiltersRef.current.searchTerm || '');
+        setSelectedCategory(prevCatalogFiltersRef.current.selectedCategory || 'All Categories');
+      },
+      replaceTarget,
       setToastNotification,
     }),
     [
@@ -709,6 +797,12 @@ const VenueDesigner = () => {
       handleTagUpdateReload,
       savingState,
       designLayout,
+      packageInvalidListingIds,
+      packageItemConstraintsByServiceListingId,
+      replaceTarget,
+      catalogOverrides,
+      searchTerm,
+      selectedCategory,
     ]
   );
 

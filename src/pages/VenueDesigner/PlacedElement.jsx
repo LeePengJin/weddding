@@ -252,6 +252,9 @@ const PlacedElement = ({
   onUpdateOtherSelected,
   onInitializeDragSession,
   bookingHighlightEnabled = false,
+  needsUpdateHighlightEnabled = false,
+  needsUpdateServiceListingIds = [],
+  onStartReplace,
 }) => {
   const { scene, camera, raycaster } = useThree();
   const groupRef = useRef();
@@ -294,7 +297,7 @@ const PlacedElement = ({
   const [interactionMode, setInteractionMode] = useState('translate'); // 'translate' | 'rotate'
   const [isHovered, setIsHovered] = useState(false);
   setInteractionModeRef.current = setInteractionMode;
-  const { venueDesignId, projectId } = useVenueDesigner();
+  const { venueDesignId, projectId, mode } = useVenueDesigner();
 
   const footprintRadius = useMemo(() => getFootprintRadius(placement), [placement]);
 
@@ -308,16 +311,37 @@ const PlacedElement = ({
 
   const availabilityState = availability?.available === false ? 'unavailable' : 'available';
   const bookingStatus = placement?.bookingStatus || null;
+  const placementServiceListingId =
+    placement?.metadata?.serviceListingId || placement?.serviceListing?.id || placement?.serviceListingId || null;
+  const needsUpdate = useMemo(() => {
+    if (!needsUpdateHighlightEnabled) return false;
+    if (!placementServiceListingId) return false;
+    if (Array.isArray(needsUpdateServiceListingIds) && needsUpdateServiceListingIds.includes(placementServiceListingId)) {
+      return true;
+    }
+    if (placement?.serviceListing) {
+      if (placement.serviceListing.isActive === false) return true;
+      if (placement.serviceListing.vendorStatus && placement.serviceListing.vendorStatus !== 'active') return true;
+    }
+    if (placement?.metadata?.serviceListingId && !placement?.serviceListing) return true;
+    return false;
+  }, [needsUpdateHighlightEnabled, needsUpdateServiceListingIds, placementServiceListingId, placement?.metadata?.serviceListingId, placement?.serviceListing]);
 
   const outlineColor = useMemo(() => {
-    // Outline highlight should ONLY appear when the toggle is enabled.
-    if (!bookingHighlightEnabled) return null;
+    // Outline highlight should ONLY appear when a highlight toggle is enabled.
+    if (!bookingHighlightEnabled && !needsUpdateHighlightEnabled) return null;
+
+    // Package designer "needs update" highlight has priority.
+    if (needsUpdateHighlightEnabled) {
+      return needsUpdate ? '#ef4444' : null;
+    }
+
+    // Project booking-status highlight
     if (availabilityState === 'unavailable') return UNAVAILABLE_COLOR;
     if (isSelected) return '#f5b7b1';
     if (bookingStatus) return BOOKING_STATUS_COLORS[bookingStatus] || '#a78bfa';
-    // faint outline for unbooked/unmapped
     return '#94a3b8';
-  }, [availabilityState, bookingHighlightEnabled, bookingStatus, isSelected]);
+  }, [availabilityState, bookingHighlightEnabled, bookingStatus, isSelected, needsUpdateHighlightEnabled, needsUpdate]);
 
   const bookingStatusLabel = useMemo(() => {
     if (!bookingStatus) return 'Not booked';
@@ -361,6 +385,8 @@ const PlacedElement = ({
       placement?.designElement?.name?.toLowerCase().includes('table')
     );
   }, [placement]);
+
+  const canReplaceInPackageDesigner = mode === 'package' && Boolean(placement?.metadata?.serviceListingId);
 
 
   useEffect(() => {
@@ -747,7 +773,8 @@ const PlacedElement = ({
       </group>
 
       {/* When booking highlight is enabled, we use an outline around the model instead of the base circle. */}
-      {!bookingHighlightEnabled && (
+      {/* When any outline highlight is enabled, we use the outline instead of the base circle. */}
+      {!(bookingHighlightEnabled || needsUpdateHighlightEnabled) && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
           <circleGeometry args={[0.9, 32]} />
           <meshBasicMaterial color={ringStyle.color} opacity={ringStyle.opacity} transparent />
@@ -851,6 +878,18 @@ const PlacedElement = ({
                     Duplicate
                   </button>
                 )}
+                {canReplaceInPackageDesigner && onStartReplace && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onStartReplace(placement, placement.metadata?.bundleId ? 'bundle' : 'single');
+                      onClose?.();
+                    }}
+                    aria-label="Replace service from catalog"
+                  >
+                    Replace
+                  </button>
+                )}
                 {removable && (
                   <button onClick={(e) => { e.stopPropagation(); onDelete?.(placement.id); }} aria-label="Delete placement">
                     Delete
@@ -912,6 +951,9 @@ PlacedElement.propTypes = {
   onUpdateOtherSelected: PropTypes.func,
   onInitializeDragSession: PropTypes.func,
   bookingHighlightEnabled: PropTypes.bool,
+  needsUpdateHighlightEnabled: PropTypes.bool,
+  needsUpdateServiceListingIds: PropTypes.arrayOf(PropTypes.string),
+  onStartReplace: PropTypes.func,
 };
 
 export default PlacedElement;

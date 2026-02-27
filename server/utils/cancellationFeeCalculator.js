@@ -21,11 +21,11 @@ function calculateCancellationFee(serviceListing, reservedDate, totalBookingAmou
 
   // Default fee tiers if not set
   const defaultTiers = {
-    '>90': 0.0,     // No fee if cancelled >90 days before
-    '60-90': 0.30,  // At least equal to deposit (30%)
+    '>90': 0.0,    
+    '60-90': 0.30, 
     '30-59': 0.50,
     '7-29': 0.70,
-    '<7': 1.0,      // 100% within 7 days
+    '<7': 1.0,      
   };
 
   // Get fee tiers from service listing or use defaults
@@ -75,7 +75,7 @@ function calculateCancellationFee(serviceListing, reservedDate, totalBookingAmou
   } else if (daysUntilWedding >= 0) {
     feePercentage = normalizedTiers['<7'];
   } else {
-    // Wedding date has passed - no fee (shouldn't happen, but handle gracefully)
+    // Wedding date has passed - no fee 
     feePercentage = 0;
   }
 
@@ -84,7 +84,7 @@ function calculateCancellationFee(serviceListing, reservedDate, totalBookingAmou
 
   return {
     feePercentage,
-    feeAmount: Math.round(feeAmount * 100) / 100, // Round to 2 decimal places
+    feeAmount: Math.round(feeAmount * 100) / 100, 
     daysUntilWedding,
     tier: daysUntilWedding > 90 ? '>90' : 
           daysUntilWedding >= 60 ? '60-90' : 
@@ -124,9 +124,6 @@ function calculateCancellationFeeAndPayment(booking, serviceListing) {
   // Calculate amount already paid
   const amountPaid = calculateAmountPaid(booking.payments);
 
-  // Special case: If booking is pending_vendor_confirmation or pending_deposit_payment with no payment,
-  // there should be no cancellation fee (no penalty)
-  // Vendor hasn't confirmed yet, so no commitment has been made
   if (
     booking.status === 'pending_vendor_confirmation' ||
     (booking.status === 'pending_deposit_payment' && amountPaid === 0)
@@ -167,9 +164,6 @@ function calculateCancellationFeeAndPayment(booking, serviceListing) {
     totalBookingAmount
   );
 
-  // Calculate fee difference (Option B: fee deducted from paid amount)
-  // If fee > amountPaid, couple needs to pay the difference
-  // If fee <= amountPaid, no additional payment needed
   const feeDifference = feeAmount - amountPaid;
   const requiresPayment = feeDifference > 0;
 
@@ -177,7 +171,7 @@ function calculateCancellationFeeAndPayment(booking, serviceListing) {
     feeAmount,
     feePercentage,
     amountPaid,
-    feeDifference: Math.max(0, feeDifference), // Don't return negative
+    feeDifference: Math.max(0, feeDifference), 
     requiresPayment,
     daysUntilWedding,
     tier,

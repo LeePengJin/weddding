@@ -37,6 +37,7 @@ const packageItemSchema = z
     maxPrice: numericField.optional().nullable(),
     replacementTags: z.array(z.string().min(1).max(30)).max(6, 'Maximum 6 replacement tags').optional().default([]),
     notes: z.string().max(500).optional().nullable(),
+    serviceListingSnapshot: z.any().optional().nullable(),
   })
   .refine(
     (data) => {
@@ -54,7 +55,7 @@ const packagePayloadSchema = z.object({
   previewImage: z.string().url('Preview image must be a valid URL').optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
   venueServiceListingId: z.string().uuid('Invalid venue ID').optional().nullable(),
-  items: z.array(packageItemSchema), // Allow empty array - items come from 3D design automatically
+  items: z.array(packageItemSchema), 
 });
 
 const packageStatusSchema = z.object({
@@ -64,18 +65,15 @@ const packageStatusSchema = z.object({
 });
 
 async function buildPackageItemWriteData(item) {
-  const snapshot = item.serviceListingId ? await getListingSnapshot(prisma, item.serviceListingId) : null;
-
-  if (item.serviceListingId && !snapshot) {
-    const error = new Error('Service listing not found');
-    error.status = 404;
-    throw error;
-  }
+  let snapshotFromDb = false;
+  let snapshot = item.serviceListingId ? await getListingSnapshot(prisma, item.serviceListingId) : null;
+  if (snapshot) snapshotFromDb = true;
+  if (!snapshot) snapshot = item.serviceListingSnapshot || (item.serviceListingId ? { id: item.serviceListingId } : null);
 
   return {
     label: item.label,
     category: item.category,
-    serviceListingId: item.serviceListingId || null,
+    serviceListingId: snapshotFromDb ? item.serviceListingId : null,
     isRequired: item.isRequired ?? true,
     minPrice: item.minPrice ?? null,
     maxPrice: item.maxPrice ?? null,
@@ -366,7 +364,6 @@ router.post('/accounts/:userId/block', requireAdmin, async (req, res, next) => {
       return res.status(400).json({ error: 'Account is already blocked' });
     }
 
-    // Update user status to blocked
     const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
@@ -385,7 +382,14 @@ router.post('/accounts/:userId/block', requireAdmin, async (req, res, next) => {
       },
     });
 
-    // Send email notification
+    if (user.role === 'vendor') {
+      try {
+        await flagPackagesForVendor(prisma, userId);
+      } catch (pkgErr) {
+        console.warn('[admin.routes] Failed to flag packages for vendor (block)', { userId, err: pkgErr?.message });
+      }
+    }
+
     const emailSubject = 'Account Blocked - Weddding Platform';
     const emailBody = `Dear ${user.name || 'User'},
 
@@ -398,10 +402,10 @@ If you believe this is an error, please contact our support team for assistance.
 Best regards,
 Weddding Platform Team`;
 
-    await sendEmail(user.email, emailSubject, emailBody);
-
-    if (user.role === 'vendor') {
-      await flagPackagesForVendor(prisma, userId);
+    try {
+      await sendEmail(user.email, emailSubject, emailBody);
+    } catch (mailErr) {
+      console.warn('[admin.routes] Failed to send block email', { userId, email: user.email, err: mailErr?.message });
     }
 
     res.json({ ok: true, user: updatedUser });
@@ -410,6 +414,163 @@ Weddding Platform Team`;
       return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input', issues: err.issues });
     }
     next(err);
+  }
+});
+
+// Deactivate account (set status to inactive)
+router.post('/accounts/:userId/deactivate', requireAdmin, async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const schema = z.object({
+      reason: z.string().min(1, 'Reason is required').max(1000, 'Reason must be less than 1000 characters'),
+    });
+    const { reason } = schema.parse(req.body || {});
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    if (user.status === 'inactive') {
+      return res.status(400).json({ error: 'Account is already inactive' });
+    }
+
+    if (user.status === 'blocked') {
+      return res.status(400).json({ error: 'Account is blocked. Unblock the account instead.' });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        status: 'inactive',
+        blockReason: reason,
+        blockedAt: new Date(),
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+        blockReason: true,
+        blockedAt: true,
+      },
+    });
+
+    if (user.role === 'vendor') {
+      try {
+        await flagPackagesForVendor(prisma, userId);
+      } catch (pkgErr) {
+        console.warn('[admin.routes] Failed to flag packages for vendor (deactivate)', { userId, err: pkgErr?.message });
+      }
+    }
+
+    const emailSubject = 'Account Deactivated - Weddding Platform';
+    const emailBody = `Dear ${user.name || 'User'},
+
+Your account on the Weddding platform has been deactivated by an administrator.
+
+Reason: ${reason}
+
+If you believe this is an error, please contact our support team for assistance.
+
+Best regards,
+Weddding Platform Team`;
+
+    try {
+      await sendEmail(user.email, emailSubject, emailBody);
+    } catch (mailErr) {
+      console.warn('[admin.routes] Failed to send deactivate email', { userId, email: user.email, err: mailErr?.message });
+    }
+
+    return res.json({ ok: true, user: updatedUser });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input', issues: err.issues });
+    }
+    return next(err);
+  }
+});
+
+// Activate account 
+router.post('/accounts/:userId/activate', requireAdmin, async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'Account not found' });
+    }
+
+    if (user.status !== 'inactive') {
+      return res.status(400).json({ error: 'Account is not inactive' });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        status: 'active',
+        blockReason: null,
+        blockedAt: null,
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+        blockReason: true,
+        blockedAt: true,
+      },
+    });
+
+    if (user.role === 'vendor') {
+      try {
+        await revalidatePackagesForVendor(prisma, userId);
+      } catch (pkgErr) {
+        console.warn('[admin.routes] Failed to revalidate packages for vendor (activate)', { userId, err: pkgErr?.message });
+      }
+    }
+
+    const emailSubject = 'Account Activated - Weddding Platform';
+    const emailBody = `Dear ${user.name || 'User'},
+
+Your account on the Weddding platform has been reactivated. You can now log in again.
+
+If you have any questions, please contact our support team.
+
+Best regards,
+Weddding Platform Team`;
+
+    try {
+      await sendEmail(user.email, emailSubject, emailBody);
+    } catch (mailErr) {
+      console.warn('[admin.routes] Failed to send activate email', { userId, email: user.email, err: mailErr?.message });
+    }
+
+    return res.json({ ok: true, user: updatedUser });
+  } catch (err) {
+    return next(err);
   }
 });
 
@@ -456,7 +617,14 @@ router.post('/accounts/:userId/unblock', requireAdmin, async (req, res, next) =>
       },
     });
 
-    // Send email notification
+    if (user.role === 'vendor') {
+      try {
+        await revalidatePackagesForVendor(prisma, userId);
+      } catch (pkgErr) {
+        console.warn('[admin.routes] Failed to revalidate packages for vendor (unblock)', { userId, err: pkgErr?.message });
+      }
+    }
+
     const emailSubject = 'Account Unblocked - Weddding Platform';
     const emailBody = `Dear ${user.name || 'User'},
 
@@ -467,10 +635,10 @@ If you have any questions, please contact our support team.
 Best regards,
 Weddding Platform Team`;
 
-    await sendEmail(user.email, emailSubject, emailBody);
-
-    if (user.role === 'vendor') {
-      await revalidatePackagesForVendor(prisma, userId);
+    try {
+      await sendEmail(user.email, emailSubject, emailBody);
+    } catch (mailErr) {
+      console.warn('[admin.routes] Failed to send unblock email', { userId, email: user.email, err: mailErr?.message });
     }
 
     res.json({ ok: true, user: updatedUser });
@@ -627,7 +795,6 @@ router.post('/packages', requireAdmin, async (req, res, next) => {
 
     const itemsData = [];
     for (const item of payload.items) {
-      // eslint-disable-next-line no-await-in-loop
       itemsData.push(await buildPackageItemWriteData(item));
     }
 
@@ -646,7 +813,6 @@ router.post('/packages', requireAdmin, async (req, res, next) => {
       include: PACKAGE_INCLUDE,
     });
 
-    // Create PackageDesign with venue if provided
     if (payload.venueServiceListingId) {
       // Verify venue exists and has 3D model
       const venue = await prisma.serviceListing.findUnique({
@@ -730,7 +896,6 @@ router.put('/packages/:packageId', requireAdmin, async (req, res, next) => {
 
     const itemsData = [];
     for (const item of payload.items) {
-      // eslint-disable-next-line no-await-in-loop
       itemsData.push({ input: item, data: await buildPackageItemWriteData(item) });
     }
 
@@ -744,9 +909,7 @@ router.put('/packages/:packageId', requireAdmin, async (req, res, next) => {
       },
     });
 
-    // Update PackageDesign venue if provided
     if (payload.venueServiceListingId !== undefined) {
-      // Verify venue exists and has 3D model if provided
       if (payload.venueServiceListingId) {
         const venue = await prisma.serviceListing.findUnique({
           where: { id: payload.venueServiceListingId },
@@ -765,7 +928,6 @@ router.put('/packages/:packageId', requireAdmin, async (req, res, next) => {
           return res.status(400).json({ error: 'Selected venue does not have a 3D model' });
         }
 
-        // Get or create PackageDesign
         const existingDesign = await prisma.packageDesign.findUnique({
           where: { packageId },
         });
@@ -804,7 +966,6 @@ router.put('/packages/:packageId', requireAdmin, async (req, res, next) => {
           });
         }
       } else {
-        // Remove venue (set to null)
         await prisma.packageDesign.updateMany({
           where: { packageId },
           data: {
@@ -830,13 +991,11 @@ router.put('/packages/:packageId', requireAdmin, async (req, res, next) => {
 
     for (const item of itemsData) {
       if (item.input.id) {
-        // eslint-disable-next-line no-await-in-loop
         await prisma.weddingPackageItem.update({
           where: { id: item.input.id },
           data: item.data,
         });
       } else {
-        // eslint-disable-next-line no-await-in-loop
         await prisma.weddingPackageItem.create({
           data: {
             ...item.data,
@@ -846,7 +1005,6 @@ router.put('/packages/:packageId', requireAdmin, async (req, res, next) => {
       }
     }
 
-    // Only validate if package is not archived (archived packages shouldn't be re-validated)
     const currentPackage = await prisma.weddingPackage.findUnique({
       where: { id: packageId },
       select: { status: true },
@@ -927,12 +1085,189 @@ router.patch('/packages/:packageId/status', requireAdmin, async (req, res, next)
     next(err);
   }
 });
+
+// Find alternative service listings for a package item (used when a listing becomes unavailable)
+router.get('/packages/:packageId/items/:itemId/alternatives', requireAdmin, async (req, res, next) => {
+  try {
+    const { packageId, itemId } = req.params;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 12, 5), 50);
+
+    const item = await prisma.weddingPackageItem.findFirst({
+      where: { id: itemId, packageId },
+      include: {
+        serviceListing: {
+          include: {
+            vendor: { include: { user: true } },
+          },
+        },
+      },
+    });
+
+    if (!item) {
+      return res.status(404).json({ error: 'Package item not found' });
+    }
+
+    const snapshot = item.serviceListingSnapshot || null;
+    const replacementTags = Array.isArray(item.replacementTags) ? item.replacementTags.filter(Boolean) : [];
+    const requires3D = Boolean(item.serviceListing?.has3DModel ?? snapshot?.has3DModel);
+
+    const where = {
+      isActive: true,
+      category: item.category,
+      vendor: {
+        user: {
+          status: 'active',
+        },
+      },
+    };
+
+    if (item.minPrice !== null && item.minPrice !== undefined) {
+      where.price = { ...(where.price || {}), gte: item.minPrice };
+    }
+    if (item.maxPrice !== null && item.maxPrice !== undefined) {
+      where.price = { ...(where.price || {}), lte: item.maxPrice };
+    }
+
+    if (item.serviceListingId) {
+      where.id = { not: item.serviceListingId };
+    }
+
+    if (requires3D) {
+      where.OR = [
+        { designElementId: { not: null } },
+        { components: { some: { designElementId: { not: null } } } },
+      ];
+    }
+
+    const tagOr = [];
+    replacementTags.forEach((tag) => {
+      tagOr.push({ name: { contains: tag, mode: 'insensitive' } });
+      tagOr.push({ description: { contains: tag, mode: 'insensitive' } });
+      tagOr.push({ customCategory: { contains: tag, mode: 'insensitive' } });
+    });
+
+    // Combine tag query with existing OR (3D filter) if both exist.
+    if (tagOr.length) {
+      const existingOr = where.OR ? [...where.OR] : [];
+      where.AND = [
+        ...(where.AND || []),
+        { OR: tagOr },
+      ];
+      // keep existing OR as-is
+      if (existingOr.length) where.OR = existingOr;
+    }
+
+    const alternatives = await prisma.serviceListing.findMany({
+      where,
+      take: limit,
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        vendor: { include: { user: true } },
+      },
+    });
+
+    res.json({
+      data: alternatives.map((l) => ({
+        id: l.id,
+        name: l.name,
+        description: l.description,
+        category: l.category,
+        customCategory: l.customCategory,
+        price: l.price ? l.price.toString() : null,
+        has3DModel: Boolean(l.has3DModel),
+        images: l.images || [],
+        vendorName: l.vendor?.user?.name || null,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Alternatives search for UNSAVED items (no weddingPackageItem id yet)
+router.post('/service-listings/alternatives', requireAdmin, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      category: z.nativeEnum(VendorCategory),
+      minPrice: numericField.optional().nullable(),
+      maxPrice: numericField.optional().nullable(),
+      replacementTags: z.array(z.string()).optional().default([]),
+      requires3D: z.boolean().optional().default(false),
+      excludeListingId: z.string().uuid().optional().nullable(),
+      limit: z.number().int().min(5).max(50).optional().default(12),
+    });
+    const payload = schema.parse(req.body || {});
+
+    const where = {
+      isActive: true,
+      category: payload.category,
+      vendor: { user: { status: 'active' } },
+    };
+
+    if (payload.minPrice !== null && payload.minPrice !== undefined) {
+      where.price = { ...(where.price || {}), gte: payload.minPrice };
+    }
+    if (payload.maxPrice !== null && payload.maxPrice !== undefined) {
+      where.price = { ...(where.price || {}), lte: payload.maxPrice };
+    }
+    if (payload.excludeListingId) {
+      where.id = { not: payload.excludeListingId };
+    }
+
+    if (payload.requires3D) {
+      where.OR = [
+        { designElementId: { not: null } },
+        { components: { some: { designElementId: { not: null } } } },
+      ];
+    }
+
+    const tags = (payload.replacementTags || []).map((t) => String(t).trim()).filter(Boolean).slice(0, 8);
+    if (tags.length) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: tags.flatMap((tag) => [
+            { name: { contains: tag, mode: 'insensitive' } },
+            { description: { contains: tag, mode: 'insensitive' } },
+            { customCategory: { contains: tag, mode: 'insensitive' } },
+          ]),
+        },
+      ];
+    }
+
+    const alternatives = await prisma.serviceListing.findMany({
+      where,
+      take: payload.limit,
+      orderBy: { updatedAt: 'desc' },
+      include: { vendor: { include: { user: true } } },
+    });
+
+    res.json({
+      data: alternatives.map((l) => ({
+        id: l.id,
+        name: l.name,
+        description: l.description,
+        category: l.category,
+        customCategory: l.customCategory,
+        price: l.price ? l.price.toString() : null,
+        has3DModel: Boolean(l.has3DModel),
+        images: l.images || [],
+        vendorName: l.vendor?.user?.name || null,
+      })),
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: err.issues[0]?.message || 'Invalid input', issues: err.issues });
+    }
+    next(err);
+  }
+});
 // ------------------------------------------------------------
 
 // Get all vendor payments (for admin to manage)
 router.get('/vendor-payments', requireAdmin, async (req, res, next) => {
   try {
-    const { status } = req.query; // 'pending' (not released) or 'released'
+    const { status } = req.query; 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -1132,7 +1467,7 @@ Weddding Platform Team`;
   }
 });
 
-// GET /admin/cancellations - Get all cancellations with refund information
+// Get all cancellations with refund information
 router.get('/cancellations', requireAdmin, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -1199,7 +1534,7 @@ router.get('/cancellations', requireAdmin, async (req, res, next) => {
   }
 });
 
-// PATCH /admin/cancellations/:id - Update refund information for a cancellation
+// Update refund information for a cancellation
 const updateRefundSchema = z.object({
   refundStatus: z.enum(['not_applicable', 'pending', 'processed']).optional(),
   refundMethod: z.string().max(500).optional().nullable(),

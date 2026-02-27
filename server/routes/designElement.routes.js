@@ -68,7 +68,6 @@ router.get('/', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    // Get all design elements owned by this vendor
     const designElements = await prisma.designElement.findMany({
       where: { vendorId: req.user.sub },
       orderBy: { name: 'asc' },
@@ -129,7 +128,6 @@ router.post('/', requireAuth, async (req, res, next) => {
 
         res.status(201).json(designElement);
       } catch (dbErr) {
-        // Delete uploaded file if database operation fails
         if (req.file && fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
         }
@@ -159,7 +157,6 @@ router.get('/:id', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Design element not found' });
     }
 
-    // Check if design element belongs to vendor
     if (designElement.vendorId !== req.user.sub) {
       return res.status(404).json({ error: 'Design element not found' });
     }
@@ -177,7 +174,6 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    // Check if design element exists and belongs to vendor
     const existingElement = await prisma.designElement.findUnique({
       where: { id: req.params.id },
     });
@@ -235,7 +231,6 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Design element not found' });
     }
 
-    // Check if design element belongs to vendor
     if (existingElement.vendorId !== req.user.sub) {
       return res.status(404).json({ error: 'Design element not found' });
     }
@@ -254,7 +249,6 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
       try {
         const modelPath = `/uploads/models3d/${req.file.filename}`;
 
-        // Delete old file if exists
         if (existingElement.modelFile) {
           const oldPath = path.join(__dirname, '..', existingElement.modelFile);
           if (fs.existsSync(oldPath)) {
@@ -283,7 +277,6 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
 
         res.json(designElement);
       } catch (dbErr) {
-        // Delete uploaded file if database operation fails
         if (req.file && fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
         }
@@ -310,13 +303,10 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Design element not found' });
     }
 
-    // Check if design element belongs to vendor
     if (designElement.vendorId !== req.user.sub) {
       return res.status(404).json({ error: 'Design element not found' });
     }
 
-    // Check if design element is used in venue design placements (these will be deleted)
-    // Service listings and components will have their designElementId set to null, so we don't need to block deletion
     const usedInPlacements = await prisma.placedElement.count({
       where: { designElementId: req.params.id },
     });
@@ -327,7 +317,6 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
       });
     }
 
-    // Delete file
     if (designElement.modelFile) {
       const filePath = path.join(__dirname, '..', designElement.modelFile);
       if (fs.existsSync(filePath)) {

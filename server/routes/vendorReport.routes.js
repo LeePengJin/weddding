@@ -20,7 +20,7 @@ function groupByDate(date, granularity) {
     return d.toISOString().split('T')[0]; // YYYY-MM-DD
   } else if (granularity === 'weekly') {
     const weekStart = new Date(d);
-    weekStart.setDate(d.getDate() - d.getDay()); // Start of week (Sunday)
+    weekStart.setDate(d.getDate() - d.getDay()); 
     return weekStart.toISOString().split('T')[0];
   } else if (granularity === 'monthly') {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM

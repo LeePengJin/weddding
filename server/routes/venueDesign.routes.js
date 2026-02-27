@@ -288,14 +288,12 @@ async function checkProjectCanBeModified(projectId, coupleId) {
     throw error;
   }
 
-  // Check if project is completed
   if (project.status === 'completed') {
     const error = new Error('Completed projects cannot be modified');
     error.statusCode = 403;
     throw error;
   }
 
-  // Check if wedding date has passed
   if (project.weddingDate) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1623,7 +1621,7 @@ router.get('/:projectId', requireAuth, async (req, res, next) => {
       venue: venueListing
         ? {
             id: venueListing.id,
-            listingId: venueListing.id, // Keep for backward compatibility
+            listingId: venueListing.id, 
             name: venueListing.name,
             description: venueListing.description,
             category: venueListing.category,

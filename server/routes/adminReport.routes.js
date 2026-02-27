@@ -12,10 +12,10 @@ function groupByDate(date, granularity) {
     return d.toISOString().split('T')[0]; // YYYY-MM-DD
   } else if (granularity === 'weekly') {
     const weekStart = new Date(d);
-    weekStart.setDate(d.getDate() - d.getDay()); // Start of week (Sunday)
+    weekStart.setDate(d.getDate() - d.getDay()); 
     return weekStart.toISOString().split('T')[0];
   } else if (granularity === 'monthly') {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }
   return d.toISOString().split('T')[0];
 }
@@ -400,7 +400,6 @@ router.get('/top-vendors-by-revenue', requireAdmin, async (req, res, next) => {
       return res.status(400).json({ error: 'startDate and endDate are required' });
     }
 
-    // First, get all bookings in the date range to identify all vendors
     const bookings = await prisma.booking.findMany({
       where: {
         bookingDate: {
@@ -423,7 +422,6 @@ router.get('/top-vendors-by-revenue', requireAdmin, async (req, res, next) => {
       },
     });
 
-    // Initialize vendor data with all vendors who have bookings
     const vendorRevenue = {};
     bookings.forEach(booking => {
       const vendorId = booking.vendorId;
@@ -434,7 +432,6 @@ router.get('/top-vendors-by-revenue', requireAdmin, async (req, res, next) => {
       vendorRevenue[vendorId].bookings += 1;
     });
 
-    // Then, get all payments and add revenue
     const payments = await prisma.payment.findMany({
       where: {
         paymentDate: {

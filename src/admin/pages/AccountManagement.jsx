@@ -70,11 +70,11 @@ export default function AccountManagement() {
   const fetchAccounts = async () => {
     try {
       setLoading(true);
-      const response = await apiFetch(`/admin/accounts?role=${accountType}&page=${page + 1}&limit=${rowsPerPage}`);
+      // Fetch a large batch and do client-side search/sort/pagination so the UI reflects status changes immediately.
+      const response = await apiFetch(`/admin/accounts?role=${accountType}&page=1&limit=5000`);
       if (response.data) {
         setAccounts(response.data || []);
       } else {
-        // Backward compatibility
         setAccounts(response || []);
       }
       setError('');
@@ -86,10 +86,9 @@ export default function AccountManagement() {
   };
 
   useEffect(() => {
-    if (page >= 0) {
-      fetchAccounts();
-    }
-  }, [page, rowsPerPage, accountType]);
+    setPage(0);
+    fetchAccounts();
+  }, [accountType]);
 
   const handleSort = (field) => {
     if (sortBy === field) {
@@ -197,13 +196,38 @@ export default function AccountManagement() {
     setBlockDialogOpen(true);
   };
 
-  const handleUnblockClick = async (account) => {
+  const handleActivateClick = async (account) => {
     try {
-      await apiFetch(`/admin/accounts/${account.id}/unblock`, {
+      const result = await apiFetch(`/admin/accounts/${account.id}/activate`, {
         method: 'POST',
       });
+      const updatedUser = result?.user || result;
+      if (updatedUser?.id) {
+        setAccounts((prev) => prev.map((u) => (u.id === updatedUser.id ? { ...u, ...updatedUser } : u)));
+        setSelectedAccount((prev) => (prev?.id === updatedUser.id ? { ...prev, ...updatedUser } : prev));
+      } else {
+        await fetchAccounts();
+      }
+      setSuccess(`Account for ${account.name || account.email} has been activated.`);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.message || 'Failed to activate account');
+    }
+  };
+
+  const handleUnblockClick = async (account) => {
+    try {
+      const result = await apiFetch(`/admin/accounts/${account.id}/unblock`, {
+        method: 'POST',
+      });
+      const updatedUser = result?.user || result;
+      if (updatedUser?.id) {
+        setAccounts((prev) => prev.map((u) => (u.id === updatedUser.id ? { ...u, ...updatedUser } : u)));
+        setSelectedAccount((prev) => (prev?.id === updatedUser.id ? { ...prev, ...updatedUser } : prev));
+      } else {
+        await fetchAccounts();
+      }
       setSuccess(`Account for ${account.name || account.email} has been unblocked.`);
-      await fetchAccounts();
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message || 'Failed to unblock account');
@@ -222,18 +246,24 @@ export default function AccountManagement() {
     }
 
     try {
-      await apiFetch(`/admin/accounts/${selectedAccount.id}/block`, {
+      const result = await apiFetch(`/admin/accounts/${selectedAccount.id}/deactivate`, {
         method: 'POST',
         body: JSON.stringify({ reason: blockReason.trim() }),
       });
-      setSuccess(`Account for ${selectedAccount.name || selectedAccount.email} has been blocked.`);
+      const updatedUser = result?.user || result;
+      if (updatedUser?.id) {
+        setAccounts((prev) => prev.map((u) => (u.id === updatedUser.id ? { ...u, ...updatedUser } : u)));
+        setSelectedAccount((prev) => (prev?.id === updatedUser.id ? { ...prev, ...updatedUser } : prev));
+      } else {
+        await fetchAccounts();
+      }
+      setSuccess(`Account for ${selectedAccount.name || selectedAccount.email} has been set to inactive.`);
       setBlockDialogOpen(false);
       setBlockReason('');
       setBlockReasonError('');
-      await fetchAccounts();
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to block account');
+      setError(err.message || 'Failed to set account inactive');
     }
   };
 
@@ -386,7 +416,7 @@ export default function AccountManagement() {
                         size="small"
                         color={getStatusColor(account.status)}
                       />
-                      {account.status === 'blocked' && account.blockReason && (
+                      {(account.status === 'blocked' || account.status === 'inactive') && account.blockReason && (
                         <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
                           Reason: {account.blockReason}
                         </Typography>
@@ -411,12 +441,21 @@ export default function AccountManagement() {
                           >
                             <CheckCircleIcon fontSize="small" />
                           </IconButton>
+                        ) : account.status === 'inactive' ? (
+                          <IconButton
+                            size="small"
+                            color="success"
+                            onClick={() => handleActivateClick(account)}
+                            title="Activate Account"
+                          >
+                            <CheckCircleIcon fontSize="small" />
+                          </IconButton>
                         ) : (
                           <IconButton
                             size="small"
                             color="error"
                             onClick={() => handleBlockClick(account)}
-                            title="Block Account"
+                            title="Set Account Inactive"
                           >
                             <BlockIcon fontSize="small" />
                           </IconButton>
@@ -543,12 +582,12 @@ export default function AccountManagement() {
                 </>
               )}
 
-              {selectedAccount.status === 'blocked' && (
+              {(selectedAccount.status === 'blocked' || selectedAccount.status === 'inactive') && (
                 <>
                   <Divider sx={{ my: 2 }} />
                   <Box>
                     <Typography variant="subtitle2" color="error" gutterBottom>
-                      Block Information
+                      Status Information
                     </Typography>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                       {selectedAccount.blockReason && (
@@ -563,7 +602,7 @@ export default function AccountManagement() {
                       )}
                       {selectedAccount.blockedAt && (
                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <Typography variant="body2">Blocked At:</Typography>
+                          <Typography variant="body2">Changed At:</Typography>
                           <Typography variant="body2" sx={{ fontWeight: 500 }}>
                             {new Date(selectedAccount.blockedAt).toLocaleString()}
                           </Typography>
@@ -581,11 +620,11 @@ export default function AccountManagement() {
         </DialogActions>
       </Dialog>
 
-      {/* Block Account Dialog */}
+      {/* Set Inactive Dialog */}
       <Dialog open={blockDialogOpen} onClose={() => setBlockDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" component="div">
-            Block Account
+            Set Account Inactive
           </Typography>
           <IconButton
             aria-label="close"
@@ -604,15 +643,15 @@ export default function AccountManagement() {
           {selectedAccount && (
             <Box sx={{ pt: 2 }}>
               <Alert severity="warning" sx={{ mb: 2 }}>
-                You are about to block the account for <strong>{selectedAccount.name || selectedAccount.email}</strong>.
-                They will not be able to log in until the account is unblocked.
+                You are about to set the account for <strong>{selectedAccount.name || selectedAccount.email}</strong> to <b>Inactive</b>.
+                They will not be able to log in until the account is activated again.
               </Alert>
               <TextField
                 fullWidth
                 multiline
                 rows={4}
-                label="Reason for Blocking"
-                placeholder="Please provide a reason for blocking this account. This reason will be sent to the user via email."
+                label="Reason for Inactivation"
+                placeholder="Please provide a reason for setting this account inactive. This reason will be sent to the user via email."
                 value={blockReason}
                 onChange={(e) => {
                   setBlockReason(e.target.value);
@@ -634,7 +673,7 @@ export default function AccountManagement() {
             onClick={handleBlockConfirm}
             disabled={!blockReason.trim()}
           >
-            Block Account
+            Set Inactive
           </Button>
         </DialogActions>
       </Dialog>

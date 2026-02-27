@@ -59,7 +59,6 @@ router.get('/:packageId/preview', async (req, res, next) => {
       return res.status(404).json({ error: 'Package not found' });
     }
 
-    // Fetch design with full relations for preview
     const design = await prisma.packageDesign.findUnique({
       where: { packageId: pkg.id },
       include: {
@@ -87,7 +86,6 @@ router.get('/:packageId/preview', async (req, res, next) => {
     });
 
     if (!design) {
-      // Create default design if it doesn't exist
       const defaultDesign = await ensurePackageDesign(prisma, pkg.id);
       const layoutData = defaultDesign.layoutData || buildDefaultLayoutData();
       return res.json({
@@ -116,7 +114,6 @@ router.get('/:packageId/preview', async (req, res, next) => {
     const layoutData = design.layoutData || buildDefaultLayoutData();
     const placementsMeta = layoutData.placementsMeta || {};
 
-    // Fetch venue info if venueServiceListingId exists
     let venueInfo = null;
     if (design.venueServiceListingId) {
       const venueListing = await prisma.serviceListing.findUnique({

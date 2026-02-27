@@ -27,7 +27,6 @@ router.get('/', requireAuth, async (req, res, next) => {
     let conversations;
 
     if (userRole === 'couple') {
-      // Get conversations where user is the couple
       conversations = await prisma.conversation.findMany({
         where: { coupleId: userId },
         include: {
@@ -59,7 +58,6 @@ router.get('/', requireAuth, async (req, res, next) => {
         orderBy: { updatedAt: 'desc' },
       });
     } else if (userRole === 'vendor') {
-      // Get conversations where user is the vendor
       conversations = await prisma.conversation.findMany({
         where: { vendorId: userId },
         include: {
@@ -94,7 +92,6 @@ router.get('/', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Invalid user role' });
     }
 
-    // Transform conversations to include participant info and unread count
     const transformedConversations = await Promise.all(
       conversations.map(async (conv) => {
         const participant =
@@ -114,10 +111,8 @@ router.get('/', requireAuth, async (req, res, next) => {
                 type: 'couple',
               };
 
-        // Count unread messages (messages sent by the other party after last read time)
         const lastReadAt = userRole === 'couple' ? conv.coupleLastReadAt : conv.vendorLastReadAt;
-        
-        // If never read, use conversation creation time
+
         const readThreshold = lastReadAt || conv.createdAt;
 
         const unreadCount = await prisma.message.count({
@@ -163,7 +158,6 @@ router.get('/:conversationId/messages', requireAuth, async (req, res, next) => {
     const userId = req.user.sub;
     const { conversationId } = req.params;
 
-    // Verify user has access to this conversation
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
     });
@@ -189,7 +183,6 @@ router.get('/:conversationId/messages', requireAuth, async (req, res, next) => {
       orderBy: { timestamp: 'asc' },
     });
 
-    // Mark conversation as read for the current user
     const userRole = req.user.role;
     const updateData = {};
     if (userRole === 'couple') {
@@ -203,11 +196,6 @@ router.get('/:conversationId/messages', requireAuth, async (req, res, next) => {
         where: { id: conversationId },
         data: updateData,
       });
-
-      // Note: We don't emit WebSocket event here because:
-      // 1. The frontend will refresh conversations after fetching messages
-      // 2. The Navbar listens to 'conversation-read' custom event
-      // 3. This avoids excessive WebSocket events that cause performance issues
     }
 
     res.json(messages);
@@ -226,7 +214,6 @@ router.post('/:conversationId/messages', requireAuth, async (req, res, next) => 
     const { conversationId } = req.params;
     const { content } = createMessageSchema.parse(req.body);
 
-    // Verify user has access to this conversation
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
     });
@@ -239,7 +226,6 @@ router.post('/:conversationId/messages', requireAuth, async (req, res, next) => 
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Create message
     const message = await prisma.message.create({
       data: {
         conversationId,
@@ -256,27 +242,22 @@ router.post('/:conversationId/messages', requireAuth, async (req, res, next) => 
       },
     });
 
-    // Update conversation's updatedAt
     await prisma.conversation.update({
       where: { id: conversationId },
       data: { updatedAt: new Date() },
     });
 
-    // Emit WebSocket event to conversation participants
     const io = req.app.get('io');
     const emitNewMessage = req.app.get('emitNewMessage');
     const notifyNewMessage = req.app.get('notifyNewMessage');
 
     if (io && emitNewMessage) {
-      // Include conversationId in message for client
       const messageWithConversationId = {
         ...message,
         conversationId: conversationId,
       };
-      // Emit to all participants in the conversation room (including sender for instant update)
       emitNewMessage(conversationId, messageWithConversationId);
-      
-      // Also notify the other participant specifically (for unread badges)
+
       const otherUserId = conversation.coupleId === userId ? conversation.vendorId : conversation.coupleId;
       notifyNewMessage(otherUserId, conversationId, messageWithConversationId);
     }
@@ -306,7 +287,6 @@ router.post('/', requireAuth, async (req, res, next) => {
 
     const { vendorId } = createConversationSchema.parse(req.body);
 
-    // Check if vendor exists
     const vendor = await prisma.vendor.findUnique({
       where: { userId: vendorId },
       include: {
@@ -325,7 +305,6 @@ router.post('/', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Vendor not found' });
     }
 
-    // Find or create conversation
     let conversation = await prisma.conversation.findUnique({
       where: {
         coupleId_vendorId: {
@@ -344,7 +323,6 @@ router.post('/', requireAuth, async (req, res, next) => {
       });
     }
 
-    // Return conversation with participant info
     const fullConversation = await prisma.conversation.findUnique({
       where: { id: conversation.id },
       include: {
@@ -376,7 +354,6 @@ router.post('/', requireAuth, async (req, res, next) => {
       updatedAt: fullConversation.updatedAt,
     };
 
-    // Emit WebSocket event for new conversation
     const io = req.app.get('io');
     const emitConversationUpdate = req.app.get('emitConversationUpdate');
     if (io && emitConversationUpdate) {
@@ -419,10 +396,8 @@ router.get('/unread-count', requireAuth, async (req, res, next) => {
     let totalUnread = 0;
 
     for (const conv of conversations) {
-      // Count unread messages (messages sent by the other party after last read time)
       const lastReadAt = userRole === 'couple' ? conv.coupleLastReadAt : conv.vendorLastReadAt;
-      
-      // If never read, use conversation creation time
+
       const readThreshold = lastReadAt || conv.createdAt;
 
       const unreadCount = await prisma.message.count({

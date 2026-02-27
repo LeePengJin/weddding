@@ -70,8 +70,16 @@ const normalizeListingSummary = (listing) => {
   };
 };
 
-const buildItemsFromPlacements = (placements = []) => {
+const buildItemsFromPlacements = (placements = [], existingItems = []) => {
   const itemsByService = new Map();
+  const existingByServiceId = new Map();
+
+  (existingItems || []).forEach((it) => {
+    const sid = it?.serviceListingId || it?.listingSummary?.id || null;
+    if (sid && !existingByServiceId.has(sid)) {
+      existingByServiceId.set(sid, it);
+    }
+  });
 
   placements.forEach((placement) => {
     const serviceId = placement?.metadata?.serviceListingId || placement?.serviceListing?.id;
@@ -79,17 +87,21 @@ const buildItemsFromPlacements = (placements = []) => {
       return;
     }
     const summary = normalizeListingSummary(placement.serviceListing);
+    const existing = existingByServiceId.get(serviceId) || null;
     itemsByService.set(serviceId, {
       localId: `design-${serviceId}`,
-      id: null,
-      label: summary?.name || placement.designElement?.name || 'Service',
-      category: summary?.category || CATEGORY_OPTIONS[0].value,
+      // Preserve DB id if the item already exists in package items
+      id: existing?.id || null,
+      label: existing?.label || summary?.name || placement.designElement?.name || 'Service',
+      category: existing?.category || summary?.category || CATEGORY_OPTIONS[0].value,
       serviceListingId: serviceId,
-      isRequired: true,
-      minPrice: summary?.price || placement.metadata?.unitPrice || '',
-      maxPrice: '',
-      replacementTags: [],
-      listingSummary: summary,
+      isRequired: existing?.isRequired ?? true,
+      minPrice: existing?.minPrice ?? (summary?.price || placement.metadata?.unitPrice || ''),
+      maxPrice: existing?.maxPrice ?? '',
+      replacementTags: Array.isArray(existing?.replacementTags) ? existing.replacementTags : [],
+      listingSummary: summary || existing?.listingSummary || null,
+      // This item came from the 3D template (so treat it as "expects 3D" even if listing is missing).
+      expects3D: true,
     });
   });
 
@@ -160,6 +172,8 @@ const PackageManagement = () => {
   const [packageSearch, setPackageSearch] = useState('');
   const [orderBy, setOrderBy] = useState('updatedAt');
   const [orderDirection, setOrderDirection] = useState('desc');
+  const [originalStatus, setOriginalStatus] = useState('draft');
+  // NOTE: Alternatives are handled in the 3D package designer using the catalog + 3D preview.
 
   const closeSnackbar = () => setSnackbar({ open: false, message: '', severity: 'success' });
 
@@ -197,6 +211,7 @@ const PackageManagement = () => {
   const openCreateDrawer = async () => {
     setIsEditing(false);
     setFormState(defaultFormState);
+    setOriginalStatus('draft');
     setDrawerOpen(true);
     // Fetch available venues when opening create drawer
     await fetchAvailableVenues(null);
@@ -228,6 +243,7 @@ const PackageManagement = () => {
     setIsEditing(true);
     const mappedState = mapPackageToFormState(pkg);
     setFormState(mappedState);
+    setOriginalStatus(mappedState.status || 'draft');
     setDrawerOpen(true);
     
     // Fetch available venues
@@ -250,13 +266,10 @@ const PackageManagement = () => {
         
         // Auto-sync items
         if (placements.length > 0) {
-          const designItems = buildItemsFromPlacements(placements);
-          if (designItems.length > 0) {
-            setFormState((prev) => ({
-              ...prev,
-              items: designItems,
-            }));
-          }
+          setFormState((prev) => {
+            const designItems = buildItemsFromPlacements(placements, prev.items || []);
+            return designItems.length > 0 ? { ...prev, items: designItems } : prev;
+          });
         }
       } catch (err) {
         // Silently fail - design might not exist yet
@@ -314,6 +327,8 @@ const PackageManagement = () => {
     });
   };
 
+  // (alternatives UI removed from this form)
+
   const handleSyncFromDesign = async () => {
     if (!formState.id) {
       showMessage('Save the package before syncing services from the 3D designer', 'info');
@@ -323,7 +338,7 @@ const PackageManagement = () => {
     try {
       const data = await getPackageDesign(formState.id);
       const placements = data?.design?.placedElements || [];
-      const designItems = buildItemsFromPlacements(placements);
+      const designItems = buildItemsFromPlacements(placements, formState.items || []);
 
       if (designItems.length === 0) {
         showMessage('No services were detected in the template yet. Add elements in 3D first.', 'warning');
@@ -356,23 +371,26 @@ const PackageManagement = () => {
     description: formState.description || null,
     previewImage: formState.previewImage || null,
     notes: formState.notes || null,
-    status: formState.status || 'draft',
     venueServiceListingId: formState.venueServiceListingId || null,
     items: formState.items.map((item) => ({
       id: item.id || undefined,
       label: item.label.trim(),
       category: item.category,
-      serviceListingId: item.serviceListingId || null,
+      // If the linked listing is missing (no listingSummary) keep the ID in snapshot but don't send FK.
+      serviceListingId: item.listingSummary ? (item.serviceListingId || null) : null,
       isRequired: item.isRequired,
       minPrice: item.minPrice !== '' ? Number(item.minPrice) : null,
       maxPrice: item.maxPrice !== '' ? Number(item.maxPrice) : null,
     replacementTags: Array.isArray(item.replacementTags) ? item.replacementTags : [],
+      serviceListingSnapshot:
+        item.listingSummary ||
+        (item.serviceListingId ? { id: item.serviceListingId, name: item.label, category: item.category } : null),
     })),
   });
 
   const handleSavePackage = async (navigateToDesign = false) => {
-    if (isEditing && formState.status === 'published') {
-      showMessage('Unpublish this package before editing.', 'warning');
+    if (isEditing && (formState.status === 'published' || formState.status === 'archived')) {
+      showMessage('Unpublish/unarchive this package before editing.', 'warning');
       return;
     }
     if (!formState.packageName) {
@@ -392,6 +410,21 @@ const PackageManagement = () => {
       // Handle response that might be wrapped in data property or direct
       const packageData = response?.data || response;
       const savedPackageId = packageData?.id || formState.id;
+
+      // Persist status ONLY when the user clicks Save.
+      // We use the dedicated status endpoint so publish is still validated on the backend.
+      if (savedPackageId) {
+        const nextStatus = formState.status || 'draft';
+        const prevStatus = isEditing ? (originalStatus || 'draft') : 'draft';
+        if (nextStatus !== prevStatus) {
+          try {
+            await handleStatusChange(savedPackageId, nextStatus);
+            setOriginalStatus(nextStatus);
+          } catch {
+            // handleStatusChange already shows a toast
+          }
+        }
+      }
       showMessage(`Package ${isEditing ? 'updated' : 'created'} successfully`);
       
       if (navigateToDesign && savedPackageId) {
@@ -451,8 +484,8 @@ const PackageManagement = () => {
   };
 
   const handleTemplateClick = async (pkg) => {
-    if (pkg.status === 'published') {
-      showMessage('Unpublish the package before editing the 3D template.', 'warning');
+    if (pkg.status === 'published' || pkg.status === 'archived') {
+      showMessage('Unpublish/unarchive the package before editing the 3D template.', 'warning');
       return;
     }
     try {
@@ -772,6 +805,11 @@ const PackageManagement = () => {
                             color="primary"
                             variant="outlined"
                           />
+                          {pkg.designSummary?.missingPlacementCount > 0 && (
+                            <Tooltip title="Some 3D services in this package no longer have placements in the template (vendor may have removed the design element). Re-open the 3D designer or pick an alternative listing.">
+                              <ErrorOutline color="warning" fontSize="small" />
+                            </Tooltip>
+                          )}
                           {pkg.designSummary.updatedAt && (
                             <Typography variant="caption" color="text.secondary">
                               Updated {new Date(pkg.designSummary.updatedAt).toLocaleDateString()}
@@ -801,17 +839,7 @@ const PackageManagement = () => {
                     </TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          startIcon={<Verified />}
-                          disabled={activePackageId === pkg.id}
-                          onClick={() => handleValidate(pkg.id)}
-                          sx={pillButtonSx}
-                        >
-                          Validate
-                        </Button>
-                        {pkg.status !== 'published' ? (
+                        {pkg.status === 'draft' && (
                           <Button
                             size="small"
                             variant="contained"
@@ -822,7 +850,8 @@ const PackageManagement = () => {
                           >
                             Publish
                           </Button>
-                        ) : (
+                        )}
+                        {pkg.status === 'published' && (
                           <Button
                             size="small"
                             variant="outlined"
@@ -834,12 +863,21 @@ const PackageManagement = () => {
                             Unpublish
                           </Button>
                         )}
-                        <Tooltip title={pkg.status === 'published' ? 'Unpublish to edit' : 'Edit package details'}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<Verified />}
+                          disabled={activePackageId === pkg.id}
+                          onClick={() => handleValidate(pkg.id)}
+                          sx={pillButtonSx}
+                        >
+                          Validate
+                        </Button>
+                        <Tooltip title="Edit package details">
                           <span>
                             <IconButton
                               color="primary"
                               onClick={() => openEditDrawer(pkg)}
-                              disabled={pkg.status === 'published'}
                             >
                               <Edit fontSize="small" />
                             </IconButton>
@@ -891,7 +929,7 @@ const PackageManagement = () => {
         <DialogContent dividers sx={{ p: 2 }}>
           {isEditing && formState.status === 'published' && (
             <Alert severity="info" sx={{ mb: 2 }}>
-              This package is published and cannot be modified. Unpublish it from the table to make changes.
+              This package is published and cannot be modified. Use the Unpublish button in the table to change it back to Draft.
             </Alert>
           )}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
@@ -956,18 +994,23 @@ const PackageManagement = () => {
                   Status
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
-                  Set whether the package is active or inactive.
+                  Set whether the package is in draft or archived. Use the Publish button in the table to publish.
                 </Typography>
                 <Select
                   fullWidth
                   size="small"
-                  value={formState.status || 'draft'}
+                  value={formState.status === 'published' ? 'draft' : (formState.status || 'draft')}
                   onChange={(e) => setFormState((prev) => ({ ...prev, status: e.target.value }))}
+                  disabled={formState.status === 'published'}
                 >
                   <MenuItem value="draft">Draft</MenuItem>
-                  <MenuItem value="published">Published</MenuItem>
                   <MenuItem value="archived">Archived</MenuItem>
                 </Select>
+                {formState.status === 'published' && (
+                  <Typography variant="caption" color="info.main" display="block" mt={0.5}>
+                    This package is published. Use the Unpublish button in the table to change status.
+                  </Typography>
+                )}
               </Box>
 
               {/* Venue Selection */}
@@ -1277,16 +1320,41 @@ const PackageManagement = () => {
                             sx={{
                               p: 1.5,
                               borderRadius: 1,
-                              bgcolor: 'warning.light',
+                              bgcolor: '#FFFBEB', // amber-50
                               border: '1px solid',
-                              borderColor: 'warning.main',
+                              borderColor: '#F59E0B', // amber-500
                             }}
                           >
-                            <Typography variant="subtitle2" color="warning.dark">
+                            <Typography variant="subtitle2" sx={{ color: '#7C2D12' }}>
                               No service listing linked
                             </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              This item needs to be synced from the 3D designer or linked to a service listing.
+                            <Typography variant="body2" sx={{ color: '#7C2D12' }}>
+                              This item can’t be booked until it is linked to a vendor service listing.
+                            </Typography>
+                            {item.serviceListingId && (
+                              <Typography variant="caption" sx={{ color: '#7C2D12', display: 'block', mt: 0.5 }}>
+                                Missing listing ID: <span style={{ fontFamily: 'monospace' }}>{item.serviceListingId}</span>
+                              </Typography>
+                            )}
+                            <Box component="ul" sx={{ m: 0, mt: 0.75, pl: 2, color: '#7C2D12' }}>
+                              <li>
+                                <Typography variant="body2" sx={{ color: '#7C2D12' }}>
+                                  You added 3D elements but haven’t clicked <strong>Refresh from 3D</strong> yet.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="body2" sx={{ color: '#7C2D12' }}>
+                                  The vendor removed/disabled the original service listing.
+                                </Typography>
+                              </li>
+                              <li>
+                                <Typography variant="body2" sx={{ color: '#7C2D12' }}>
+                                  The template metadata is missing for this element (rare—re-sync from 3D usually fixes it).
+                                </Typography>
+                              </li>
+                            </Box>
+                            <Typography variant="body2" sx={{ color: '#7C2D12', mt: 1 }}>
+                              To replace this service, open the <strong>3D Space</strong> and use the catalog to pick an alternative (with 3D preview).
                             </Typography>
                           </Box>
                         )}
@@ -1358,6 +1426,8 @@ const PackageManagement = () => {
           </Tooltip>
         </DialogActions>
       </Dialog>
+
+      {/* Alternatives are handled in the package 3D designer (catalog + 3D preview). */}
 
 
       <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={closeSnackbar} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>

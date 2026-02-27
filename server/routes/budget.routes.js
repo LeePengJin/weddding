@@ -30,14 +30,12 @@ async function checkProjectCanBeModified(projectId, coupleId) {
     throw error;
   }
 
-  // Check if project is completed
   if (project.status === 'completed') {
     const error = new Error('Completed projects cannot be modified');
     error.statusCode = 403;
     throw error;
   }
 
-  // Check if wedding date has passed
   if (project.weddingDate) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -136,7 +134,6 @@ router.get('/project/:projectId', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Couple access required' });
     }
 
-    // Verify project belongs to couple
     const project = await prisma.weddingProject.findFirst({
       where: {
         id: req.params.projectId,
@@ -148,20 +145,16 @@ router.get('/project/:projectId', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // First, get the budget to ensure it exists and belongs to the project
     let budget = await prisma.budget.findUnique({
       where: { projectId: req.params.projectId },
     });
 
-    // If budget exists, verify it belongs to the correct project and fetch categories
     if (budget) {
-      // Double-check: ensure budget's projectId matches the requested projectId
       if (budget.projectId !== req.params.projectId) {
         console.error(`Budget data integrity error: Budget ${budget.id} has projectId ${budget.projectId} but was queried for projectId ${req.params.projectId}`);
         return res.status(500).json({ error: 'Data integrity error detected' });
       }
 
-      // Fetch categories explicitly filtered by budgetId to ensure data isolation
       const categories = await prisma.budgetCategory.findMany({
         where: { 
           budgetId: budget.id, // Explicitly filter by the budget's ID to ensure isolation
@@ -173,8 +166,7 @@ router.get('/project/:projectId', requireAuth, async (req, res, next) => {
         },
         orderBy: { createdAt: 'asc' },
       });
-      
-      // Verify all categories belong to this budget
+
       const invalidCategories = categories.filter(cat => cat.budgetId !== budget.id);
       if (invalidCategories.length > 0) {
         console.error(`Data integrity error: Found ${invalidCategories.length} categories that don't belong to budget ${budget.id}`);
@@ -185,7 +177,6 @@ router.get('/project/:projectId', requireAuth, async (req, res, next) => {
       }
     }
 
-    // Create budget if it doesn't exist
     if (!budget) {
       budget = await prisma.budget.create({
         data: {
@@ -236,12 +227,10 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Check if project can be modified (not completed and not past wedding date)
     await checkProjectCanBeModified(budget.projectId, req.user.sub);
 
     const data = updateBudgetSchema.parse(req.body);
@@ -249,10 +238,8 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
     
     if (data.totalBudget !== undefined) {
       updateData.totalBudget = data.totalBudget;
-      // Recalculate totals
       const totals = await calculateBudgetTotals(req.params.id);
       updateData.totalSpent = totals.totalSpent;
-      // Calculate totalRemaining using the NEW totalBudget value (not the old one from DB)
       const newTotalBudget = parseFloat(data.totalBudget);
       const currentPlannedSpend = parseFloat(budget.plannedSpend || 0);
       updateData.totalRemaining = newTotalBudget - totals.totalSpent - currentPlannedSpend;
@@ -309,12 +296,10 @@ router.post('/:budgetId/categories', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Check if project can be modified (not completed and not past wedding date)
     await checkProjectCanBeModified(budget.projectId, req.user.sub);
 
     const data = createCategorySchema.parse({ ...req.body, budgetId: req.params.budgetId });
@@ -365,12 +350,10 @@ router.patch('/:budgetId/categories/:categoryId', requireAuth, async (req, res, 
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Check if project can be modified (not completed and not past wedding date)
     await checkProjectCanBeModified(budget.projectId, req.user.sub);
 
     const category = await prisma.budgetCategory.findFirst({
@@ -435,7 +418,6 @@ router.delete('/:budgetId/categories/:categoryId', requireAuth, async (req, res,
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -456,7 +438,6 @@ router.delete('/:budgetId/categories/:categoryId', requireAuth, async (req, res,
       where: { id: req.params.categoryId },
     });
 
-    // Recalculate budget totals
     await calculateBudgetTotals(req.params.budgetId);
 
     res.json({ message: 'Category deleted successfully' });
@@ -491,12 +472,10 @@ router.post('/:budgetId/categories/:categoryId/expenses', requireAuth, async (re
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Check if project can be modified (not completed and not past wedding date)
     await checkProjectCanBeModified(budget.projectId, req.user.sub);
 
     const category = await prisma.budgetCategory.findFirst({
@@ -522,7 +501,6 @@ router.post('/:budgetId/categories/:categoryId/expenses', requireAuth, async (re
       },
     });
 
-    // Recalculate budget totals
     await calculateBudgetTotals(req.params.budgetId);
 
     res.status(201).json(expense);
@@ -561,12 +539,10 @@ router.patch('/:budgetId/categories/:categoryId/expenses/:expenseId', requireAut
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Check if project can be modified (not completed and not past wedding date)
     await checkProjectCanBeModified(budget.projectId, req.user.sub);
 
     const category = await prisma.budgetCategory.findFirst({
@@ -621,7 +597,6 @@ router.patch('/:budgetId/categories/:categoryId/expenses/:expenseId', requireAut
       data: updateData,
     });
 
-    // Recalculate budget totals
     await calculateBudgetTotals(req.params.budgetId);
 
     res.json(updatedExpense);
@@ -660,12 +635,10 @@ router.delete('/:budgetId/categories/:categoryId/expenses/:expenseId', requireAu
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Check if project can be modified (not completed and not past wedding date)
     await checkProjectCanBeModified(budget.projectId, req.user.sub);
 
     const category = await prisma.budgetCategory.findFirst({
@@ -728,7 +701,6 @@ router.delete('/:budgetId/categories/:categoryId/expenses/:expenseId', requireAu
       where: { id: req.params.expenseId },
     });
 
-    // Recalculate budget totals
     await calculateBudgetTotals(req.params.budgetId);
 
     res.json({ message: 'Expense deleted successfully' });
@@ -763,7 +735,6 @@ router.patch('/:budgetId/planned-spend', requireAuth, async (req, res, next) => 
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -815,7 +786,6 @@ router.post('/:budgetId/move-from-3d', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -1075,7 +1045,6 @@ router.get('/:budgetId/expenses/:expenseId/payments', requireAuth, async (req, r
       return res.status(404).json({ error: 'Budget not found' });
     }
 
-    // Verify budget belongs to couple's project
     if (budget.project.coupleId !== req.user.sub) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -1114,9 +1083,9 @@ router.get('/:budgetId/expenses/:expenseId/payments', requireAuth, async (req, r
       // Map payment fields to match frontend expectations
       const payments = expense.booking.payments.map((p) => ({
         id: p.id,
-        type: p.paymentType, // Map paymentType to type for frontend
+        type: p.paymentType,
         amount: p.amount,
-        createdAt: p.paymentDate, // Map paymentDate to createdAt for frontend
+        createdAt: p.paymentDate,
         paymentMethod: p.paymentMethod,
         receipt: p.receipt,
       }));

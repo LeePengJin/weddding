@@ -75,7 +75,6 @@ async function checkServiceAvailability(serviceListingId, date) {
     };
   }
 
-  // Check vendor-level time off
   const vendorTimeOff = serviceListing.vendor.timeSlots.length > 0;
   if (vendorTimeOff) {
     return {
@@ -91,7 +90,6 @@ async function checkServiceAvailability(serviceListingId, date) {
 
   // Check service-level availability based on type
   if (availabilityType === 'exclusive') {
-    // Check if there's an existing booking for this service on this date
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
@@ -104,7 +102,6 @@ async function checkServiceAvailability(serviceListingId, date) {
           lte: endOfDay,
         },
         status: {
-          // Treat any non-cancelled, non-rejected booking as blocking this date
           notIn: ['cancelled_by_couple', 'cancelled_by_vendor', 'rejected'],
         },
         selectedServices: {
@@ -131,7 +128,6 @@ async function checkServiceAvailability(serviceListingId, date) {
       availabilityType,
     };
   } else if (availabilityType === 'reusable') {
-    // Reusable services are always available (unless vendor time off)
     return {
       available: true,
       serviceListingId,
@@ -222,7 +218,6 @@ router.post('/batch-check', async (req, res, next) => {
 
     const results = {};
 
-    // Check each service listing in parallel
     const checks = serviceListingIds.map((serviceListingId) =>
       checkServiceAvailability(serviceListingId, date)
         .then((result) => ({ serviceListingId, result }))

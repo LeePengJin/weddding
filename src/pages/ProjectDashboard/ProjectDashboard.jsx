@@ -278,8 +278,8 @@ const ProjectDashboard = () => {
 
         // Only allow venue replacement when the VENUE VENDOR cancels the venue booking
         const cancelledVenueBookingByVendor = project.bookings?.find(
-          booking =>
-            booking.vendor?.category === 'Venue' &&
+          booking => 
+            booking.vendor?.category === 'Venue' && 
             booking.status === 'cancelled_by_vendor' &&
             booking.selectedServices?.some((ss) => ss.serviceListingId === project.venueServiceListingId)
         );
@@ -335,6 +335,36 @@ const ProjectDashboard = () => {
         });
         const uniqueVendors = Array.from(vendorsById.values());
 
+        // Calculate total outstanding from bookings with pending payment status
+        let totalOutstanding = 0;
+        let totalPaid = 0;
+        
+        (project.bookings || []).forEach((booking) => {
+          // Calculate total amount for this booking
+          const bookingTotal = (booking.selectedServices || []).reduce(
+            (sum, service) => sum + parseFloat(service.totalPrice || 0),
+            0
+          );
+          
+          // Calculate paid amount for this booking
+          const bookingPaid = (booking.payments || []).reduce(
+            (sum, payment) => sum + parseFloat(payment.amount || 0),
+            0
+          );
+          
+          totalPaid += bookingPaid;
+          
+          // Add to outstanding based on booking status
+          if (booking.status === 'pending_deposit_payment') {
+            // 30% deposit is due
+            totalOutstanding += bookingTotal * 0.3;
+          } else if (booking.status === 'pending_final_payment') {
+            // Remaining amount after deposit is due (70% or total - paid)
+            const remaining = bookingTotal - bookingPaid;
+            totalOutstanding += Math.max(0, remaining);
+          }
+        });
+
         const transformedData = {
           id: project.id,
           projectName: project.projectName || "Our Dream Wedding",
@@ -365,8 +395,8 @@ const ProjectDashboard = () => {
           },
           payments: {
             totalBudget: project.budget?.totalBudget || 0,
-            totalPaid: project.budget?.totalPaid || 0,
-            totalOutstanding: (project.budget?.totalBudget || 0) - (project.budget?.totalPaid || 0),
+            totalPaid,
+            totalOutstanding,
             recentPayments: [],
             upcomingPayments: [],
           },
@@ -539,9 +569,9 @@ const ProjectDashboard = () => {
                       : 'Reason: Your venue booking was cancelled by the venue vendor.'}
                   </Typography>
                   {projectData?.hasDependentBookingsOnCancelledVenue && (
-                    <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
+                  <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
                       You have a 2-week grace period{gracePeriodEndDate ? ` (until ${gracePeriodEndDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })})` : ''} to select a replacement venue. If no replacement is selected, dependent service bookings will be automatically cancelled.
-                    </Typography>
+                  </Typography>
                   )}
                 </Box>
                 <Button

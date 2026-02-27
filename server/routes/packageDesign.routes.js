@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { requireAdmin } = require('../middleware/auth');
 const { prefixedUlid } = require('../utils/id');
-const { buildDefaultLayoutData, ensurePackageDesign } = require('../services/package.service');
+const { buildDefaultLayoutData, ensurePackageDesign, validatePackageHealth } = require('../services/package.service');
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -65,6 +65,35 @@ const SET_VENUE_SCHEMA = z.object({
 const CATALOG_QUERY_SCHEMA = z.object({
   search: z.string().trim().optional(),
   category: z.string().trim().optional(),
+  minPrice: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((val) => {
+      if (val === undefined) return undefined;
+      const num = Number(val);
+      return Number.isFinite(num) ? num : undefined;
+    }),
+  maxPrice: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((val) => {
+      if (val === undefined) return undefined;
+      const num = Number(val);
+      return Number.isFinite(num) ? num : undefined;
+    }),
+  tags: z
+    .string()
+    .optional()
+    .transform((val) =>
+      val
+        ? val
+            .split(',')
+            .map((t) => t.trim())
+            .filter(Boolean)
+            .slice(0, 8)
+        : []
+    ),
+  excludeListingId: z.string().uuid().optional(),
   has3DModel: z
     .union([z.string(), z.boolean()])
     .optional()
@@ -113,12 +142,6 @@ const PLACEMENT_INCLUDE = {
     },
   },
   position: true,
-  // parentElement: {  // TEMPORARILY COMMENTED OUT - schema doesn't have parentElementId yet
-  //   select: {
-  //     id: true,
-  //     position: true,
-  //   },
-  // },
 };
 
 const serializeServiceListing = (listing) => {
@@ -128,6 +151,8 @@ const serializeServiceListing = (listing) => {
     name: listing.name,
     category: listing.category,
     price: listing.price ? listing.price.toString() : null,
+    isActive: listing.isActive,
+    vendorStatus: listing.vendor?.user?.status ?? null,
     vendor: listing.vendor
       ? {
           id: listing.vendor.userId,
@@ -257,6 +282,8 @@ async function fetchPackage(packageId) {
       packageName: true,
       status: true,
       previewImage: true,
+      invalidListingIds: true,
+      lastValidatedAt: true,
     },
   });
 }
@@ -274,7 +301,6 @@ const ensurePackageEditable = (pkg, res) => {
 // IMPORTANT: This route must come BEFORE /:packageId to avoid route conflicts
 router.get('/venues', requireAdmin, async (req, res, next) => {
   try {
-    // First, get all active venues (like couple endpoint does)
     const allVenues = await prisma.serviceListing.findMany({
       where: {
         category: 'Venue',
@@ -302,13 +328,10 @@ router.get('/venues', requireAdmin, async (req, res, next) => {
       orderBy: { name: 'asc' },
     });
 
-    // Filter to only venues with 3D models and active vendors
     const venues = allVenues.filter((venue) => {
-      // Check vendor status
       if (venue.vendor?.user?.status !== 'active') {
         return false;
       }
-      // Check if venue has 3D model (either has3DModel flag OR designElement with modelFile)
       const hasModelFile = venue.designElement?.modelFile && venue.designElement.modelFile.trim() !== '';
       return venue.has3DModel || hasModelFile;
     });
@@ -338,6 +361,8 @@ router.get('/venues', requireAdmin, async (req, res, next) => {
 
 router.get('/:packageId', requireAdmin, async (req, res, next) => {
   try {
+    await validatePackageHealth(prisma, req.params.packageId);
+
     const pkg = await fetchPackage(req.params.packageId);
     if (!pkg) {
       return res.status(404).json({ error: 'Package not found' });
@@ -347,7 +372,6 @@ router.get('/:packageId', requireAdmin, async (req, res, next) => {
     const layoutData = design.layoutData || buildDefaultLayoutData();
     const placementsMeta = layoutData.placementsMeta || {};
 
-    // Fetch venue info if venueServiceListingId exists
     let venueInfo = null;
     if (design.venueServiceListingId) {
       const venueListing = await prisma.serviceListing.findUnique({
@@ -403,6 +427,7 @@ router.get('/:packageId', requireAdmin, async (req, res, next) => {
                 select: {
                   name: true,
                   email: true,
+                  status: true,
                 },
               },
             },
@@ -420,11 +445,41 @@ router.get('/:packageId', requireAdmin, async (req, res, next) => {
       serializePlacement(placement, placementsMeta[placement.id], serviceMap)
     );
 
+    // Fetch package item constraints so the designer can auto-filter replacement options
+    const packageItems = await prisma.weddingPackageItem.findMany({
+      where: { packageId: pkg.id },
+      select: {
+        id: true,
+        serviceListingId: true,
+        category: true,
+        minPrice: true,
+        maxPrice: true,
+        replacementTags: true,
+        serviceListingSnapshot: true,
+      },
+    });
+
+    const itemConstraintsByServiceListingId = packageItems.reduce((acc, item) => {
+      const snapshotId = item.serviceListingSnapshot?.id;
+      const key = item.serviceListingId || snapshotId || null;
+      if (!key) return acc;
+      acc[key] = {
+        category: item.category,
+        minPrice: item.minPrice ? item.minPrice.toString() : null,
+        maxPrice: item.maxPrice ? item.maxPrice.toString() : null,
+        replacementTags: Array.isArray(item.replacementTags) ? item.replacementTags : [],
+      };
+      return acc;
+    }, {});
+
     return res.json({
       package: {
         id: pkg.id,
         name: pkg.packageName,
         status: pkg.status,
+        invalidListingIds: pkg.invalidListingIds || [],
+        lastValidatedAt: pkg.lastValidatedAt || null,
+        itemConstraintsByServiceListingId,
       },
       venue: venueInfo,
       design: {
@@ -637,11 +692,9 @@ router.post('/:packageId/elements/:elementId/duplicate', requireAdmin, async (re
     const placementsMeta = { ...(layoutData.placementsMeta || {}) };
     const originalMeta = placementsMeta[originalPlacement.id] || {};
 
-    // Check if this is part of a bundle - if so, duplicate the entire bundle
     const bundleId = originalMeta.bundleId;
     let bundlePlacements = [];
     if (bundleId) {
-      // Find all placements in the same bundle
       const allPlacements = await prisma.packagePlacedElement.findMany({
         where: { packageDesignId: design.id },
         include: { position: true, designElement: true },
@@ -652,16 +705,13 @@ router.post('/:packageId/elements/:elementId/duplicate', requireAdmin, async (re
         return meta.bundleId === bundleId;
       });
     } else {
-      // Single element, not part of a bundle
       bundlePlacements = [originalPlacement];
     }
 
-    // Calculate offset position for the bundle
     const referencePlacement = bundlePlacements[0];
     const COLLISION_RADIUS_DEFAULT = 0.4;
     const CLEARANCE = 0.1;
-    
-    // Calculate bundle bounding box to determine offset distance
+
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     bundlePlacements.forEach((p) => {
       if (p.position) {
@@ -675,7 +725,6 @@ router.post('/:packageId/elements/:elementId/duplicate', requireAdmin, async (re
     const bundleDepth = Math.max(maxZ - minZ, 0.5);
     const offsetDistance = Math.max(bundleWidth, bundleDepth) + CLEARANCE;
 
-    // Get existing placements to find non-overlapping position
     const existingPlacements = await prisma.packagePlacedElement.findMany({
       where: { packageDesignId: design.id },
       include: { position: true, designElement: true },
@@ -685,19 +734,16 @@ router.post('/:packageId/elements/:elementId/duplicate', requireAdmin, async (re
       let testPos = { ...desiredPos };
       let attempts = 0;
       const maxAttempts = 50;
-      const angleStep = Math.PI / 4; // 45 degrees
+      const angleStep = Math.PI / 4; 
 
       while (attempts < maxAttempts) {
         let hasCollision = false;
 
-        // Check if the bundle at this position would collide with any existing placement
         for (const existing of existingPlacements) {
           if (!existing.position) continue;
-          // Skip placements that are part of the original bundle we're duplicating
           const existingMeta = placementsMeta[existing.id] || {};
           if (existingMeta.bundleId === bundleId) continue;
 
-          // Check if bundle bounds overlap with existing placement
           const bundleMinX = testPos.x - bundleWidth / 2;
           const bundleMaxX = testPos.x + bundleWidth / 2;
           const bundleMinZ = testPos.z - bundleDepth / 2;
@@ -786,7 +832,6 @@ router.post('/:packageId/elements/:elementId/duplicate', requireAdmin, async (re
             positionId: newPositionRecord.id,
             rotation: originalPlacement.rotation || 0,
             isLocked: false,
-            // parentElementId: originalPlacement.parentElementId || null, // TEMPORARILY COMMENTED OUT - schema doesn't have this field yet
             metadata: originalPlacement.metadata || null,
           },
         });
@@ -840,6 +885,7 @@ router.post('/:packageId/elements/:elementId/duplicate', requireAdmin, async (re
                 select: {
                   name: true,
                   email: true,
+                    status: true,
                 },
               },
             },
@@ -1347,23 +1393,50 @@ router.get('/:packageId/catalog', requireAdmin, async (req, res, next) => {
       where.category = query.category;
     }
 
+    const and = [];
+
+    if (query.excludeListingId) {
+      where.id = { not: query.excludeListingId };
+    }
+
+    if (query.minPrice !== undefined || query.maxPrice !== undefined) {
+      where.price = {};
+      if (query.minPrice !== undefined) where.price.gte = query.minPrice;
+      if (query.maxPrice !== undefined) where.price.lte = query.maxPrice;
+    }
+
     if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
-        { vendor: { user: { name: { contains: query.search, mode: 'insensitive' } } } },
-        { customCategory: { contains: query.search, mode: 'insensitive' } },
-      ];
+      and.push({
+        OR: [
+          { name: { contains: query.search, mode: 'insensitive' } },
+          { description: { contains: query.search, mode: 'insensitive' } },
+          { vendor: { user: { name: { contains: query.search, mode: 'insensitive' } } } },
+          { customCategory: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (query.tags && query.tags.length) {
+      and.push({
+        OR: query.tags.flatMap((tag) => [
+          { name: { contains: tag, mode: 'insensitive' } },
+          { description: { contains: tag, mode: 'insensitive' } },
+          { customCategory: { contains: tag, mode: 'insensitive' } },
+        ]),
+      });
     }
 
     // Package designer only shows services with 3D models (pure visual templates).
     // Don't rely only on has3DModel flag (it can be stale for older records); also check actual model files.
-    where.OR = [
-      ...(where.OR || []),
-      { has3DModel: true },
-      { designElement: { is: { modelFile: { not: '' } } } },
-      { components: { some: { designElement: { is: { modelFile: { not: '' } } } } } },
-    ];
+    and.push({
+      OR: [
+        { has3DModel: true },
+        { designElement: { is: { modelFile: { not: '' } } } },
+        { components: { some: { designElement: { is: { modelFile: { not: '' } } } } } },
+      ],
+    });
+
+    where.AND = and;
 
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;

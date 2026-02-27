@@ -214,7 +214,6 @@ router.post('/', requireAuth, async (req, res, next) => {
 
     const data = createTaskSchema.parse(req.body);
 
-    // Verify project belongs to couple
     const project = await prisma.weddingProject.findFirst({
       where: {
         id: data.projectId,

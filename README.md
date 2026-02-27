@@ -1,70 +1,152 @@
-# Getting Started with Create React App
+# Wedding Planning Platform
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A comprehensive full-stack wedding planning application that connects couples with wedding vendors, featuring 3D venue design, budget tracking, booking management, and vendor reviews.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+### For Couples
+- **3D Venue Design**: Interactive 3D venue planning with drag-and-drop elements
+- **Budget Management**: Track expenses, manage categories, and monitor spending
+- **Vendor Discovery**: Browse and compare wedding vendors by category
+- **Booking System**: Reserve services with secure payment processing
+- **Review System**: Rate and review vendors after completed services
 
-### `npm start`
+### For Vendors
+- **Service Listings**: Create detailed service offerings with pricing models
+- **3D Design Elements**: Upload and manage 3D models for venue design
+- **Booking Management**: Handle reservations and payment processing
+- **Availability Management**: Set time slots and manage capacity
+- **Review Management**: Respond to customer feedback
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### For Administrators
+- **User Management**: Manage couples, vendors, and system users
+- **Analytics Dashboard**: Monitor platform usage and revenue
+- **Payment Oversight**: Track transactions and manage payouts
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Tech Stack
 
-### `npm test`
+### Frontend
+- **React** - UI framework with hooks and context
+- **React Router** - Client-side routing
+- **CSS Modules** - Component-scoped styling
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### Backend
+- **Node.js** - Runtime environment
+- **Express.js** - Web framework
+- **Prisma** - ORM and database toolkit
+- **PostgreSQL** - Primary database
+- **JWT** - Authentication tokens
+- **bcrypt** - Password hashing
 
-### `npm run build`
+### Additional Tools
+- **Multer** - File upload handling
+- **Nodemailer** - Email notifications
+- **Zod** - Schema validation
+- **WebSocket** - Real-time messaging
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Getting Started
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### Prerequisites
+- Node.js (v16 or higher)
+- PostgreSQL database
+- npm or yarn package manager
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### Installation
 
-### `npm run eject`
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd wedding-platform
+   ```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+2. **Install dependencies**
+   ```bash
+   # Install frontend dependencies
+   npm install
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+   # Install backend dependencies
+   cd server
+   npm install
+   cd ..
+   ```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+3. **Environment Setup**
+   ```bash
+   # Copy environment template
+   cp server/.env.example server/.env
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+   # Edit server/.env with your configuration
+   # Required: DATABASE_URL, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD
+   ```
 
-## Learn More
+4. **Database Setup**
+   ```bash
+   cd server
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+   # Generate Prisma client
+   npx prisma generate
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+   # Run database migrations
+   npx prisma migrate dev
 
-### Code Splitting
+   # Seed the database with test data
+   npx prisma db seed
+   ```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+### Development
 
-### Analyzing the Bundle Size
+1. **Start the backend server**
+   ```bash
+   cd server
+   npm run dev
+   ```
+   Server runs on `http://localhost:4000`
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+2. **Start the frontend (in a new terminal)**
+   ```bash
+   npm start
+   ```
+   Frontend runs on `http://localhost:3000`
 
-### Making a Progressive Web App
+## Project Structure
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+```
+wedding-platform/
+├── public/                 # Static assets
+│   ├── images/            # Image assets
+│   └── favicon files
+├── src/                   # React frontend
+│   ├── components/        # Reusable UI components
+│   ├── pages/            # Page components
+│   ├── services/         # API service functions
+│   ├── utils/            # Utility functions
+│   └── App.js            # Main app component
+├── server/                # Node.js backend
+│   ├── middleware/        # Express middleware
+│   ├── routes/           # API route handlers
+│   ├── services/         # Business logic services
+│   ├── utils/            # Server utilities
+│   ├── prisma/           # Database schema and migrations
+│   └── app.js            # Express app setup
+├── assets/               # (Should be removed - IDE cache)
+├── scripts/              # (Should be removed - test data scripts)
+└── README.md             # This file
+```
 
-### Advanced Configuration
+## Test Accounts
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+All test accounts use password: **`password123`**
 
-### Deployment
+### Couples
+- `couple1@example.com` - Has wedding project and bookings
+- `couple2@example.com` - Basic couple account
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+### Vendors
+- `venue@example.com` - Venue services
+- `photographer@example.com` - Photography services
+- `caterer@example.com` - Catering services
+- `florist@example.com` - Floral services
+- `dj@example.com` - DJ/music services
 
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+### Admin
+- Configured via `.env` file (`ADMIN_EMAIL`, `ADMIN_PASSWORD`)

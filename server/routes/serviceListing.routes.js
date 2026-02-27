@@ -74,7 +74,6 @@ const serviceImageUpload = multer({
 });
 
 // Validation schema for service listing
-// Allow common special characters: &, (, ), [, ], /, \, :, ;, !, ?, @, #, $, %, *, +, =, |, ~, `, ^, {, }
 const SAFE_TEXT = /^[A-Za-z0-9 .,'\-&()[\]/\\:;!?@#$%*+=|~`^{}]+$/;
 const serviceListingSchema = z
   .object({
@@ -146,11 +145,9 @@ const serviceListingSchema = z
   })
   .refine(
     (data) => {
-      // If category is "Other", customCategory is required
       if (data.category === 'Other') {
         return data.customCategory && data.customCategory.trim().length >= 2;
       }
-      // If category is not "Other", customCategory should be null/empty
       return !data.customCategory || data.customCategory.trim().length === 0;
     },
     {
@@ -285,7 +282,6 @@ router.get('/:id', requireAuth, async (req, res, next) => {
       return res.status(404).json({ error: 'Service listing not found' });
     }
 
-    // Convert image URLs to full backend URLs
     const listingWithFullUrls = {
       ...listing,
       images: listing.images.map((img) => {
@@ -359,7 +355,6 @@ router.post('/', requireAuth, async (req, res, next) => {
         })),
       });
 
-      // Compute and update has3DModel based on components
       const has3D = await computeHas3DModel(listing.id);
       await prisma.serviceListing.update({
         where: { id: listing.id },
@@ -385,7 +380,6 @@ router.post('/', requireAuth, async (req, res, next) => {
       });
     }
 
-    // Compute and update has3DModel if designElementId was provided
     if (listingData.designElementId) {
       const has3D = await computeHas3DModel(listing.id);
       await prisma.serviceListing.update({
@@ -422,7 +416,6 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    // Check if listing exists and belongs to vendor
     const existingListing = await prisma.serviceListing.findFirst({
       where: {
         id: req.params.id,
@@ -669,8 +662,7 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
         });
       }
 
-      // Compute and update has3DModel based on components
-      const has3D = await computeHas3DModel(req.params.id);
+    const has3D = await computeHas3DModel(req.params.id);
       await prisma.serviceListing.update({
         where: { id: req.params.id },
         data: { has3DModel: has3D },
@@ -695,7 +687,6 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       });
     }
 
-    // Compute and update has3DModel if designElementId was changed
     if (updateData.designElementId !== undefined) {
       const has3D = await computeHas3DModel(req.params.id);
       const finalListing = await prisma.serviceListing.update({
@@ -737,7 +728,6 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    // Check if listing exists and belongs to vendor
     const existingListing = await prisma.serviceListing.findFirst({
       where: {
         id: req.params.id,
@@ -778,7 +768,6 @@ router.post('/:id/images', requireAuth, serviceImageUpload.array('images', 10), 
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    // Check if listing exists and belongs to vendor
     const existingListing = await prisma.serviceListing.findFirst({
       where: {
         id: req.params.id,
@@ -852,7 +841,6 @@ router.delete('/:id/images/:imageIndex', requireAuth, async (req, res, next) => 
       return res.status(400).json({ error: 'Invalid image index' });
     }
 
-    // Check if listing exists and belongs to vendor
     const existingListing = await prisma.serviceListing.findFirst({
       where: {
         id: req.params.id,
@@ -920,7 +908,6 @@ router.post('/:id/model3d', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    // Check if listing exists and belongs to vendor
     const existingListing = await prisma.serviceListing.findFirst({
       where: {
         id: req.params.id,
@@ -1030,7 +1017,6 @@ router.post('/:id/model3d/bundle', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    // Check if listing exists and belongs to vendor
     const existingListing = await prisma.serviceListing.findFirst({
       where: {
         id: req.params.id,
@@ -1138,7 +1124,6 @@ router.delete('/:id/model3d', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Vendor access required' });
     }
 
-    // Check if listing exists and belongs to vendor
     const existingListing = await prisma.serviceListing.findFirst({
       where: {
         id: req.params.id,

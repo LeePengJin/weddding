@@ -24,8 +24,6 @@ function calculatePrice(serviceListing, context = {}) {
 
   const { pricingPolicy, price, hourlyRate } = serviceListing;
 
-  // Convert price to Decimal if it's not already
-  // Prisma Decimal can be a Decimal object, string, or number
   let basePrice;
   if (price instanceof Decimal) {
     basePrice = price;
@@ -59,7 +57,6 @@ function calculatePrice(serviceListing, context = {}) {
     }
 
     case 'fixed_package': {
-      // Fixed price regardless of quantity
       return basePrice;
     }
 

@@ -32,14 +32,12 @@ async function checkProjectCanBeModified(projectId, coupleId) {
     throw error;
   }
 
-  // Check if project is completed
   if (project.status === 'completed') {
     const error = new Error('Completed projects cannot be modified');
     error.statusCode = 403;
     throw error;
   }
 
-  // Check if wedding date has passed (should be caught by status check, but double-check)
   if (project.weddingDate) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -87,14 +85,12 @@ const createProjectSchema = z.object({
   basePackageId: z.string().uuid().optional().nullable(),
   totalBudget: z.number().min(0).optional().nullable(),
 }).refine((data) => {
-  // If eventStartTime is provided, eventEndTime must also be provided
   if (data.eventStartTime && !data.eventEndTime) {
     return false;
   }
   if (data.eventEndTime && !data.eventStartTime) {
     return false;
   }
-  // If both are provided, end time must be after start time
   if (data.eventStartTime && data.eventEndTime) {
     const start = new Date(data.eventStartTime);
     const end = new Date(data.eventEndTime);
@@ -116,14 +112,12 @@ const updateProjectSchema = z.object({
   basePackageId: z.string().uuid().optional().nullable(),
   status: z.enum(['draft', 'ready_to_book', 'booked', 'completed']).optional(),
 }).refine((data) => {
-  // If eventStartTime is provided, eventEndTime must also be provided
   if (data.eventStartTime !== undefined && data.eventEndTime === undefined) {
     return false;
   }
   if (data.eventEndTime !== undefined && data.eventStartTime === undefined) {
     return false;
   }
-  // If both are provided, end time must be after start time
   if (data.eventStartTime && data.eventEndTime) {
     const start = new Date(data.eventStartTime);
     const end = new Date(data.eventEndTime);
@@ -147,7 +141,7 @@ router.get('/', requireAuth, async (req, res, next) => {
     }
 
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Set to start of day for comparison
+    today.setHours(0, 0, 0, 0);
 
     // Auto-update projects past their wedding date to 'completed' status
     await prisma.weddingProject.updateMany({
@@ -306,7 +300,6 @@ router.post('/', requireAuth, async (req, res, next) => {
       return res.status(409).json({ error: 'Project name already exists' });
     }
 
-    // If venue is provided, verify it exists and is a venue service
     if (data.venueServiceListingId) {
       const venueService = await prisma.serviceListing.findFirst({
         where: {
@@ -417,7 +410,7 @@ router.post('/', requireAuth, async (req, res, next) => {
           where: {
             categoryId: venueCategory.id,
             serviceListingId: project.venueServiceListingId,
-            from3DDesign: false, // Venue is not from 3D design
+            from3DDesign: false, 
           },
         });
 
@@ -427,11 +420,11 @@ router.post('/', requireAuth, async (req, res, next) => {
               categoryId: venueCategory.id,
               expenseName: project.venueServiceListing.name || 'Venue',
               estimatedCost: venuePrice,
-              actualCost: null, // Will be updated when venue is booked and payments are made
+              actualCost: null, 
               serviceListingId: project.venueServiceListingId,
-              from3DDesign: false, // Venue is not from 3D design
-              placedElementId: null, // Venue doesn't have a placement
-              bookingId: null, // Will be linked when venue is booked
+              from3DDesign: false, 
+              placedElementId: null,
+              bookingId: null, 
             },
           });
         }
@@ -495,7 +488,6 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
 
     const data = updateProjectSchema.parse(req.body);
 
-    // If updating project name, check uniqueness
     if (data.projectName && data.projectName !== existingProject.projectName) {
       const nameConflict = await prisma.weddingProject.findUnique({
         where: {
@@ -582,7 +574,6 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       }
     }
 
-    // If base package is provided, ensure it is available
     if (data.basePackageId !== undefined && data.basePackageId) {
       const basePackage = await prisma.weddingPackage.findFirst({
         where: {
@@ -914,7 +905,6 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
       return res.status(403).json({ error: 'Couple access required' });
     }
 
-    // Check if project exists and belongs to couple
     const project = await prisma.weddingProject.findFirst({
       where: {
         id: req.params.id,

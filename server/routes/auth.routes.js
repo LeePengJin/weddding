@@ -15,14 +15,12 @@ const router = express.Router();
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-secret';
 
-// Setup multer for profile image uploads
 const profileUploadDir = path.join(__dirname, '..', 'uploads', 'profile');
 fs.mkdirSync(profileUploadDir, { recursive: true });
 
 const profileStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, profileUploadDir),
   filename: (req, file, cb) => {
-    // Use user ID as filename to ensure one profile pic per user
     const ext = path.extname(file.originalname) || '.jpg';
     cb(null, `${req.user.sub}${ext}`);
   },
@@ -41,7 +39,6 @@ const profileUpload = multer({
   },
 });
 
-// Legacy register endpoint (can be removed later)
 router.post('/register', async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
@@ -298,7 +295,6 @@ router.post('/otp/resend', async (req, res, next) => {
       },
     });
 
-    // Get user name for greeting
     const user = await prisma.user.findUnique({ where: { email } });
     const userName = user?.name || email.split('@')[0];
 
@@ -551,8 +547,7 @@ router.patch('/profile', requireAuth, async (req, res, next) => {
     const schema = z.object({
       name: z.string().min(2).max(100).optional(),
       contactNumber: z.string().max(20).optional(),
-      profilePicture: z.string().optional(), // Can be relative path or full URL
-      // Vendor-specific fields
+      profilePicture: z.string().optional(), 
       category: z.enum(['Photographer','Videographer','Venue','Caterer','Florist','DJ_Music','Other']).optional(),
       location: z.string().min(2).max(120).optional(),
       description: z.string().max(2000).optional(),

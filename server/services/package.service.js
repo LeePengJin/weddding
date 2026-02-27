@@ -99,15 +99,33 @@ const buildPackageResponse = (pkg) => {
   );
 
   const designSummary = pkg.design
-    ? {
+    ? (() => {
+        const placed = pkg.design.placedElements || [];
+        const designServiceIds = new Set(placed.map((p) => p?.serviceListingId).filter(Boolean));
+        const missingPlacementServiceListingIds = [];
+
+        items.forEach((item) => {
+          const listingId = item.serviceListingId || item.serviceListingSnapshot?.id || null;
+          const expects3D = Boolean(item.serviceListing?.has3DModel ?? item.serviceListingSnapshot?.has3DModel);
+          if (expects3D && listingId && !designServiceIds.has(listingId)) {
+            missingPlacementServiceListingIds.push(listingId);
+          }
+        });
+
+        return {
         id: pkg.design.id,
         elementCount: pkg.design.placedElements?.length || 0,
         updatedAt: pkg.design.updatedAt,
-      }
+          missingPlacementCount: missingPlacementServiceListingIds.length,
+          missingPlacementServiceListingIds,
+        };
+      })()
     : {
         id: null,
         elementCount: 0,
         updatedAt: null,
+        missingPlacementCount: 0,
+        missingPlacementServiceListingIds: [],
       };
 
   return {
@@ -160,8 +178,13 @@ const validatePackageHealth = async (prisma, packageId) => {
 
   for (const item of pkg.items) {
     let status = WeddingPackageItemStatus.ok;
+    const snapshot = item.serviceListing
+      ? buildListingSnapshotFromEntity(item.serviceListing)
+      : item.serviceListingSnapshot;
+    const snapshotListingId = snapshot?.id || null;
+    const listingKey = item.serviceListingId || snapshotListingId || null;
 
-    if (item.serviceListingId && !item.serviceListing) {
+    if (!item.serviceListing && listingKey) {
       status = WeddingPackageItemStatus.missing_listing;
     } else if (item.serviceListing) {
       if (!item.serviceListing.isActive) {
@@ -174,19 +197,15 @@ const validatePackageHealth = async (prisma, packageId) => {
       }
     }
 
-    if (status !== WeddingPackageItemStatus.ok && item.serviceListingId) {
-      invalidListingIds.add(item.serviceListingId);
+    if (status !== WeddingPackageItemStatus.ok && listingKey) {
+      invalidListingIds.add(listingKey);
       issues.push({
         itemId: item.id,
         label: item.label,
         status,
-        serviceListingId: item.serviceListingId,
+        serviceListingId: listingKey,
       });
     }
-
-    const snapshot = item.serviceListing
-      ? buildListingSnapshotFromEntity(item.serviceListing)
-      : item.serviceListingSnapshot;
 
     if (item.healthStatus !== status || snapshot !== item.serviceListingSnapshot) {
       updateOps.push(
